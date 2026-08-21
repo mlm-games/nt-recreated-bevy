@@ -20,13 +20,55 @@ impl Toast {
     }
 }
 
-pub fn spawn_pickup(commands: &mut Commands, kind: PickupKind, pos: Vec2) {
-    let (color, size) = match kind {
-        PickupKind::Rad(_) => (Color::srgb(0.25, 1.0, 0.2), 9.0),
-        PickupKind::Medkit(_) => (Color::srgb(1.0, 0.15, 0.15), 14.0),
-        PickupKind::Ammo(_, _) => (Color::srgb(0.25, 0.65, 1.0), 13.0),
-        PickupKind::Weapon(k) => (weapon_color(k), 18.0),
-        PickupKind::Chest => (Color::srgb(0.85, 0.6, 0.2), 30.0),
+pub fn spawn_pickup(
+    commands: &mut Commands,
+    kind: PickupKind,
+    pos: Vec2,
+) {
+    spawn_pickup_with_assets(commands, None, kind, pos);
+}
+
+pub fn spawn_pickup_with_assets(
+    commands: &mut Commands,
+    asset_server: Option<&AssetServer>,
+    kind: PickupKind,
+    pos: Vec2,
+) {
+    let (path, fallback, size) = match kind {
+        PickupKind::Rad(_) => ("images/sprRad.png", Color::srgb(0.25, 1.0, 0.2), 12.0),
+        PickupKind::Medkit(_) => ("images/sprHP.png", Color::srgb(1.0, 0.15, 0.15), 16.0),
+        PickupKind::Ammo(AmmoKind::Bullets, _) => (
+            "images/sprBulletPickup.png",
+            Color::srgb(0.25, 0.65, 1.0),
+            14.0,
+        ),
+        PickupKind::Ammo(AmmoKind::Shells, _) => (
+            "images/sprShellPickup.png",
+            Color::srgb(0.25, 0.65, 1.0),
+            14.0,
+        ),
+        PickupKind::Ammo(AmmoKind::Bolts, _) => (
+            "images/sprBoltPickup.png",
+            Color::srgb(0.25, 0.65, 1.0),
+            14.0,
+        ),
+        PickupKind::Ammo(AmmoKind::Explosives, _) => (
+            "images/sprExploPickup.png",
+            Color::srgb(0.25, 0.65, 1.0),
+            14.0,
+        ),
+        PickupKind::Weapon(k) => ("images/sprRevolver.png", weapon_color(k), 20.0),
+        PickupKind::Chest => ("images/sprChest.png", Color::srgb(0.85, 0.6, 0.2), 32.0),
+    };
+
+    let sprite = if let Some(server) = asset_server {
+        sprite_or_fallback(server, path, fallback, Vec2::splat(size))
+    } else {
+        Sprite {
+            color: fallback,
+            custom_size: Some(Vec2::splat(size)),
+            ..default()
+        }
     };
 
     let e = commands
@@ -34,11 +76,7 @@ pub fn spawn_pickup(commands: &mut Commands, kind: PickupKind, pos: Vec2) {
             GameCleanup,
             LevelCleanup,
             Pickup { kind },
-            Sprite {
-                color,
-                custom_size: Some(Vec2::splat(size)),
-                ..default()
-            },
+            sprite,
             Transform::from_translation(pos.extend(8.0)),
         ))
         .id();

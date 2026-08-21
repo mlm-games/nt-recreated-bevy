@@ -21,6 +21,7 @@ use game_utils_bevy::vfx::VfxSpawner;
 pub fn player_move(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    mask: Res<FloorMask>,
     mut q: Query<
         (&Player, &mut Velocity, &mut Transform, Option<&mut Dash>),
         (With<Player>, Without<Prop>),
@@ -63,8 +64,18 @@ pub fn player_move(
         tf.translation += (vel.0 * dt).extend(0.0);
     }
 
-    clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
+    // Order: props (walls) first, then snap onto floor mask, then outer AABB.
     resolve_prop_collision(&mut tf.translation, PLAYER_RADIUS, &props);
+    mask.resolve_circle(&mut tf.translation, PLAYER_RADIUS);
+    clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
+}
+
+pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
+    let Ok((aim, mut sprite)) = q.single_mut() else {
+        return;
+    };
+    // NT faces aim; flip X when aiming left
+    sprite.flip_x = aim.0.x < 0.0;
 }
 
 pub fn tick_dash(mut commands: Commands, mut q: Query<(Entity, &mut Dash)>) {
@@ -227,7 +238,7 @@ pub fn player_ability(
                 timer: Timer::from_seconds(0.18, TimerMode::Once),
                 dir,
             });
-            health.invuln = Timer::from_seconds(0.5, TimerMode::Once);
+            health.invuln = Timer::from_seconds(15.0 / 30.0, TimerMode::Once);
             vel.0 = dir * 900.0;
             ScreenEffects::add_trauma(&mut trauma, 0.12);
             GameFeel::slow_motion(&mut slow_mo, 0.55, 0.2);

@@ -24,6 +24,7 @@ pub fn setup_run(
     asset_server: Res<AssetServer>,
     mut score: ResMut<Score>,
     mut run: ResMut<Run>,
+    mut mask: ResMut<FloorMask>,
     mut dirty: ResMut<SaveDirty>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
@@ -113,7 +114,7 @@ pub fn setup_run(
                 &asset_server,
                 def.sprite,
                 def.color,
-                Vec2::splat(26.0),
+                Vec2::splat(24.0),
             ),
             Transform::from_xyz(0.0, 0.0, 20.0),
         ))
@@ -125,17 +126,17 @@ pub fn setup_run(
     if let Ok(camera) = camera_q.single() {
         commands.entity(camera).insert(CameraFollow {
             target: Some(player),
-            follow_weight: 0.22,
-            aim_weight: 0.15,
-            aim_pull: 0.22,
-            base_scale: 1.0,
-            zoom_speed: 0.06,
+            follow_weight: 0.18,
+            aim_weight: 0.12,
+            aim_pull: 0.28,
+            base_scale: 2.6,
+            zoom_speed: 0.08,
             ..default()
         });
     }
 
-    world::spawn_arena(&mut commands, &asset_server, &run);
-    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, false, false);
+    world::spawn_arena(&mut commands, &asset_server, &run, &mut mask);
+    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, &mask, false, false);
 }
 
 pub fn cleanup_run(
@@ -145,6 +146,7 @@ pub fn cleanup_run(
     particles: Query<Entity, With<game_utils_bevy::juice::Particle>>,
     trails: Query<Entity, With<TrailGhost>>,
     camera_q: Query<Entity, With<Camera2d>>,
+    mut mask: Option<ResMut<FloorMask>>,
 ) {
     for e in q
         .iter()
@@ -157,6 +159,9 @@ pub fn cleanup_run(
 
     for cam in &camera_q {
         commands.entity(cam).remove::<CameraFollow>();
+    }
+    if let Some(m) = mask.as_mut() {
+        **m = FloorMask::default();
     }
 }
 
@@ -393,10 +398,12 @@ fn apply_mutation(
 
 pub fn portal_check(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
     open_mind: Res<OpenMind>,
+    mask: Res<FloorMask>,
     enemy_q: Query<(), With<Enemy>>,
     audio: Res<GameAudio>,
 ) {
@@ -410,24 +417,19 @@ pub fn portal_check(
     run.portal_open = true;
 
     let mut rng = rand::rng();
-    let side = rng.random_range(0..4);
-    let pos = match side {
-        0 => Vec2::new(0.0, ARENA_H / 2.0 - 120.0),
-        1 => Vec2::new(0.0, -ARENA_H / 2.0 + 120.0),
-        2 => Vec2::new(ARENA_W / 2.0 - 120.0, 0.0),
-        _ => Vec2::new(-ARENA_W / 2.0 + 120.0, 0.0),
-    };
+    let pos = mask.random_floor_pos(&mut rng, 80.0);
 
     let e = commands
         .spawn((
             GameCleanup,
             LevelCleanup,
             Portal,
-            Sprite {
-                color: Color::srgb(0.55, 0.1, 1.0),
-                custom_size: Some(Vec2::splat(52.0)),
-                ..default()
-            },
+            crate::game::content::sprite_or_fallback(
+                &asset_server,
+                "images/sprPortal.png",
+                Color::srgb(0.55, 0.1, 1.0),
+                Vec2::splat(48.0),
+            ),
             Transform::from_xyz(pos.x, pos.y, 5.0),
         ))
         .id();
@@ -438,10 +440,10 @@ pub fn portal_check(
     audio.play_portal(&mut commands);
 
     // Level-clear reward chest (Open Mind spawns extras).
-    combat::spawn_chest(&mut commands, pos + Vec2::new(0.0, -80.0));
+    combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(0.0, -48.0));
     if open_mind.0 {
-        combat::spawn_chest(&mut commands, pos + Vec2::new(90.0, -40.0));
-        combat::spawn_chest(&mut commands, pos + Vec2::new(-90.0, -40.0));
+        combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(64.0, -32.0));
+        combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(-64.0, -32.0));
     }
 }
 
@@ -449,6 +451,7 @@ pub fn portal_enter(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
+    mut mask: ResMut<FloorMask>,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
     mut toast: ResMut<Toast>,
@@ -490,11 +493,20 @@ pub fn portal_enter(
     run.portal_open = false;
     run.gen_seed = rand::rng().random_range(0..u64::MAX);
 
-    player_tf.translation = Vec3::new(0.0, 0.0, 20.0);
     health.hp = (health.hp + 1).min(health.max);
 
-    world::spawn_arena(&mut commands, &asset_server, &run);
-    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, scarier.0, heavy_heart.0);
+    world::spawn_arena(&mut commands, &asset_server, &run, &mut mask);
+    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, &mask, scarier.0, heavy_heart.0);
+    // Spawn player on a floor cell near origin
+    if let Some(c) = mask.cells.iter().min_by_key(|c| {
+        let p = mask.cell_center(**c);
+        (p.length() * 1000.0) as i32
+    }) {
+        let p = mask.cell_center(*c);
+        player_tf.translation = Vec3::new(p.x, p.y, 20.0);
+    } else {
+        player_tf.translation = Vec3::new(0.0, 0.0, 20.0);
+    }
 
     ScreenEffects::add_trauma(&mut trauma, 0.55);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.65);

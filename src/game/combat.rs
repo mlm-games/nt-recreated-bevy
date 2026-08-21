@@ -218,7 +218,7 @@ pub fn apply_explosions(
                 };
             }
             health.hp -= dmg;
-            health.invuln = Timer::from_seconds(0.083, TimerMode::Once);
+            health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
         }
@@ -310,7 +310,7 @@ pub fn projectile_hits(
             health.hp -= proj.damage;
 
             if *target_team == Team::Player {
-                health.invuln = Timer::from_seconds(0.083, TimerMode::Once);
+                health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 hit_player = true;
                 audio.play_hurt(&mut commands);
             } else {
@@ -435,8 +435,8 @@ pub fn contact_damage(
         }
 
         health.hp -= damage;
-        took_damage = damage;
-        health.invuln = Timer::from_seconds(0.083, TimerMode::Once);
+                took_damage = damage;
+                health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
         brain.melee = Timer::from_seconds(0.5, TimerMode::Once);
 
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
@@ -496,7 +496,7 @@ pub fn gamma_guts_aura(
             continue;
         }
         health.hp -= 6;
-        health.invuln = Timer::from_seconds(0.083, TimerMode::Once);
+        health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
         HitFlash::apply(&mut commands, e, Color::srgb(0.4, 1.0, 0.4), 0.1);
     }
 }
@@ -774,9 +774,23 @@ fn inv_ammo(inv: &Inventory, kind: AmmoKind) -> i32 {
     }
 }
 
-pub fn spawn_rad(commands: &mut Commands, pos: Vec2, amount: u32) {
+pub fn spawn_rad(
+    commands: &mut Commands,
+    pos: Vec2,
+    amount: u32,
+) {
     use crate::game::pickups::spawn_pickup;
     spawn_pickup(commands, PickupKind::Rad(amount), pos);
+}
+
+pub fn spawn_rad_with_assets(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    amount: u32,
+) {
+    use crate::game::pickups::spawn_pickup_with_assets;
+    spawn_pickup_with_assets(commands, Some(asset_server), PickupKind::Rad(amount), pos);
 }
 
 fn random_offset() -> Vec2 {
@@ -798,7 +812,19 @@ pub fn maybe_spawn_drop(
     inv: &Inventory,
     health: &Health,
 ) {
-    use crate::game::pickups::spawn_pickup;
+    maybe_spawn_drop_with_assets(commands, None, pos, chance, weapon_chance, player, inv, health);
+}
+
+pub fn maybe_spawn_drop_with_assets(
+    commands: &mut Commands,
+    asset_server: Option<&AssetServer>,
+    pos: Vec2,
+    chance: usize,
+    weapon_chance: usize,
+    player: &Player,
+    inv: &Inventory,
+    health: &Health,
+) {
     let mut rng = rand::rng();
 
     let need = scrub_need(inv);
@@ -808,18 +834,22 @@ pub fn maybe_spawn_drop(
     if roll < (chance as f32 * (need + paw)) {
         // Health: only when hurt, and only 2/3 of the time.
         if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
-            spawn_pickup(commands, PickupKind::Medkit(2), pos);
+            use crate::game::pickups::spawn_pickup_with_assets;
+            spawn_pickup_with_assets(commands, asset_server, PickupKind::Medkit(2), pos);
         } else {
             let ammo = random_ammo_kind(&mut rng);
-            spawn_pickup(
+            use crate::game::pickups::spawn_pickup_with_assets;
+            spawn_pickup_with_assets(
                 commands,
+                asset_server,
                 PickupKind::Ammo(ammo, ammo_pickup_amount(ammo)),
                 pos,
             );
         }
     } else if weapon_chance > 0 && rng.random_range(0.0..100.0) < weapon_chance as f32 {
         let weapon = random_weapon(&mut rng);
-        spawn_pickup(commands, PickupKind::Weapon(weapon), pos);
+        use crate::game::pickups::spawn_pickup_with_assets;
+        spawn_pickup_with_assets(commands, asset_server, PickupKind::Weapon(weapon), pos);
     }
 }
 
@@ -848,4 +878,13 @@ pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponKind {
 pub fn spawn_chest(commands: &mut Commands, pos: Vec2) {
     use crate::game::pickups::spawn_pickup;
     spawn_pickup(commands, PickupKind::Chest, pos);
+}
+
+pub fn spawn_chest_with_assets(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    pos: Vec2,
+) {
+    use crate::game::pickups::spawn_pickup_with_assets;
+    spawn_pickup_with_assets(commands, Some(asset_server), PickupKind::Chest, pos);
 }

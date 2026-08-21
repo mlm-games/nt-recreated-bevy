@@ -181,7 +181,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Revolver",
             ammo: AmmoKind::Bullets,
             ammo_cost: 1,
-            cooldown: 0.10,
+            cooldown: frames(6.0),
             damage: 3,
             pellets: 1,
             speed: 960.0,
@@ -204,7 +204,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Machinegun",
             ammo: AmmoKind::Bullets,
             ammo_cost: 1,
-            cooldown: 0.083,
+            cooldown: frames(5.0),
             damage: 3,
             pellets: 1,
             speed: 960.0,
@@ -227,7 +227,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "SMG",
             ammo: AmmoKind::Bullets,
             ammo_cost: 1,
-            cooldown: 0.05,
+            cooldown: frames(3.0),
             damage: 3,
             pellets: 1,
             speed: 960.0,
@@ -250,7 +250,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Assault Rifle",
             ammo: AmmoKind::Bullets,
             ammo_cost: 3,
-            cooldown: 0.183,
+            cooldown: frames(11.0),
             damage: 3,
             pellets: 1,
             speed: 960.0,
@@ -263,7 +263,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             automatic: true,
             explosive: false,
             burst_shots: 3,
-            burst_interval: 0.033,
+            burst_interval: frames(1.0),
             melee: None,
             color: Color::srgb(0.95, 0.95, 0.5),
             size: Vec2::new(13.0, 4.0),
@@ -273,7 +273,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Shotgun",
             ammo: AmmoKind::Shells,
             ammo_cost: 1,
-            cooldown: 0.283,
+            cooldown: frames(17.0),
             damage: 2,
             pellets: 7,
             speed: 900.0,
@@ -296,7 +296,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Crossbow",
             ammo: AmmoKind::Bolts,
             ammo_cost: 1,
-            cooldown: 0.433,
+            cooldown: frames(26.0),
             damage: 20,
             pellets: 1,
             speed: 1440.0,
@@ -319,7 +319,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Grenade Launcher",
             ammo: AmmoKind::Explosives,
             ammo_cost: 1,
-            cooldown: 0.333,
+            cooldown: frames(20.0),
             damage: 15,
             pellets: 1,
             speed: 600.0,
@@ -342,7 +342,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Wrench",
             ammo: AmmoKind::Bullets,
             ammo_cost: 0,
-            cooldown: 0.367,
+            cooldown: frames(22.0),
             damage: 8,
             pellets: 0,
             speed: 0.0,
@@ -352,7 +352,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             shake: 0.0,
             projectile_radius: 0.0,
             knockback: 300.0,
-            automatic: true,
+            automatic: false,
             explosive: false,
             burst_shots: 1,
             burst_interval: 0.0,
@@ -368,7 +368,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             name: "Sledgehammer",
             ammo: AmmoKind::Bullets,
             ammo_cost: 0,
-            cooldown: 0.583,
+            cooldown: frames(35.0),
             damage: 24,
             pellets: 0,
             speed: 0.0,
@@ -681,26 +681,50 @@ pub fn is_boss(kind: EnemyKind) -> bool {
     enemy_def(kind).boss
 }
 
+/// NT simulation runs at 30 FPS; GML `wep_load` is frames.
+#[inline]
+pub const fn frames(f: f32) -> f32 {
+    f / 30.0
+}
+
+pub fn nt_cooldown_secs(wep_id: u8) -> f32 {
+    let w = &crate::game::weapons_data::WEAPONS[wep_id as usize];
+    w.wep_load as f32 / 30.0
+}
+
+pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
+    match kind {
+        WeaponKind::None => 0,
+        WeaponKind::Revolver => 1,
+        WeaponKind::Wrench => 3,
+        WeaponKind::Machinegun => 4,
+        WeaponKind::Shotgun => 5,
+        WeaponKind::Crossbow => 6,
+        WeaponKind::GrenadeLauncher => 7,
+        WeaponKind::Smg => 16,
+        WeaponKind::AssaultRifle => 17,
+        WeaponKind::Sledgehammer => 88,
+    }
+}
+
 pub fn sprite_or_fallback(
     asset_server: &AssetServer,
     path: &'static str,
-    color: Color,
+    fallback_color: Color,
     size: Vec2,
 ) -> Sprite {
-    use std::path::Path;
-    let direct = Path::new("assets").join(path);
-    let og = Path::new("assets").join("og").join(path);
-    if direct.exists() || og.exists() {
+    let looks_like_og = path.starts_with("images/spr");
+    if looks_like_og {
         Sprite {
             image: asset_server.load(path),
+            // NT art is pre-colored; do not multiply with fallback tint
             color: Color::WHITE,
             custom_size: Some(size),
             ..Default::default()
         }
     } else {
-        // No art extracted — colored rect fallback (no hard dep)
         Sprite {
-            color,
+            color: fallback_color,
             custom_size: Some(size),
             ..Default::default()
         }

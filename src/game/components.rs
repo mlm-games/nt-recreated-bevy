@@ -11,6 +11,85 @@ pub const PLAYER_RADIUS: f32 = 12.0;
 pub const PLAYER_ACCEL: f32 = 1500.0;
 pub const PLAYER_FRICTION: f32 = 0.82;
 
+/// 32px NT floor grid — walkable cells only (like Floor / Wall solids).
+pub const TILE: f32 = 32.0;
+
+#[derive(Resource, Default, Clone)]
+pub struct FloorMask {
+    pub cells: std::collections::HashSet<(i32, i32)>,
+    pub cols: i32,
+    pub rows: i32,
+}
+
+impl FloorMask {
+    pub fn world_to_cell(&self, p: Vec2) -> (i32, i32) {
+        let fx = (p.x / TILE + self.cols as f32 * 0.5).floor() as i32;
+        let fy = (p.y / TILE + self.rows as f32 * 0.5).floor() as i32;
+        (fx, fy)
+    }
+
+    pub fn cell_center(&self, c: (i32, i32)) -> Vec2 {
+        Vec2::new(
+            (c.0 as f32 - self.cols as f32 * 0.5 + 0.5) * TILE,
+            (c.1 as f32 - self.rows as f32 * 0.5 + 0.5) * TILE,
+        )
+    }
+
+    pub fn is_walkable(&self, p: Vec2) -> bool {
+        self.cells.contains(&self.world_to_cell(p))
+    }
+
+    /// Push a circle back onto floor tiles (NT-style floor solids).
+    pub fn resolve_circle(&self, pos: &mut Vec3, radius: f32) {
+        let p = pos.truncate();
+        if self.is_walkable(p) {
+            return;
+        }
+        // Snap toward nearest walkable cell center.
+        let mut best = None::<(f32, Vec2)>;
+        let (cx, cy) = self.world_to_cell(p);
+        for dy in -3..=3 {
+            for dx in -3..=3 {
+                let c = (cx + dx, cy + dy);
+                if !self.cells.contains(&c) {
+                    continue;
+                }
+                let center = self.cell_center(c);
+                let d = center.distance_squared(p);
+                if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                    best = Some((d, center));
+                }
+            }
+        }
+        if let Some((_, center)) = best {
+            let dir = (center - p).normalize_or_zero();
+            let dist = center.distance(p);
+            let push = (dist - (TILE * 0.35 - radius)).max(0.0);
+            pos.x += dir.x * push;
+            pos.y += dir.y * push;
+        }
+    }
+
+    pub fn random_floor_pos(&self, rng: &mut impl rand::RngExt, min_from_origin: f32) -> Vec2 {
+        if self.cells.is_empty() {
+            return Vec2::ZERO;
+        }
+        for _ in 0..80 {
+            let idx = rng.random_range(0..self.cells.len());
+            let c = *self.cells.iter().nth(idx).unwrap();
+            let p = self.cell_center(c);
+            if p.length() >= min_from_origin {
+                return p;
+            }
+        }
+        self.cell_center(*self.cells.iter().next().unwrap())
+    }
+}
+
+/// Solid wall tile (collides like Prop, not destructible).
+#[derive(Component)]
+pub struct WallTile;
+
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
 

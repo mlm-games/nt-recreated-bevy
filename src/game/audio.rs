@@ -24,26 +24,28 @@ pub struct GameAudio {
     pub chest: Handle<AudioSource>,
 }
 
+fn load_sfx(asset_server: &AssetServer, stem: &str) -> Handle<AudioSource> {
+    let _wav: Handle<AudioSource> = asset_server.load(format!("audio/{stem}.wav"));
+    asset_server.load(format!("audio/{stem}.ogg"))
+}
+
 impl GameAudio {
     pub fn load(asset_server: &AssetServer) -> Self {
-        // Direct .ogg/.wav — no conversion, no fallback wav when not present.
-        // Extracted via `tools/gen_assets.py` (keeps original .ogg/.wav).
-        // Missing assets are simply silent (no placeholder).
         Self {
-            shoot: asset_server.load("audio/sndPistol.wav"),
-            machine: asset_server.load("audio/sndMachinegun.wav"),
-            shotgun: asset_server.load("audio/sndShotgun.wav"),
-            bolt: asset_server.load("audio/sndCrossbow.wav"),
-            melee: asset_server.load("audio/sndHammer.wav"),
-            explode: asset_server.load("audio/sndExplosion.wav"),
-            boom: asset_server.load("audio/sndBigBanditMeleeHit.wav"),
-            hit: asset_server.load("audio/sndHitWall.wav"),
-            hurt: asset_server.load("audio/sndAllyHurt.wav"),
-            pickup: asset_server.load("audio/sndAmmoPickup.wav"),
-            levelup: asset_server.load("audio/sndLevelUp.wav"),
-            portal: asset_server.load("audio/sndPortalOpen.wav"),
-            death: asset_server.load("audio/sndAllyDead.wav"),
-            chest: asset_server.load("audio/sndChest.wav"),
+            shoot: load_sfx(asset_server, "sndPistol"),
+            machine: load_sfx(asset_server, "sndMachinegun"),
+            shotgun: load_sfx(asset_server, "sndShotgun"),
+            bolt: load_sfx(asset_server, "sndCrossbow"),
+            melee: load_sfx(asset_server, "sndHammer"),
+            explode: load_sfx(asset_server, "sndExplosion"),
+            boom: load_sfx(asset_server, "sndExplosionL"),
+            hit: load_sfx(asset_server, "sndHitWall"),
+            hurt: load_sfx(asset_server, "snd_hurt"),
+            pickup: load_sfx(asset_server, "sndAmmoPickup"),
+            levelup: load_sfx(asset_server, "sndLevelUp"),
+            portal: load_sfx(asset_server, "sndPortalOpen"),
+            death: load_sfx(asset_server, "snd_dead"),
+            chest: load_sfx(asset_server, "sndChest"),
         }
     }
 

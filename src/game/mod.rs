@@ -33,6 +33,7 @@ impl Plugin for GamePlugin {
         app.init_resource::<Score>()
             .init_resource::<SaveDirty>()
             .init_resource::<Run>()
+            .init_resource::<FloorMask>()
             .init_resource::<SelectedCharacter>()
             .init_resource::<MutationChoice>()
             .init_resource::<Toast>()
@@ -50,6 +51,7 @@ impl Plugin for GamePlugin {
                     sync_hud,
                     progress_sys::handle_mutation_choice,
                     player_sys::tick_dash,
+                    player_sys::face_aim,
                     pickups::tick_toast,
                     // Gameplay (paused / transitioning / dead -> frozen).
                     (
@@ -104,6 +106,7 @@ fn setup_game(
     asset_server: Res<AssetServer>,
     score: ResMut<Score>,
     run: ResMut<Run>,
+    mask: ResMut<FloorMask>,
     dirty: ResMut<SaveDirty>,
     paused: ResMut<Paused>,
     overlay: ResMut<crate::app::OverlayMenu>,
@@ -117,6 +120,7 @@ fn setup_game(
         asset_server,
         score,
         run,
+        mask,
         dirty,
         paused,
         overlay,
@@ -134,8 +138,9 @@ fn teardown_game(
     particles: Query<Entity, With<game_utils_bevy::juice::Particle>>,
     trails: Query<Entity, With<game_utils_bevy::vfx::TrailGhost>>,
     camera_q: Query<Entity, With<Camera2d>>,
+    mask: Option<ResMut<FloorMask>>,
 ) {
-    progress_sys::cleanup_run(commands, q, numbers, particles, trails, camera_q);
+    progress_sys::cleanup_run(commands, q, numbers, particles, trails, camera_q, mask);
 }
 
 fn teardown_game_flags(bridge: Res<crate::menus::UiBridge>) {

@@ -13,6 +13,7 @@ pub fn spawn_enemy_pack(
     commands: &mut Commands,
     asset_server: &AssetServer,
     run: &Run,
+    mask: &FloorMask,
     scarier_face: bool,
     heavy_heart: bool,
 ) {
@@ -22,14 +23,14 @@ pub fn spawn_enemy_pack(
 
     if is_boss_floor(floor) {
         let kind = boss_for_floor(floor);
-        let pos = random_spawn_pos(&mut rng, 400.0);
+        let pos = mask.random_floor_pos(&mut rng, 280.0);
         spawn_enemy(commands, asset_server, kind, pos, diff, scarier_face, heavy_heart);
         return;
     }
 
     let count = (6 + floor as usize * 2).min(30);
     for _ in 0..count {
-        let pos = random_spawn_pos(&mut rng, 200.0);
+        let pos = mask.random_floor_pos(&mut rng, 140.0);
         let kind = roll_enemy(floor, &mut rng);
         spawn_enemy(commands, asset_server, kind, pos, diff, scarier_face, heavy_heart);
     }
@@ -195,9 +196,10 @@ pub fn enemy_ai(
     mut commands: Commands,
     mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
+    mask: Res<FloorMask>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
-        (&Enemy, &mut EnemyBrain, &mut Velocity, &mut Transform),
+        (&Enemy, &mut EnemyBrain, &mut Velocity, &mut Transform, &mut Sprite),
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
@@ -214,10 +216,10 @@ pub fn enemy_ai(
     // Pairwise separation to avoid enemy stacking.
     let positions: Vec<Vec2> = enemies
         .iter()
-        .map(|(_, _, _, tf)| tf.translation.truncate())
+        .map(|(_, _, _, tf, _)| tf.translation.truncate())
         .collect();
 
-    for (enemy, mut brain, mut vel, mut tf) in &mut enemies {
+    for (enemy, mut brain, mut vel, mut tf, mut sprite) in &mut enemies {
         let pos = tf.translation.truncate();
         let to_player = player_pos - pos;
         let dist = to_player.length();
@@ -286,8 +288,10 @@ pub fn enemy_ai(
         vel.0 *= 0.90_f32.powf(dt * 60.0);
         tf.translation += (vel.0 * dt).extend(0.0);
 
-        clamp_to_arena(&mut tf.translation, def.radius);
         resolve_prop_collision(&mut tf.translation, def.radius, &props);
+        mask.resolve_circle(&mut tf.translation, def.radius);
+        clamp_to_arena(&mut tf.translation, def.radius);
+        sprite.flip_x = dir.x < 0.0;
 
         // Light separation from other enemies.
         for other in &positions {

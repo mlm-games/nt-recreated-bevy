@@ -310,14 +310,24 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                     wanted.add(n)
         else:
             wanted = {
+                # mutants
                 "sprMutant1Idle", "sprMutant2Idle", "sprMutant3Idle", "sprMutant4Idle",
+                "sprMutant1Walk", "sprMutant2Walk", "sprMutant3Walk", "sprMutant4Walk",
+                # enemies
                 "sprMaggotIdle", "sprBanditIdle", "sprScorpionIdle", "sprGoldScorpionIdle",
                 "sprAssassinIdle", "sprJungleAssassinIdle",
                 "sprFreak1Idle", "sprExploFreakIdle",
                 "sprBanditBossIdle", "sprThroneIdle",
-                # Floor/wall tiles for level layout (exact like public-rewrite)
-                "sprFloor0", "sprFloor1", "sprFloor100", "sprWall0Top", "sprWall0Bot", "sprWall0Out",
-                "sprWall100Top", "sprWall100Bot", "sprWall100Out",
+                # floors / walls (all areas you support)
+                "sprFloor0", "sprFloor1", "sprFloor100", "sprFloor102",
+                "sprWall0Out", "sprWall0Top", "sprWall0Bot",
+                "sprWall100Out", "sprWall102Out",
+                "sprWall100Top", "sprWall100Bot",
+                # props / pickups / portal
+                "sprCrate", "sprBarrel", "sprCactus", "sprPortal",
+                "sprRad", "sprHP", "sprChest",
+                "sprBulletPickup", "sprShellPickup", "sprBoltPickup", "sprExploPickup",
+                "sprRevolver", "sprShotgun", "sprMachinegun", "sprCrossbow",
             }
 
         spr_off = chunks["SPRT"]
