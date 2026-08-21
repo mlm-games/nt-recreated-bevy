@@ -86,6 +86,7 @@ avian2d = { git = "https://github.com/avianphysics/avian", optional = true, defa
     "parry-f32",
     "parallel",
 ] }
+serde_json = "1.0.151"
 # Optional big-game crates (pull in bevy-0.19)
 # leafwing-input-manager = { version = "0.14", optional = true, default-features = false, features = [] }
 # bevy_hanabi = { version = "0.14", optional = true, default-features = false, features = ["2d"] }

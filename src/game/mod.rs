@@ -1,6 +1,7 @@
 //! The Nuclear Throne-style game module. Built entirely on the template's
 //! ecosystem (game-utils / game-utils-bevy) with placeholder sprites and
 
+pub mod anim;
 pub mod areas;
 pub mod audio;
 pub mod combat;
@@ -43,13 +44,16 @@ impl Plugin for GamePlugin {
             .init_resource::<Euphoria>()
             .init_resource::<OpenMind>()
             .init_resource::<HeavyHeart>()
-            .add_systems(Startup, (load_game_audio, scan_assets))
+            .add_systems(Startup, load_game_audio)
+            .add_systems(Startup, scan_assets)
             .add_systems(OnEnter(AppState::InGame), setup_game)
             .add_systems(OnExit(AppState::InGame), teardown_game)
             .add_systems(
                 FixedUpdate,
                 (
                     sync_hud.in_set(NtSimSet::Always),
+                    anim::animate_sprites.in_set(NtSimSet::Always),
+                    anim::player_anim_switch.in_set(NtSimSet::Input),
                     progress_sys::handle_mutation_choice.in_set(NtSimSet::Always),
                     player_sys::tick_dash.in_set(NtSimSet::Always),
                     player_sys::face_aim.in_set(NtSimSet::Always),

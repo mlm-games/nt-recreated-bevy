@@ -113,7 +113,12 @@ pub fn setup_run(
             },
             AimDir(Vec2::Y),
             Velocity(Vec2::ZERO),
-            sprite_exact(&catalog, &asset_server, def.sprite),
+            crate::game::anim::PlayerAnim {
+                idle: def.sprite,
+                walk: def.walk_sprite,
+                moving: false,
+            },
+            crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite).0,
             Transform::from_xyz(0.0, 0.0, 20.0),
         ))
         .id();
@@ -423,7 +428,7 @@ pub fn portal_check(
             GameCleanup,
             LevelCleanup,
             Portal,
-            sprite_exact(&catalog, &asset_server, "images/sprPortal.png"),
+            crate::game::anim::sprite_anim(&catalog, &asset_server, "images/sprPortal.png").0,
             Transform::from_xyz(pos.x, pos.y, 5.0),
         ))
         .id();

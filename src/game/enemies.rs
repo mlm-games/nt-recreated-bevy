@@ -105,7 +105,7 @@ pub fn spawn_enemy(
             Team::Enemy,
             Hitbox { radius: def.radius },
             Velocity(Vec2::ZERO),
-            sprite_exact(catalog, asset_server, def.sprite),
+            crate::game::anim::sprite_anim(catalog, asset_server, def.sprite).0,
             Transform::from_translation(pos.extend(10.0)),
         ))
         .id();

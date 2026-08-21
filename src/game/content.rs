@@ -2,7 +2,7 @@
 //! All visuals are placeholder colored sprites; no external assets.
 //! Stats mirror the GPL Nuclear-Throne-Mobile rebuild reference.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Resource, Default, Clone)]
 pub struct AssetCatalog {
     pub images: HashSet<String>,
+    /// Strip metadata from assets/images/anims.json (name -> frames/w/h/fps).
+    pub anims: HashMap<String, [f32; 4]>,
 }
 
 impl AssetCatalog {
@@ -38,8 +40,45 @@ impl AssetCatalog {
                  tools/gen_assets.py` to import original art."
             );
         }
-        info!("AssetCatalog: {} sprites", images.len());
-        Self { images }
+        let mut anims = HashMap::new();
+        if let Ok(txt) = std::fs::read_to_string("assets/images/anims.json")
+            && let Ok(raw) =
+                serde_json::from_str::<HashMap<String, HashMap<String, f32>>>(&txt)
+        {
+            for (name, e) in raw {
+                if let (Some(frames), Some(w), Some(h)) = (
+                    e.get("frames").copied(),
+                    e.get("w").copied(),
+                    e.get("h").copied(),
+                ) {
+                    anims.insert(
+                        format!("images/{name}.png"),
+                        [
+                            frames,
+                            w,
+                            h,
+                            e.get("fps").copied().unwrap_or(8.0),
+                        ],
+                    );
+                }
+            }
+        }
+        info!(
+            "AssetCatalog: {} sprites, {} anim strips",
+            images.len(),
+            anims.len()
+        );
+        Self { images, anims }
+    }
+
+    /// Strip metadata for an animated sprite, if any.
+    pub fn anim_def(&self, path: &str) -> Option<crate::game::anim::AnimDef> {
+        self.anims.get(path).map(|a| crate::game::anim::AnimDef {
+            frames: a[0] as u32,
+            frame_px: a[1] as u32,
+            height: a[2] as u32,
+            fps: a[3],
+        })
     }
 
     pub fn has(&self, path: &str) -> bool {
@@ -207,6 +246,8 @@ pub struct CharacterDef {
     pub ability: AbilityKind,
     pub passive: PassiveKind,
     pub sprite: &'static str,
+    /// Walk-cycle strip (upstream sprMutantNWalk).
+    pub walk_sprite: &'static str,
 }
 
 pub fn character_def(id: RaceId) -> CharacterDef {
@@ -220,6 +261,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant1Idle.png",
+            walk_sprite: "images/sprMutant1Walk.png",
         },
         RaceId::Crystal => CharacterDef {
             name: "Crystal",
@@ -230,6 +272,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Shield,
             passive: PassiveKind::ShieldOnHit,
             sprite: "images/sprMutant2Idle.png",
+            walk_sprite: "images/sprMutant2Walk.png",
         },
         RaceId::Eyes => CharacterDef {
             name: "Eyes",
@@ -240,6 +283,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Telekinesis,
             passive: PassiveKind::None,
             sprite: "images/sprMutant3Idle.png",
+            walk_sprite: "images/sprMutant3Walk.png",
         },
         RaceId::Melting => CharacterDef {
             name: "Melting",
@@ -250,6 +294,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Detonate,
             passive: PassiveKind::ChainExplosions,
             sprite: "images/sprMutant4Idle.png",
+            walk_sprite: "images/sprMutant4Walk.png",
         },
         RaceId::Plant => CharacterDef {
             name: "Plant",
@@ -260,6 +305,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant5Idle.png",
+            walk_sprite: "images/sprMutant5Walk.png",
         },
         RaceId::Venuz => CharacterDef {
             name: "Venuz",
@@ -270,6 +316,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant6Idle.png",
+            walk_sprite: "images/sprMutant6Walk.png",
         },
         RaceId::Steroids => CharacterDef {
             name: "Steroids",
@@ -280,6 +327,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant7Idle.png",
+            walk_sprite: "images/sprMutant7Walk.png",
         },
         RaceId::Robot => CharacterDef {
             name: "Robot",
@@ -290,6 +338,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant8Idle.png",
+            walk_sprite: "images/sprMutant8Walk.png",
         },
         RaceId::Chicken => CharacterDef {
             name: "Chicken",
@@ -300,6 +349,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant9Idle.png",
+            walk_sprite: "images/sprMutant9Walk.png",
         },
         RaceId::Rebel => CharacterDef {
             name: "Rebel",
@@ -310,6 +360,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant10Idle.png",
+            walk_sprite: "images/sprMutant10Walk.png",
         },
         RaceId::Horror => CharacterDef {
             name: "Horror",
@@ -320,6 +371,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant11Idle.png",
+            walk_sprite: "images/sprMutant11Walk.png",
         },
         RaceId::Rogue => CharacterDef {
             name: "Rogue",
@@ -330,6 +382,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant12Idle.png",
+            walk_sprite: "images/sprMutant12Walk.png",
         },
         RaceId::BigDog => CharacterDef {
             name: "Big Dog",
@@ -340,6 +393,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant13Idle.png",
+            walk_sprite: "images/sprMutant13Walk.png",
         },
         RaceId::Skeleton => CharacterDef {
             name: "Skeleton",
@@ -350,6 +404,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant14Idle.png",
+            walk_sprite: "images/sprMutant14Walk.png",
         },
         RaceId::Frog => CharacterDef {
             name: "Frog",
@@ -360,6 +415,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant15Idle.png",
+            walk_sprite: "images/sprMutant15Walk.png",
         },
         RaceId::Cuz => CharacterDef {
             name: "Cuz",
@@ -370,6 +426,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             ability: AbilityKind::Flip,
             passive: PassiveKind::None,
             sprite: "images/sprMutant16Idle.png",
+            walk_sprite: "images/sprMutant16Walk.png",
         },
         RaceId::Random => character_def(RaceId::Fish),
     }

@@ -4562,6 +4562,7 @@ dependencies = [
  "repose-render-wgpu",
  "repose-ui",
  "serde",
+ "serde_json",
  "wasm-bindgen",
  "wgpu 30.0.0",
 ]

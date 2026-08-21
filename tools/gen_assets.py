@@ -327,6 +327,23 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 "sprRevolver", "sprShotgun", "sprMachinegun", "sprCrossbow",
             }
 
+        # Sprites exported as full horizontal animation strips (all frames).
+        anim_manifest: dict[str, dict] = {}
+        ANIM_SPRITES = {
+            "sprMutant1Idle": 10.0, "sprMutant1Walk": 12.0,
+            "sprMutant2Idle": 10.0, "sprMutant2Walk": 12.0,
+            "sprMutant3Idle": 10.0, "sprMutant3Walk": 12.0,
+            "sprMutant4Idle": 10.0, "sprMutant4Walk": 12.0,
+            "sprBanditIdle": 8.0, "sprBanditWalk": 10.0,
+            "sprJungleAssassinIdle": 8.0, "sprJungleAssassinWalk": 10.0,
+            "sprMaggotIdle": 6.0,
+            "sprScorpionIdle": 10.0,
+            "sprFreak1Idle": 8.0,
+            "sprExploFreakIdle": 8.0,
+            "sprBanditBossIdle": 8.0, "sprBanditBossWalk": 10.0,
+            "sprPortal": 10.0,
+        }
+
         spr_off = chunks["SPRT"]
         spr_cnt = struct.unpack_from("<I", data, spr_off + 8)[0]
 
@@ -434,21 +451,54 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 dest_sprites.mkdir(parents=True, exist_ok=True)
                 dest_og_sprites.mkdir(parents=True, exist_ok=True)
                 with Image.open(tex_path) as atlas:
-                    # Create target image
-                    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-                    # Crop from atlas
-                    crop = atlas.crop((sx, sy, sx + sw, sy + sh))
-                    out.paste(crop, (tx, ty))
+                    is_anim = name in ANIM_SPRITES and img_num > 1
+                    if is_anim:
+                        # Horizontal strip: every frame's own tPageItem.
+                        out = Image.new("RGBA", (w * img_num, h), (0, 0, 0, 0))
+                        for k in range(img_num):
+                            tp_k = struct.unpack_from("<I", data, img_off + 4 + k * 4)[0]
+                            kx = struct.unpack_from("<H", data, tp_k)[0]
+                            ky = struct.unpack_from("<H", data, tp_k + 2)[0]
+                            kw = struct.unpack_from("<H", data, tp_k + 4)[0]
+                            kh = struct.unpack_from("<H", data, tp_k + 6)[0]
+                            ktx = struct.unpack_from("<H", data, tp_k + 8)[0]
+                            kty = struct.unpack_from("<H", data, tp_k + 10)[0]
+                            crop = atlas.crop((kx, ky, kx + kw, ky + kh))
+                            out.paste(crop, (k * w + ktx, kty))
+                        fps = ANIM_SPRITES[name]
+                        anim_manifest[name] = {
+                            "frames": img_num,
+                            "w": w,
+                            "h": h,
+                            "fps": fps,
+                        }
+                    else:
+                        out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+                        crop = atlas.crop((sx, sy, sx + sw, sy + sh))
+                        out.paste(crop, (tx, ty))
                     out.save(dst)
                     out.save(dst_og)
                 copied += 1
                 if copied <= 3:
-                    print(f"extracted sprites/{name}.png ({w}x{h}) from atlas")
+                    kind = "anim strip" if (name in ANIM_SPRITES and img_num > 1) else "sprite"
+                    print(f"extracted sprites/{name}.png ({w}x{h}, {kind})")
             except Exception as e:
                 print(f"warning: sprite {name} failed: {e}", file=sys.stderr)
                 continue
         if copied:
             print(f"sprites: extracted {copied} sprite(s) for auto-wire")
+        if anim_manifest and not dry_run:
+            import json
+            manifest_path = dest_sprites / "anims.json"
+            merged = {}
+            if manifest_path.exists():
+                try:
+                    merged = json.loads(manifest_path.read_text())
+                except Exception:
+                    merged = {}
+            merged.update(anim_manifest)
+            manifest_path.write_text(json.dumps(merged, indent=1))
+            print(f"anims: {len(merged)} entries in {manifest_path.name}")
         return copied, 0
     except Exception as e:
         print(f"warning: sprite extraction failed: {e}", file=sys.stderr)

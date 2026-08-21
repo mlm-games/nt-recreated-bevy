@@ -1,0 +1,116 @@
+{
+ "sprBanditBossIdle": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 8.0
+ },
+ "sprBanditBossWalk": {
+  "frames": 8,
+  "w": 32,
+  "h": 32,
+  "fps": 10.0
+ },
+ "sprBanditIdle": {
+  "frames": 4,
+  "w": 24,
+  "h": 24,
+  "fps": 8.0
+ },
+ "sprBanditWalk": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 10.0
+ },
+ "sprExploFreakIdle": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 8.0
+ },
+ "sprFreak1Idle": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 8.0
+ },
+ "sprJungleAssassinIdle": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 8.0
+ },
+ "sprJungleAssassinWalk": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 10.0
+ },
+ "sprMaggotIdle": {
+  "frames": 4,
+  "w": 16,
+  "h": 16,
+  "fps": 6.0
+ },
+ "sprMutant1Idle": {
+  "frames": 4,
+  "w": 24,
+  "h": 24,
+  "fps": 10.0
+ },
+ "sprMutant1Walk": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 12.0
+ },
+ "sprMutant2Idle": {
+  "frames": 4,
+  "w": 24,
+  "h": 24,
+  "fps": 10.0
+ },
+ "sprMutant2Walk": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 12.0
+ },
+ "sprMutant3Idle": {
+  "frames": 4,
+  "w": 24,
+  "h": 24,
+  "fps": 10.0
+ },
+ "sprMutant3Walk": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 12.0
+ },
+ "sprMutant4Idle": {
+  "frames": 4,
+  "w": 24,
+  "h": 24,
+  "fps": 10.0
+ },
+ "sprMutant4Walk": {
+  "frames": 6,
+  "w": 24,
+  "h": 24,
+  "fps": 12.0
+ },
+ "sprPortal": {
+  "frames": 4,
+  "w": 32,
+  "h": 32,
+  "fps": 10.0
+ },
+ "sprScorpionIdle": {
+  "frames": 14,
+  "w": 48,
+  "h": 48,
+  "fps": 10.0
+ }
+}

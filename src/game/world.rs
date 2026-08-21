@@ -556,23 +556,37 @@ fn trim_chests(chests: &mut Vec<ChestSpawn>) {
 
 fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'static str) {
     // (floor, wall bot, wall top, ground decal prop)
-    match gml_area(floor) {
-        2 => (
-            "images/sprFloor1.png",
-            "images/sprWall1Bot.png",
-            "images/sprWall1Top.png",
-            "images/sprTopDecalSewers.png",
-        ),
+    // Upstream sprite families are named by _area id:
+    // 0=Campfire(night), 1=Desert(sand), 2=Sewers, 3=Scrapyards, 7=Palace.
+    match floor_in_world(floor) {
         3 => (
-            "images/sprFloor2.png",
-            "images/sprWall2Bot.png",
-            "images/sprWall2Top.png",
-            "images/sprTopDecalScrapyard.png",
-        ),
-        _ => (
             "images/sprFloor0.png",
             "images/sprWall0Bot.png",
             "images/sprWall0Top.png",
+            "images/sprNightDesertTopDecal.png",
+        ),
+        4 | 5 => (
+            "images/sprFloor2.png",
+            "images/sprWall2Bot.png",
+            "images/sprWall2Top.png",
+            "images/sprTopDecalSewers.png",
+        ),
+        6 => (
+            "images/sprFloor3.png",
+            "images/sprWall3Bot.png",
+            "images/sprWall3Top.png",
+            "images/sprTopDecalScrapyard.png",
+        ),
+        7 => (
+            "images/sprFloor7.png",
+            "images/sprWall7Bot.png",
+            "images/sprWall7Top.png",
+            "images/sprPalaceTopDecal.png",
+        ),
+        _ => (
+            "images/sprFloor1.png",
+            "images/sprWall1Bot.png",
+            "images/sprWall1Top.png",
             "images/sprDesertTopDecal.png",
         ),
     }
