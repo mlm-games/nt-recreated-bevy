@@ -9,6 +9,7 @@ use repose_core::prelude::{
     AlignItems, AlignSelf, AnimationSpec, Color as RColor, Easing, JustifyContent, Modifier,
     remember,
 };
+use repose_core::PaddingValues;
 use repose_material::material3::{
     ButtonConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry, DropdownMenuItem,
     FilledTonalButton, MenuState,
@@ -19,8 +20,15 @@ use repose_ui::anim_ext::{
 use repose_ui::overlay::OverlayHandle;
 use repose_ui::{Column, Row, Text as RText, TextStyle, ViewExt, ZStack};
 
+pub mod loadout_menu;
+pub mod mutation_menu;
+pub mod pause_menu;
+pub mod settings_menu;
+pub mod title_screen;
+pub mod unlock_popup;
+
 use crate::app::{AppState, OverlayMenu, SharedUi};
-use crate::game::content::{CHARACTERS, character_def};
+use crate::game::content::{PLAYABLE_RACES, character_def};
 
 fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> String {
     translations
@@ -197,90 +205,93 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a4 = actions.clone();
     let tr = &st.translations;
 
-    // Bottom character slots like public-rewrite CharSelect at view_height - LETTERBOX_SIZE
-    let mut char_row: Vec<View> = Vec::new();
-    for (i, cid) in CHARACTERS.iter().enumerate() {
+    // Character select grid (upstream Menu/Create_0 slot layout).
+    let mut char_buttons: Vec<View> = Vec::new();
+    for (i, cid) in PLAYABLE_RACES.iter().enumerate() {
         let a = actions.clone();
         let def = character_def(*cid);
         let selected = st.selected_character == i;
-        // Slot 20px step, 8px start — matches Menu/Create_0.gml _slot_step_size
-        let bg = if selected {
-            col(240, 210, 110)
-        } else {
-            col(40, 40, 55)
-        };
-        let border = if selected {
-            col(255, 255, 200)
-        } else {
-            col(80, 80, 100)
-        };
-        char_row.push(
+        char_buttons.push(
             Column(
                 Modifier::new()
                     .width(56.0)
                     .height(56.0)
-                    .background(bg)
-                    .border(2.0, border, 4.0)
-                    .clip_rounded(4.0)
+                    .margin(2.0)
+                    .background(if selected {
+                        RColor::from_rgba(240, 210, 110, 60)
+                    } else {
+                        RColor::from_rgba(255, 255, 255, 14)
+                    })
+                    .border(
+                        2.0,
+                        if selected {
+                            col(255, 220, 130)
+                        } else {
+                            col(80, 80, 100)
+                        },
+                        6.0,
+                    )
+                    .clip_rounded(6.0)
                     .justify_content(JustifyContent::CENTER)
                     .align_items(AlignItems::CENTER)
-                    .margin(2.0),
+                    .clickable()
+                    .on_click(move || push(&a, UiAction::SelectCharacter(i))),
             )
-            .child(RText(&def.name[..1.min(def.name.len())]).size(28.0).color(col(20, 20, 30))),
-        );
-        // Clickable overlay
-        let _ = a;
-        char_row.push(
-            Column(Modifier::new().width(1.0).height(1.0)).child(RText("").size(1.0).color(RColor::WHITE)),
+            .child((
+                RText(&def.name[..1.min(def.name.len())])
+                    .size(22.0)
+                    .color(if selected { col(255, 220, 130) } else { col(190, 195, 210) }),
+                RText(def.name).size(8.0).color(col(150, 155, 168)),
+            )),
         );
     }
-    // Make row clickable via invisible buttons overlay — use colored buttons as fallback when sprCharSelect not extracted
-    let mut char_buttons: Vec<View> = Vec::new();
-    for (i, cid) in CHARACTERS.iter().enumerate() {
-        let a = actions.clone();
-        let def = character_def(*cid);
-        let selected = st.selected_character == i;
-        char_buttons.push(mk_button_colored(
-            def.name,
-            if selected {
-                col(90, 170, 110)
-            } else {
-                col(60, 60, 80)
-            },
-            move || push(&a, UiAction::SelectCharacter(i)),
-        ));
+
+    let mut char_rows: Vec<View> = Vec::new();
+    for chunk in char_buttons.chunks(8) {
+        char_rows.push(
+            Row(Modifier::new().justify_content(JustifyContent::CENTER)).child(chunk.to_vec()),
+        );
     }
 
     Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::SPACE_BETWEEN)
+            .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(col(10, 8, 16))
-            .padding(16.0),
+            .background(col(10, 8, 16)),
     )
-    .child(vec![
+    .child(
         Column(
             Modifier::new()
-                .fill_max_size()
-                .justify_content(JustifyContent::CENTER)
+                .width(560.0)
+                .padding(28.0)
+                .background(RColor::from_rgba(8, 8, 14, 150))
+                .clip_rounded(18.0)
+                .border(2.0, col(90, 90, 110), 18.0)
                 .align_items(AlignItems::CENTER),
         )
         .child(vec![
             RText(t(tr, "app-title", "NUCLEAR THRONE"))
-                .size(48.0)
+                .size(44.0)
                 .color(col(240, 210, 110)),
-            RText("MOBILE REBUILD  •  SELECT MUTANT")
-                .size(11.0)
-                .color(col(140, 140, 160)),
-            spacer(8.0),
-            // GoButton at _slot_x + step +2 like Menu/Create_0.gml:49
+            spacer(4.0),
+            reward_chip(
+                format!(
+                    "{} {} • {} {}",
+                    t(tr, "score", "Score"),
+                    st.high_score,
+                    t(tr, "best", "Best"),
+                    st.best_floor
+                ),
+                RColor::from_rgba(255, 255, 255, 16),
+                col(190, 195, 210),
+            ),
+            spacer(20.0),
             mk_button(
                 &t(tr, "start-game", "▶  PLAY"),
                 col(80, 160, 100),
                 move || push(&a1, UiAction::StartGame),
             ),
-            spacer(8.0),
             Row(Modifier::new().gap(6.0)).child(vec![
                 mk_button_sm(&t(tr, "settings", "Settings"), {
                     let a = a2.clone();
@@ -291,25 +302,18 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                     move || push(&a, UiAction::OpenCredits)
                 }),
                 mk_button_sm(&t(tr, "quit", "Quit"), {
-                    let a = a4.clone();
+                    let a = a4;
                     move || push(&a, UiAction::QuitApp)
                 }),
             ]),
-        ]),
-        Column(
-            Modifier::new()
-                .width(320.0)
-                .height(72.0)
-                .justify_content(JustifyContent::CENTER)
-                .align_items(AlignItems::CENTER),
-        )
-        .child(vec![
-            RText("MUTANTS")
-                .size(10.0)
+            spacer(18.0),
+            RText("SELECT MUTANT")
+                .size(11.0)
                 .color(col(120, 120, 140)),
-            Row(Modifier::new().gap(4.0).justify_content(JustifyContent::CENTER)).child(char_buttons),
+            spacer(6.0),
+            Column(Modifier::new().gap(2.0)).child(char_rows),
         ]),
-    ])
+    )
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -551,156 +555,288 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let tr = &st.translations;
 
-    // Exact 88x14 health bar like scrDrawPlayerHUD (sprHealthBar 88x14 at 20,4)
-    let hp_pct = (st.hp as f32 / st.max_hp.max(1) as f32).clamp(0.0, 1.0);
-    let health_bar = Column(
-        Modifier::new()
-            .width(88.0)
-            .height(14.0)
-            .background(col(30, 30, 38))
-            .clip_rounded(2.0)
-            .padding(1.0),
-    )
-    .child(Column(
-        Modifier::new()
-            .width(84.0 * hp_pct)
-            .height(8.0)
-            .background(col(210, 60, 60))
-            .clip_rounded(1.0),
+    // Layout mirrors upstream scrDrawPlayerHUD (320x240 GUI space):
+    //   HP frame 88x14 @(20,4); fill from (22,7);
+    //   weapon slots @(24,16) pitch 44; rad bar 14x24 @(4,4);
+    //   ammo icons y=32 x=2+type*10; area name bottom-right.
+    // Chrome follows the Floppy-Warriors HUD panels.
+    let hp_frac = (st.hp as f32 / st.max_hp.max(1) as f32).clamp(0.0, 1.0);
+
+    // HP bar block — frame + fill + centered hp/max text.
+    let health_bar_block = Column(Modifier::new().gap(3.0)).child((
+        Row(
+            Modifier::new()
+                .width(268.0)
+                .justify_content(JustifyContent::SPACE_BETWEEN)
+                .align_items(AlignItems::CENTER),
+        )
+        .child((
+            RText("HP").size(11.0).color(col(180, 185, 198)),
+            RText(format!("{}/{}", st.hp.max(0), st.max_hp.max(0)))
+                .size(13.0)
+                .color(RColor::WHITE),
+        )),
+        hud_stat_bar(268.0, 14.0, hp_frac, col(252, 56, 0)),
     ));
 
-    let current = if st.current_weapon == 0 {
-        &st.weapon1
-    } else {
-        &st.weapon2
-    };
+    // Weapon slots row — active slot highlighted, ammo count beside each.
+    let mut weapon_chips: Vec<View> = Vec::new();
+    for (i, name) in st.weapons.iter().enumerate() {
+        let active = i == st.current_weapon;
+        weapon_chips.push(reward_chip(
+            format!("{} {}", if active { "▶" } else { " " }, name),
+            if active {
+                RColor::from_rgba(255, 210, 120, 60)
+            } else {
+                RColor::from_rgba(255, 255, 255, 18)
+            },
+            if active { col(255, 220, 150) } else { col(170, 175, 190) },
+        ));
+    }
+    let weapons_row = Row(Modifier::new().gap(6.0).align_items(AlignItems::CENTER))
+        .child(weapon_chips);
 
-    let top_left = Column(
+    // Rad / XP meter — vertical bar + level number (sprExpBar analog).
+    let rad_frac = (st.rads as f32 / st.max_rads.max(1) as f32).clamp(0.0, 1.0);
+    let rad_meter = Column(
         Modifier::new()
-            .padding(8.0)
-            .align_items(AlignItems::FLEX_START)
-            .justify_content(JustifyContent::FLEX_START),
+            .padding_values(PaddingValues {
+                left: 8.0,
+                right: 8.0,
+                top: 6.0,
+                bottom: 6.0,
+            })
+            .background(RColor::from_rgba(10, 12, 18, 200))
+            .border(1.5, RColor::from_rgba(120, 240, 120, 50), 12.0)
+            .clip_rounded(12.0)
+            .align_items(AlignItems::CENTER)
+            .gap(4.0),
     )
     .child((
-        health_bar,
-        spacer(4.0),
-        RText(format!("{} | {}", st.character, current))
-            .size(14.0)
-            .color(RColor::WHITE),
-        RText(format!(
-            "A:{} S:{} B:{} E:{}",
-            st.ammo[0], st.ammo[1], st.ammo[2], st.ammo[3]
-        ))
-        .size(12.0)
-        .color(col(200, 200, 210)),
-        RText(format!(
-            "{}: {}",
+        Column(
+            Modifier::new()
+                .width(10.0)
+                .height(64.0)
+                .background(RColor::from_rgba(0, 0, 0, 160))
+                .clip_rounded(5.0)
+                .justify_content(JustifyContent::FLEX_END),
+        )
+        .child(Column(
+            Modifier::new()
+                .width(10.0)
+                .height((64.0 * rad_frac).max(if rad_frac > 0.0 { 2.0 } else { 0.0 }))
+                .background(col(68, 198, 22))
+                .clip_rounded(5.0),
+        )),
+        RText(format!("LV {}", st.level))
+            .size(11.0)
+            .color(col(150, 240, 150)),
+    ));
+
+    // Ammo type counters (upstream icon row: bullets/shells/bolts/explo/energy).
+    const AMMO_LABELS: [&str; 5] = ["B", "S", "B", "E", "N"];
+    let mut ammo_chips: Vec<View> = Vec::new();
+    for (i, label) in AMMO_LABELS.iter().enumerate() {
+        let count = st.ammo[i + 1];
+        let tint = match i {
+            0 => col(230, 200, 90),
+            1 => col(220, 120, 60),
+            2 => col(150, 200, 230),
+            3 => col(210, 210, 100),
+            _ => col(140, 220, 250),
+        };
+        ammo_chips.push(reward_chip(
+            format!("{label} {}", count.max(0)),
+            RColor::from_rgba(255, 255, 255, 14),
+            tint,
+        ));
+    }
+    let ammo_row = Row(Modifier::new().gap(5.0)).child(ammo_chips);
+
+    // Ability status chip.
+    let ability_chip = reward_chip(
+        format!(
+            "{} {}",
             st.ability,
             if st.ability_ready { "READY" } else { "..." }
-        ))
-        .size(11.0)
-        .color(if st.ability_ready {
+        ),
+        if st.ability_ready {
+            RColor::from_rgba(120, 220, 130, 40)
+        } else {
+            RColor::from_rgba(255, 255, 255, 14)
+        },
+        if st.ability_ready {
             col(120, 220, 130)
         } else {
-            col(150, 150, 150)
-        }),
-    ));
+            col(150, 155, 168)
+        },
+    );
 
-    let top_right = Column(
+    // Player panel (top-left): HP, weapons, ammo, ability.
+    let player_panel = Column(
         Modifier::new()
-            .padding(8.0)
-            .align_items(AlignItems::FLEX_END)
-            .justify_content(JustifyContent::FLEX_START),
+            .width(300.0)
+            .padding(12.0)
+            .gap(8.0)
+            .background(RColor::from_rgba(10, 12, 18, 215))
+            .border(1.5, RColor::from_rgba(255, 210, 120, 50), 14.0)
+            .clip_rounded(14.0)
+            .align_items(AlignItems::STRETCH),
     )
     .child((
-        RText(format!(
-            "FLOOR {}-{} LV{}",
-            st.world, st.floor_in_world, st.level
-        ))
-        .size(13.0)
-        .color(RColor::WHITE),
-        RText(format!("RADS {}", st.rads))
-            .size(12.0)
-            .color(col(120, 240, 120)),
-        RText(format!("{}: {}", t(tr, "score", "Score"), st.score))
-            .size(11.0)
-            .color(col(220, 220, 220)),
-        RText(format!("{}: {}", t(tr, "best", "Best"), st.high_score))
-            .size(10.0)
-            .color(col(170, 170, 170)),
-        RText(format!("BEST FLOOR {}", st.best_floor))
-            .size(10.0)
-            .color(col(150, 150, 150)),
+        Row(
+            Modifier::new()
+                .justify_content(JustifyContent::SPACE_BETWEEN)
+                .align_items(AlignItems::CENTER),
+        )
+        .child((
+            reward_chip(&st.character, RColor::from_rgba(120, 170, 255, 40), col(150, 190, 255)),
+            ability_chip,
+        )),
+        health_bar_block,
+        weapons_row,
+        ammo_row,
     ));
 
-    let boss_bar = if st.boss_max > 0 {
+    // Run info panel (top-right): floor/world/loop, rads, score.
+    let run_panel = Column(
+        Modifier::new()
+            .width(190.0)
+            .padding(12.0)
+            .gap(6.0)
+            .background(RColor::from_rgba(10, 12, 18, 215))
+            .border(1.5, RColor::from_rgba(120, 170, 255, 45), 14.0)
+            .clip_rounded(14.0)
+            .align_items(AlignItems::FLEX_END),
+    )
+    .child((
+        RText(format!("FLOOR {}-{}", st.world, st.floor_in_world))
+            .size(20.0)
+            .color(RColor::WHITE),
+        reward_chip(
+            format!("{} {}", t(tr, "score", "Score"), st.score),
+            RColor::from_rgba(255, 255, 255, 14),
+            col(190, 195, 210),
+        ),
+        reward_chip(
+            format!("{} {}", t(tr, "best", "Best"), st.high_score),
+            RColor::from_rgba(255, 255, 255, 10),
+            col(150, 155, 168),
+        ),
+    ));
+
+    // Boss bar (top-center) when a boss is alive.
+    let boss_view = if st.boss_max > 0 {
         let pct = (st.boss_hp as f32 / st.boss_max as f32).clamp(0.0, 1.0);
         Column(
             Modifier::new()
                 .width(420.0)
-                .height(16.0)
-                .background(col(40, 30, 30))
-                .clip_rounded(4.0),
+                .padding(8.0)
+                .gap(4.0)
+                .background(RColor::from_rgba(14, 10, 16, 210))
+                .border(1.5, RColor::from_rgba(200, 120, 255, 55), 12.0)
+                .clip_rounded(12.0),
         )
-        .child(Column(
-            Modifier::new()
-                .width((420.0 * pct).max(1.0))
-                .height(16.0)
-                .background(col(200, 50, 50))
-                .clip_rounded(4.0)
-                .align_self(AlignSelf::FLEX_START),
+        .child((
+            RText("BOSS")
+                .size(10.0)
+                .color(col(200, 160, 230)),
+            hud_stat_bar(404.0, 10.0, pct, col(200, 110, 255)),
         ))
     } else {
-        Column(Modifier::new().width(1.0).height(1.0))
+        Column(Modifier::new().width(0.0).height(0.0))
     };
+
+    // Bottom-center hint + toast.
+    let hint = Column(
+        Modifier::new()
+            .padding_values(PaddingValues {
+                left: 14.0,
+                right: 14.0,
+                top: 6.0,
+                bottom: 6.0,
+            })
+            .background(RColor::from_rgba(8, 8, 12, 150))
+            .clip_rounded(999.0),
+    )
+    .child(RText(t(
+        tr,
+        "controls-hint",
+        "WASD move | Mouse aim | LMB shoot | 1/2 swap | E ability | Esc pause",
+    ))
+    .size(12.0)
+    .color(col(150, 155, 168)));
 
     let toast_view = if st.toast_timer > 0.0 && !st.toast.is_empty() {
         let a = ((st.toast_timer.clamp(0.0, 1.0)) * 255.0) as u8;
-        RText(&st.toast)
-            .size(22.0)
-            .color(RColor::from_rgba(255, 255, 255, a))
+        Column(
+            Modifier::new()
+                .padding_values(PaddingValues {
+                    left: 16.0,
+                    right: 16.0,
+                    top: 8.0,
+                    bottom: 8.0,
+                })
+                .background(RColor::from_rgba(18, 18, 28, a))
+                .clip_rounded(10.0),
+        )
+        .child(RText(&st.toast).size(18.0).color(RColor::from_rgba(255, 230, 150, a)))
     } else {
-        RText("").size(1.0).color(RColor::WHITE)
+        Column(Modifier::new().width(0.0).height(0.0))
     };
 
-    ZStack(Modifier::new().fill_max_size()).child((Column(
-        Modifier::new()
-            .fill_max_size()
-            .padding(16.0)
-            .align_items(AlignItems::FLEX_START)
-            .justify_content(JustifyContent::SPACE_BETWEEN),
-    )
-    .child((
+    ZStack(Modifier::new().fill_max_size()).child((
+        // Rad meter floats alone on the left edge (like sprExpBar at x=4).
         Column(
             Modifier::new()
                 .fill_max_size()
-                .justify_content(JustifyContent::SPACE_BETWEEN),
+                .padding_values(PaddingValues {
+                    left: 14.0,
+                    right: 0.0,
+                    top: 150.0,
+                    bottom: 0.0,
+                })
+                .align_items(AlignItems::FLEX_START),
         )
-        .child((top_left, top_right)),
+        .child(rad_meter),
         Column(
             Modifier::new()
                 .fill_max_size()
-                .justify_content(JustifyContent::CENTER)
+                .padding(14.0)
+                .align_items(AlignItems::FLEX_START)
+                .justify_content(JustifyContent::FLEX_START),
+        )
+        .child(player_panel),
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding(14.0)
+                .align_items(AlignItems::FLEX_END)
+                .justify_content(JustifyContent::FLEX_START),
+        )
+        .child(run_panel),
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding_values(PaddingValues {
+                    left: 14.0,
+                    right: 14.0,
+                    top: 14.0,
+                    bottom: 0.0,
+                })
                 .align_items(AlignItems::CENTER),
         )
-        .child(boss_bar),
+        .child(boss_view),
         Column(
             Modifier::new()
                 .fill_max_size()
+                .padding(12.0)
+                .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::FLEX_END)
-                .align_items(AlignItems::CENTER),
+                .gap(8.0),
         )
-        .child((
-            toast_view,
-            RText(t(
-                tr,
-                "controls-hint",
-                "WASD move | Mouse aim | LMB/Space shoot | 1/2 switch | E ability | Esc pause",
-            ))
-            .size(13.0)
-            .color(col(180, 180, 180)),
-        )),
-    )),))
+        .child((toast_view, hint)),
+    ))
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -823,6 +959,54 @@ fn mk_button_sm(label: &str, on_click: impl Fn() + 'static) -> View {
 
 fn col(r: u8, g: u8, b: u8) -> RColor {
     RColor::from_rgba(r, g, b, 255)
+}
+
+/// Pill chip label (Floppy-Warriors reward_chip style).
+pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> View {
+    Column(
+        Modifier::new()
+            .padding_values(PaddingValues {
+                left: 9.0,
+                right: 9.0,
+                top: 5.0,
+                bottom: 5.0,
+            })
+            .background(bg)
+            .clip_rounded(999.0)
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER),
+    )
+    .child(
+        RText(label.into())
+            .size(11.0)
+            .color(fg)
+            .single_line()
+            .overflow_ellipsize(),
+    )
+}
+
+/// Pill stat bar (Floppy-Warriors hud_stat_bar style).
+pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> View {
+    let f = frac.clamp(0.0, 1.0);
+    let inner_w = if f <= 0.0 { 0.001 } else { (width * f).max(2.0) };
+    let radius = (height * 0.5).max(2.0);
+
+    Column(
+        Modifier::new()
+            .width(width)
+            .height(height)
+            .background(RColor::from_rgba(0, 0, 0, 170))
+            .border(1.0, RColor::from_rgba(255, 255, 255, 24), radius)
+            .clip_rounded(radius),
+    )
+    .child(Column(
+        Modifier::new()
+            .width(inner_w)
+            .height(height)
+            .background(fill)
+            .clip_rounded(radius)
+            .align_self(AlignSelf::FLEX_START),
+    ))
 }
 
 fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {

@@ -3,9 +3,10 @@
 use bevy::prelude::*;
 
 use crate::game::content::*;
+use serde::{Deserialize, Serialize};
 
-pub const ARENA_W: f32 = 2000.0;
-pub const ARENA_H: f32 = 1300.0;
+pub const ARENA_W: f32 = 2560.0;
+pub const ARENA_H: f32 = 1664.0;
 pub const WALL_THICK: f32 = 60.0;
 pub const PLAYER_RADIUS: f32 = 12.0;
 pub const PLAYER_ACCEL: f32 = 1500.0;
@@ -102,6 +103,9 @@ pub struct SaveDirty(pub bool);
 pub struct Run {
     pub floor: u32,
     pub world: u32,
+    pub area: crate::game::areas::AreaId,
+    pub loop_count: u32,
+    pub floor_in_area: u32,
     pub gen_seed: u64,
     pub portal_open: bool,
     pub game_over: bool,
@@ -113,6 +117,9 @@ impl Default for Run {
         Self {
             floor: 1,
             world: 1,
+            area: crate::game::areas::AreaId::Desert,
+            loop_count: 0,
+            floor_in_area: 1,
             gen_seed: 0,
             portal_open: false,
             game_over: false,
@@ -121,12 +128,12 @@ impl Default for Run {
     }
 }
 
-#[derive(Resource)]
-pub struct SelectedCharacter(pub CharacterId);
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectedCharacter(pub RaceId);
 
 impl Default for SelectedCharacter {
     fn default() -> Self {
-        Self(CharacterId::Fish)
+        Self(RaceId::Fish)
     }
 }
 
@@ -227,7 +234,7 @@ pub struct Health {
     pub invuln: Timer,
 }
 
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Team {
     Player,
     Enemy,
@@ -245,22 +252,81 @@ pub struct FireCooldown {
     pub burst_timer: Timer,
 }
 
-#[derive(Component)]
+pub const MAX_WEAPON_SLOTS: usize = 3;
+pub const MAX_AMMO_TYPES: usize = 6;
+
+#[derive(Component, Clone, Debug)]
 pub struct Inventory {
-    pub weapons: [WeaponKind; 2],
+    pub weapons: [WeaponId; MAX_WEAPON_SLOTS],
+    pub weapon_slots: usize, // 2 normally, 3 for Cuz
     pub current: usize,
-    pub ammo: [i32; 4],
+    pub ammo: [i32; MAX_AMMO_TYPES],
 }
 
 impl Inventory {
     pub fn ammo_mut(&mut self, kind: AmmoKind) -> &mut i32 {
+        let idx = match kind {
+            AmmoKind::None => 0,
+            AmmoKind::Bullets => 1,
+            AmmoKind::Shells => 2,
+            AmmoKind::Bolts => 3,
+            AmmoKind::Explosives => 4,
+            AmmoKind::Energy => 5,
+        };
+        &mut self.ammo[idx]
+    }
+
+    pub fn ammo_of(&self, kind: AmmoKind) -> i32 {
         match kind {
-            AmmoKind::Bullets => &mut self.ammo[0],
-            AmmoKind::Shells => &mut self.ammo[1],
-            AmmoKind::Bolts => &mut self.ammo[2],
-            AmmoKind::Explosives => &mut self.ammo[3],
+            AmmoKind::None => self.ammo[0],
+            AmmoKind::Bullets => self.ammo[1],
+            AmmoKind::Shells => self.ammo[2],
+            AmmoKind::Bolts => self.ammo[3],
+            AmmoKind::Explosives => self.ammo[4],
+            AmmoKind::Energy => self.ammo[5],
         }
     }
+}
+
+#[derive(Component, Clone, Debug)]
+pub struct RaceState {
+    pub race: RaceId,
+    pub skin: SkinLetter,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct RaceLoadout {
+    pub unlocked: bool,
+    pub unlocked_skins: [bool; 4],
+    pub stored_weapon: WeaponId,
+    pub start_weapon: WeaponId,
+    pub start_crown: u8,
+}
+
+impl Default for WeaponId {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HitId {
+    Weapon(WeaponId),
+    Explosion(WeaponId),
+    Enemy(u16),
+    Contact,
+    Fire,
+    Toxic,
+    Trap,
+    Crown,
+    Other(u16),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DamageSource {
+    pub owner: Entity,
+    pub team: Team,
+    pub hit_id: HitId,
 }
 
 #[derive(Component)]
@@ -270,6 +336,7 @@ pub struct Projectile {
     pub radius: f32,
     pub knockback: f32,
     pub explosive: bool,
+    pub source: Option<DamageSource>,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -309,8 +376,23 @@ pub enum PickupKind {
     Rad(u32),
     Medkit(i32),
     Ammo(AmmoKind, i32),
-    Weapon(WeaponKind),
-    Chest,
+    Weapon(WeaponId),
+    Chest(ChestKind),
+}
+
+/// Upstream chest flavours (scrPopChests).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ChestKind {
+    Weapon,
+    Ammo,
+    Rad,
+}
+
+// Back-compat for legacy WeaponKind pickups
+impl From<WeaponKind> for PickupKind {
+    fn from(k: WeaponKind) -> Self {
+        PickupKind::Weapon(k.into())
+    }
 }
 
 #[derive(Component)]

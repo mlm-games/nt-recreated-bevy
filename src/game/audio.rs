@@ -25,8 +25,7 @@ pub struct GameAudio {
 }
 
 fn load_sfx(asset_server: &AssetServer, stem: &str) -> Handle<AudioSource> {
-    let _wav: Handle<AudioSource> = asset_server.load(format!("audio/{stem}.wav"));
-    asset_server.load(format!("audio/{stem}.ogg"))
+    asset_server.load(format!("audio/{stem}.wav"))
 }
 
 impl GameAudio {
@@ -40,11 +39,11 @@ impl GameAudio {
             explode: load_sfx(asset_server, "sndExplosion"),
             boom: load_sfx(asset_server, "sndExplosionL"),
             hit: load_sfx(asset_server, "sndHitWall"),
-            hurt: load_sfx(asset_server, "snd_hurt"),
+            hurt: load_sfx(asset_server, "sndPlayerHit"),
             pickup: load_sfx(asset_server, "sndAmmoPickup"),
             levelup: load_sfx(asset_server, "sndLevelUp"),
             portal: load_sfx(asset_server, "sndPortalOpen"),
-            death: load_sfx(asset_server, "snd_dead"),
+            death: load_sfx(asset_server, "sndPlayerDeath"),
             chest: load_sfx(asset_server, "sndChest"),
         }
     }

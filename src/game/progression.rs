@@ -6,10 +6,8 @@ use rand::RngExt;
 
 use crate::app::{OverlayMenu, Paused, PendingUnpause};
 use crate::game::audio::GameAudio;
-use crate::game::combat;
 use crate::game::components::*;
 use crate::game::content::*;
-use crate::game::enemies;
 use crate::game::world;
 use crate::save::SaveData;
 use game_utils_bevy::camera_follow::CameraFollow;
@@ -21,6 +19,7 @@ use game_utils_bevy::vfx::{DamageNumber, TrailGhost, VfxSpawner};
 
 pub fn setup_run(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut score: ResMut<Score>,
     mut run: ResMut<Run>,
@@ -37,6 +36,9 @@ pub fn setup_run(
     dirty.0 = false;
     run.floor = 1;
     run.world = 1;
+    run.area = crate::game::areas::area_for_floor(1, 0);
+    run.loop_count = 0;
+    run.floor_in_area = 1;
     run.gen_seed = rand::rng().random_range(0..u64::MAX);
     run.portal_open = false;
     run.game_over = false;
@@ -90,9 +92,10 @@ pub fn setup_run(
                 mutations: Vec::new(),
             },
             Inventory {
-                weapons: [WeaponKind::Revolver, WeaponKind::None],
+                weapons: [WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
+                weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
                 current: 0,
-                ammo: [96, 0, 0, 0],
+                ammo: [0, 96, 0, 0, 0, 0],
             },
             FireCooldown {
                 timer: ready_timer(),
@@ -110,12 +113,7 @@ pub fn setup_run(
             },
             AimDir(Vec2::Y),
             Velocity(Vec2::ZERO),
-            crate::game::content::sprite_or_fallback(
-                &asset_server,
-                def.sprite,
-                def.color,
-                Vec2::splat(24.0),
-            ),
+            sprite_exact(&catalog, &asset_server, def.sprite),
             Transform::from_xyz(0.0, 0.0, 20.0),
         ))
         .id();
@@ -129,14 +127,14 @@ pub fn setup_run(
             follow_weight: 0.18,
             aim_weight: 0.12,
             aim_pull: 0.28,
-            base_scale: 2.6,
+            base_scale: 0.45,
             zoom_speed: 0.08,
             ..default()
         });
     }
 
-    world::spawn_arena(&mut commands, &asset_server, &run, &mut mask);
-    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, &mask, false, false);
+    let plan = world::generate_level(&run);
+    world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
 }
 
 pub fn cleanup_run(
@@ -398,6 +396,7 @@ fn apply_mutation(
 
 pub fn portal_check(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
     mut trauma: ResMut<Trauma>,
@@ -424,12 +423,7 @@ pub fn portal_check(
             GameCleanup,
             LevelCleanup,
             Portal,
-            crate::game::content::sprite_or_fallback(
-                &asset_server,
-                "images/sprPortal.png",
-                Color::srgb(0.55, 0.1, 1.0),
-                Vec2::splat(48.0),
-            ),
+            sprite_exact(&catalog, &asset_server, "images/sprPortal.png"),
             Transform::from_xyz(pos.x, pos.y, 5.0),
         ))
         .id();
@@ -440,15 +434,34 @@ pub fn portal_check(
     audio.play_portal(&mut commands);
 
     // Level-clear reward chest (Open Mind spawns extras).
-    combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(0.0, -48.0));
+    crate::game::pickups::spawn_chest(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        ChestKind::Ammo,
+        pos + Vec2::new(0.0, -48.0),
+    );
     if open_mind.0 {
-        combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(64.0, -32.0));
-        combat::spawn_chest_with_assets(&mut commands, &asset_server, pos + Vec2::new(-64.0, -32.0));
+        crate::game::pickups::spawn_chest(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            ChestKind::Ammo,
+            pos + Vec2::new(64.0, -32.0),
+        );
+        crate::game::pickups::spawn_chest(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            ChestKind::Ammo,
+            pos + Vec2::new(-64.0, -32.0),
+        );
     }
 }
 
 pub fn portal_enter(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
     mut mask: ResMut<FloorMask>,
@@ -456,8 +469,6 @@ pub fn portal_enter(
     mut chroma: ResMut<ChromaticAberration>,
     mut toast: ResMut<Toast>,
     audio: Res<GameAudio>,
-    scarier: Res<ScarierFace>,
-    heavy_heart: Res<HeavyHeart>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
     level_q: Query<Entity, With<LevelCleanup>>,
     mut player_q: Query<(&mut Transform, &mut Health), (With<Player>, Without<Portal>)>,
@@ -490,13 +501,16 @@ pub fn portal_enter(
 
     run.floor += 1;
     run.world = world::world_of(run.floor);
+    run.loop_count = (run.floor - 1) / 7;
+    run.floor_in_area = ((run.floor - 1) % 7) + 1;
+    run.area = crate::game::areas::area_for_floor(run.floor, run.loop_count);
     run.portal_open = false;
     run.gen_seed = rand::rng().random_range(0..u64::MAX);
 
     health.hp = (health.hp + 1).min(health.max);
 
-    world::spawn_arena(&mut commands, &asset_server, &run, &mut mask);
-    enemies::spawn_enemy_pack(&mut commands, &asset_server, &run, &mask, scarier.0, heavy_heart.0);
+    let plan = world::generate_level(&run);
+    world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
     // Spawn player on a floor cell near origin
     if let Some(c) = mask.cells.iter().min_by_key(|c| {
         let p = mask.cell_center(**c);
@@ -518,7 +532,7 @@ pub fn portal_enter(
     ));
 }
 
-pub fn animate_portal(time: Res<Time>, mut q: Query<&mut Transform, With<Portal>>) {
+pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<Portal>>) {
     let s = 1.0 + (time.elapsed_secs() * 8.0).sin() * 0.12;
     for mut tf in &mut q {
         tf.scale = Vec3::splat(s);
@@ -528,7 +542,7 @@ pub fn animate_portal(time: Res<Time>, mut q: Query<&mut Transform, With<Portal>
 
 pub fn flush_dirty_save(
     mut accumulator: Local<f32>,
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut dirty: ResMut<SaveDirty>,
     save: Res<SaveData>,
     manager: Res<SaveManager>,

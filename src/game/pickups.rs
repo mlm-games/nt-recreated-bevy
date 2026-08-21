@@ -22,71 +22,107 @@ impl Toast {
 
 pub fn spawn_pickup(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     kind: PickupKind,
     pos: Vec2,
 ) {
-    spawn_pickup_with_assets(commands, None, kind, pos);
-}
-
-pub fn spawn_pickup_with_assets(
-    commands: &mut Commands,
-    asset_server: Option<&AssetServer>,
-    kind: PickupKind,
-    pos: Vec2,
-) {
-    let (path, fallback, size) = match kind {
-        PickupKind::Rad(_) => ("images/sprRad.png", Color::srgb(0.25, 1.0, 0.2), 12.0),
-        PickupKind::Medkit(_) => ("images/sprHP.png", Color::srgb(1.0, 0.15, 0.15), 16.0),
-        PickupKind::Ammo(AmmoKind::Bullets, _) => (
-            "images/sprBulletPickup.png",
-            Color::srgb(0.25, 0.65, 1.0),
-            14.0,
-        ),
-        PickupKind::Ammo(AmmoKind::Shells, _) => (
-            "images/sprShellPickup.png",
-            Color::srgb(0.25, 0.65, 1.0),
-            14.0,
-        ),
-        PickupKind::Ammo(AmmoKind::Bolts, _) => (
-            "images/sprBoltPickup.png",
-            Color::srgb(0.25, 0.65, 1.0),
-            14.0,
-        ),
-        PickupKind::Ammo(AmmoKind::Explosives, _) => (
-            "images/sprExploPickup.png",
-            Color::srgb(0.25, 0.65, 1.0),
-            14.0,
-        ),
-        PickupKind::Weapon(k) => ("images/sprRevolver.png", weapon_color(k), 20.0),
-        PickupKind::Chest => ("images/sprChest.png", Color::srgb(0.85, 0.6, 0.2), 32.0),
-    };
-
-    let sprite = if let Some(server) = asset_server {
-        sprite_or_fallback(server, path, fallback, Vec2::splat(size))
-    } else {
-        Sprite {
-            color: fallback,
-            custom_size: Some(Vec2::splat(size)),
-            ..default()
-        }
-    };
-
+    let (path, size) = pickup_sprite(kind);
     let e = commands
         .spawn((
             GameCleanup,
             LevelCleanup,
             Pickup { kind },
-            sprite,
+            sprite_exact(catalog, asset_server, path),
             Transform::from_translation(pos.extend(8.0)),
         ))
         .id();
-
     Juice::pop_in(commands, e, 0.14);
 }
 
+pub fn spawn_chest(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    kind: ChestKind,
+    pos: Vec2,
+) {
+    let path = match kind {
+        ChestKind::Weapon => "images/sprWeaponChest.png",
+        ChestKind::Ammo => "images/sprAmmoChest.png",
+        ChestKind::Rad => "images/sprRadChest.png",
+    };
+    let e = commands
+        .spawn((
+            GameCleanup,
+            LevelCleanup,
+            Pickup {
+                kind: PickupKind::Chest(kind),
+            },
+            sprite_exact(catalog, asset_server, path),
+            Transform::from_translation(pos.extend(8.0)),
+        ))
+        .id();
+    Juice::pop_in(commands, e, 0.14);
+}
+
+/// Native NT art per pickup kind.
+fn pickup_sprite(kind: PickupKind) -> (&'static str, f32) {
+    match kind {
+        PickupKind::Rad(_) => ("images/sprRad.png", 12.0),
+        PickupKind::Medkit(_) => ("images/sprHP.png", 16.0),
+        PickupKind::Ammo(AmmoKind::Bullets, _) => ("images/sprBulletIcon.png", 12.0),
+        PickupKind::Ammo(AmmoKind::Shells, _) => ("images/sprShotIcon.png", 12.0),
+        PickupKind::Ammo(AmmoKind::Bolts, _) => ("images/sprBoltIcon.png", 12.0),
+        PickupKind::Ammo(AmmoKind::Explosives, _) => ("images/sprExploIcon.png", 12.0),
+        PickupKind::Ammo(AmmoKind::Energy, _) => ("images/sprEnergyIcon.png", 12.0),
+        PickupKind::Ammo(AmmoKind::None, _) => ("images/sprRad.png", 12.0),
+        PickupKind::Weapon(k) => (weapon_id_sprite(k), 20.0),
+        PickupKind::Chest(kind) => match kind {
+            ChestKind::Weapon => ("images/sprWeaponChest.png", 32.0),
+            ChestKind::Ammo => ("images/sprAmmoChest.png", 32.0),
+            ChestKind::Rad => ("images/sprRadChest.png", 32.0),
+        },
+    }
+}
+
+/// World sprite for a dropped weapon (upstream weapon sprites).
+fn weapon_id_sprite(id: WeaponId) -> &'static str {
+    if id == WeaponId::REVOLVER {
+        return "images/sprRevolver.png";
+    }
+    if id == WeaponId::MACHINEGUN {
+        return "images/sprMachinegun.png";
+    }
+    if id == WeaponId::CROSSBOW {
+        return "images/sprCrossbow.png";
+    }
+    if id == WeaponId::GRENADE_LAUNCHER {
+        return "images/sprNader.png";
+    }
+    if id == WeaponId::SMG {
+        return "images/sprSmg.png";
+    }
+    if id == WeaponId::ASSAULT_RIFLE {
+        return "images/sprARifle.png";
+    }
+    if id == WeaponId(5) {
+        return "images/sprShotgun.png";
+    }
+    if id == WeaponId::WRENCH {
+        return "images/sprWrench.png";
+    }
+    if id == WeaponId::SLEDGEHAMMER {
+        return "images/sprHammerHead.png";
+    }
+    "images/sprRevolver.png"
+}
+
 pub fn collect_pickups(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut trauma: ResMut<Trauma>,
     mut flash: ResMut<FlashWhite>,
     mut chroma: ResMut<ChromaticAberration>,
@@ -170,8 +206,12 @@ pub fn collect_pickups(
             PickupKind::Ammo(ammo, amount) => {
                 let fish_bonus = if player.ability == AbilityKind::Flip {
                     match ammo {
+                        AmmoKind::None => 0,
                         AmmoKind::Bullets => 8,
-                        AmmoKind::Shells | AmmoKind::Bolts | AmmoKind::Explosives => 2,
+                        AmmoKind::Shells
+                        | AmmoKind::Bolts
+                        | AmmoKind::Explosives
+                        | AmmoKind::Energy => 2,
                     }
                 } else {
                     0
@@ -197,15 +237,13 @@ pub fn collect_pickups(
                 audio.play_pickup(&mut commands);
             }
             PickupKind::Weapon(weapon) => {
-                equip_weapon(&mut commands, &mut inv, weapon, player_pos);
+                equip_weapon(&mut commands, &catalog, &asset_server, &mut inv, weapon, player_pos);
                 ScreenEffects::flash_white(&mut flash, 0.04);
                 Juice::bounce_scale(&mut commands, player_e, 1.3, 0.16);
                 audio.play_chest(&mut commands);
-                toast.show(&format!("Picked up {}", weapon_name(weapon)));
+                toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
             }
-            PickupKind::Chest => {
-                let weapon = random_weapon(&mut rand::rng());
-                equip_weapon(&mut commands, &mut inv, weapon, player_pos);
+            PickupKind::Chest(chest) => {
                 ScreenEffects::add_trauma(&mut trauma, 0.15);
                 ScreenEffects::flash_white(&mut flash, 0.05);
                 GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
@@ -217,32 +255,114 @@ pub fn collect_pickups(
                     Color::srgb(1.0, 0.8, 0.3),
                     (100.0, 300.0),
                 );
-                toast.show(&format!("Opened chest: {}", weapon_name(weapon)));
+                match chest {
+                    ChestKind::Weapon => {
+                        let weapon = random_weapon(&mut rand::rng());
+                        equip_weapon(&mut commands, &catalog, &asset_server, &mut inv, weapon, player_pos);
+                        toast.show(&format!("Opened chest: {}", weapon_id_name(weapon)));
+                    }
+                    ChestKind::Ammo => {
+                        // AmmoChest: a bundle of every carried ammo type.
+                        let mut total = 0i32;
+                        for ammo in [
+                            AmmoKind::Bullets,
+                            AmmoKind::Shells,
+                            AmmoKind::Bolts,
+                            AmmoKind::Explosives,
+                            AmmoKind::Energy,
+                        ] {
+                            let cap = ammo_max(ammo)
+                                + if player.back_muscle > 0 {
+                                    match ammo {
+                                        AmmoKind::Bullets => (300 * player.back_muscle) as i32,
+                                        _ => (44 * player.back_muscle) as i32,
+                                    }
+                                } else {
+                                    0
+                                };
+                            let slot = inv.ammo_mut(ammo);
+                            if *slot < cap {
+                                *slot = (*slot + ammo_pickup_amount(ammo) * 3).min(cap);
+                                total += 1;
+                            }
+                        }
+                        toast.show(if total > 0 {
+                            "Ammo refilled"
+                        } else {
+                            "Ammo already full"
+                        });
+                    }
+                    ChestKind::Rad => {
+                        // RadChest: burst of rads toward the next mutation.
+                        player.rads += 30;
+                        audio.play_pickup(&mut commands);
+                        progression::check_level_up(
+                            &mut commands,
+                            &mut trauma,
+                            &mut flash,
+                            &mut player,
+                            &mut health,
+                            &mut inv,
+                            &mut toast,
+                            &audio,
+                            player_pos,
+                        );
+                    }
+                }
             }
         }
     }
 }
 
-/// Equips a weapon NT-style: if the backup slot is empty, the current weapon
-/// moves there; otherwise the current weapon is dropped on the ground.
+fn first_empty_weapon_slot(inv: &Inventory) -> Option<usize> {
+    (0..inv.weapon_slots).find(|&i| inv.weapons[i] == WeaponId::NONE)
+}
+
+fn spawn_dropped_weapon(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    weapon: WeaponId,
+    pos: Vec2,
+) {
+    spawn_pickup(
+        commands,
+        catalog,
+        asset_server,
+        PickupKind::Weapon(weapon),
+        pos + Vec2::new(0.0, 24.0),
+    );
+}
+
+/// Equips a weapon NT-style: slot-aware for Cuz (3 slots). If an empty slot exists,
+/// fill it and switch to it; otherwise drop the current weapon.
 fn equip_weapon(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     inv: &mut Inventory,
-    weapon: WeaponKind,
+    weapon: WeaponId,
     player_pos: Vec2,
 ) {
-    let other = 1 - inv.current;
-    if inv.weapons[other] != WeaponKind::None {
-        let dropped = inv.weapons[inv.current];
-        if dropped != WeaponKind::None {
-            spawn_pickup(commands, PickupKind::Weapon(dropped), player_pos);
+    if let Some(empty) = first_empty_weapon_slot(inv) {
+        inv.weapons[empty] = weapon;
+        inv.current = empty;
+        let def = crate::game::weapon_runtime::weapon_runtime_def(weapon);
+        if def.melee.is_none() {
+            let slot = inv.ammo_mut(def.ammo);
+            let add = ammo_pickup_amount(def.ammo) * 2;
+            *slot = (*slot + add).min(ammo_max(def.ammo));
         }
-    } else {
-        inv.weapons[other] = inv.weapons[inv.current];
+        return;
+    }
+
+    let dropped = inv.weapons[inv.current];
+    if dropped != WeaponId::NONE {
+        spawn_dropped_weapon(commands, catalog, asset_server, dropped, player_pos);
     }
     inv.weapons[inv.current] = weapon;
 
-    let def = weapon_def(weapon);
+    let def = crate::game::weapon_runtime::weapon_runtime_def(weapon);
     if def.melee.is_none() {
         let slot = inv.ammo_mut(def.ammo);
         let add = ammo_pickup_amount(def.ammo) * 2;
@@ -250,7 +370,7 @@ fn equip_weapon(
     }
 }
 
-pub fn tick_toast(time: Res<Time>, mut toast: ResMut<Toast>) {
+pub fn tick_toast(time: Res<Time<Fixed>>, mut toast: ResMut<Toast>) {
     if toast.timer.duration().is_zero() {
         return;
     }

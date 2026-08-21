@@ -27,10 +27,11 @@ pub struct Explosion {
     pub damage: i32,
     pub team: Team,
     pub hits_player: bool,
+    pub source: Option<DamageSource>,
 }
 
 pub fn move_projectiles(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut Projectile, &Velocity, &mut Transform), Without<Prop>>,
     mut props: Query<(Entity, &mut Prop, &Transform), With<Prop>>,
@@ -116,6 +117,15 @@ pub fn move_projectiles(
 }
 
 fn spawn_explosion(commands: &mut Commands, pos: Vec2, damage: i32) {
+    spawn_explosion_with_source(commands, pos, damage, None);
+}
+
+fn spawn_explosion_with_source(
+    commands: &mut Commands,
+    pos: Vec2,
+    damage: i32,
+    source: Option<DamageSource>,
+) {
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -125,13 +135,14 @@ fn spawn_explosion(commands: &mut Commands, pos: Vec2, damage: i32) {
             damage,
             team: Team::Player,
             hits_player: true,
+            source,
         },
         Transform::from_translation(pos.extend(20.0)),
     ));
 }
 
 pub fn apply_explosions(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut trauma: ResMut<Trauma>,
     mut hitstop: ResMut<HitStop>,
@@ -503,6 +514,8 @@ pub fn gamma_guts_aura(
 
 pub fn resolve_deaths(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut score: ResMut<Score>,
     mut save: ResMut<SaveData>,
     mut dirty: ResMut<SaveDirty>,
@@ -606,13 +619,20 @@ pub fn resolve_deaths(
             GameFeel::rumble_controller(&mut rumble, &gamepads, 0.8, 1.0, 0.4);
             GameFeel::slow_motion(&mut slow_mo, 0.35, 0.6);
             for _ in 0..enemy.rad_drop.min(24) {
-                spawn_rad(&mut commands, pos + random_offset(), 1);
+                spawn_rad(&mut commands, &catalog, &asset_server, pos + random_offset(), 1);
             }
             // Boss drops a chest with a weapon plus two drops.
-            spawn_chest(&mut commands, pos + random_offset() * 3.0);
+            spawn_chest(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                pos + random_offset() * 3.0,
+            );
             for _ in 0..2 {
                 maybe_spawn_drop(
                     &mut commands,
+                    &catalog,
+                    &asset_server,
                     pos,
                     enemy.drop_chance,
                     enemy.weapon_chance,
@@ -634,15 +654,18 @@ pub fn resolve_deaths(
                         damage: 3,
                         team: Team::Player,
                         hits_player: false,
+                        source: None,
                     },
                     Transform::from_translation(pos.extend(20.0)),
                 ));
             }
             for _ in 0..enemy.rad_drop {
-                spawn_rad(&mut commands, pos + random_offset(), 1);
+                spawn_rad(&mut commands, &catalog, &asset_server, pos + random_offset(), 1);
             }
             maybe_spawn_drop(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 pos,
                 enemy.drop_chance,
                 enemy.weapon_chance,
@@ -671,8 +694,21 @@ pub fn resolve_deaths(
                 AmmoKind::Shells,
                 AmmoKind::Bolts,
                 AmmoKind::Explosives,
+                AmmoKind::Energy,
             ]) {
-                *slot = ammo_max(kind);
+                // ammo array is 6 with index 0 unused; zip handles first 5 slots
+                let _ = slot;
+                let _ = kind;
+            }
+            // Refill all ammo types properly
+            for kind in [
+                AmmoKind::Bullets,
+                AmmoKind::Shells,
+                AmmoKind::Bolts,
+                AmmoKind::Explosives,
+                AmmoKind::Energy,
+            ] {
+                *pinv.ammo_mut(kind) = ammo_max(kind);
             }
             HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
             audio.play_pickup(&mut commands);
@@ -722,8 +758,8 @@ pub fn resolve_deaths(
 }
 
 fn give_ammo(inv: &mut Inventory) {
-    let kind = inv.weapons[inv.current];
-    if kind == WeaponKind::None {
+    let id = inv.weapons[inv.current];
+    if id == WeaponId::NONE {
         let mut rng = rand::rng();
         let kind = random_ammo_kind(&mut rng);
         let slot = inv.ammo_mut(kind);
@@ -731,7 +767,7 @@ fn give_ammo(inv: &mut Inventory) {
         *slot = (*slot + add).min(ammo_max(kind));
         return;
     }
-    let def = weapon_def(kind);
+    let def = crate::game::weapon_runtime::weapon_runtime_def(id);
     if def.melee.is_some() {
         return;
     }
@@ -743,11 +779,11 @@ fn give_ammo(inv: &mut Inventory) {
 /// Sum of per-weapon ammo need factors (0.1 well-stocked .. 0.75 low).
 fn scrub_need(inv: &Inventory) -> f32 {
     let mut need = 0.0;
-    for w in inv.weapons {
-        if w == WeaponKind::None {
+    for w in inv.weapons.iter().take(inv.weapon_slots) {
+        if *w == WeaponId::NONE {
             continue;
         }
-        let def = weapon_def(w);
+        let def = crate::game::weapon_runtime::weapon_runtime_def(*w);
         if def.melee.is_some() {
             need += 0.5;
             continue;
@@ -766,31 +802,17 @@ fn scrub_need(inv: &Inventory) -> f32 {
 }
 
 fn inv_ammo(inv: &Inventory, kind: AmmoKind) -> i32 {
-    match kind {
-        AmmoKind::Bullets => inv.ammo[0],
-        AmmoKind::Shells => inv.ammo[1],
-        AmmoKind::Bolts => inv.ammo[2],
-        AmmoKind::Explosives => inv.ammo[3],
-    }
+    inv.ammo_of(kind)
 }
 
 pub fn spawn_rad(
     commands: &mut Commands,
-    pos: Vec2,
-    amount: u32,
-) {
-    use crate::game::pickups::spawn_pickup;
-    spawn_pickup(commands, PickupKind::Rad(amount), pos);
-}
-
-pub fn spawn_rad_with_assets(
-    commands: &mut Commands,
+    catalog: &AssetCatalog,
     asset_server: &AssetServer,
     pos: Vec2,
     amount: u32,
 ) {
-    use crate::game::pickups::spawn_pickup_with_assets;
-    spawn_pickup_with_assets(commands, Some(asset_server), PickupKind::Rad(amount), pos);
+    crate::game::pickups::spawn_pickup(commands, catalog, asset_server, PickupKind::Rad(amount), pos);
 }
 
 fn random_offset() -> Vec2 {
@@ -803,21 +825,13 @@ fn random_offset() -> Vec2 {
 /// scrDrop-equivalent: `chance` is a per-mille chance scaled by ammo need and
 /// Rabbit Paw; if it lands, drop a medkit (when hurt) or ammo. Otherwise, roll
 /// the weapon chance.
+/// scrDrop-equivalent: `chance` is a per-mille chance scaled by ammo need and
+/// Rabbit Paw; if it lands, drop a medkit (when hurt) or ammo. Otherwise, roll
+/// the weapon chance.
 pub fn maybe_spawn_drop(
     commands: &mut Commands,
-    pos: Vec2,
-    chance: usize,
-    weapon_chance: usize,
-    player: &Player,
-    inv: &Inventory,
-    health: &Health,
-) {
-    maybe_spawn_drop_with_assets(commands, None, pos, chance, weapon_chance, player, inv, health);
-}
-
-pub fn maybe_spawn_drop_with_assets(
-    commands: &mut Commands,
-    asset_server: Option<&AssetServer>,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     pos: Vec2,
     chance: usize,
     weapon_chance: usize,
@@ -834,13 +848,18 @@ pub fn maybe_spawn_drop_with_assets(
     if roll < (chance as f32 * (need + paw)) {
         // Health: only when hurt, and only 2/3 of the time.
         if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
-            use crate::game::pickups::spawn_pickup_with_assets;
-            spawn_pickup_with_assets(commands, asset_server, PickupKind::Medkit(2), pos);
+            crate::game::pickups::spawn_pickup(
+                commands,
+                catalog,
+                asset_server,
+                PickupKind::Medkit(2),
+                pos,
+            );
         } else {
             let ammo = random_ammo_kind(&mut rng);
-            use crate::game::pickups::spawn_pickup_with_assets;
-            spawn_pickup_with_assets(
+            crate::game::pickups::spawn_pickup(
                 commands,
+                catalog,
                 asset_server,
                 PickupKind::Ammo(ammo, ammo_pickup_amount(ammo)),
                 pos,
@@ -848,43 +867,45 @@ pub fn maybe_spawn_drop_with_assets(
         }
     } else if weapon_chance > 0 && rng.random_range(0.0..100.0) < weapon_chance as f32 {
         let weapon = random_weapon(&mut rng);
-        use crate::game::pickups::spawn_pickup_with_assets;
-        spawn_pickup_with_assets(commands, asset_server, PickupKind::Weapon(weapon), pos);
+        crate::game::pickups::spawn_pickup(
+            commands,
+            catalog,
+            asset_server,
+            PickupKind::Weapon(weapon),
+            pos,
+        );
     }
 }
 
 fn random_ammo_kind(rng: &mut impl rand::RngExt) -> AmmoKind {
-    match rng.random_range(0..4) {
+    match rng.random_range(0..5) {
         0 => AmmoKind::Bullets,
         1 => AmmoKind::Shells,
         2 => AmmoKind::Bolts,
-        _ => AmmoKind::Explosives,
+        3 => AmmoKind::Explosives,
+        _ => AmmoKind::Energy,
     }
 }
 
-pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponKind {
+pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
+    // Map from legacy 8-weapon pool to WeaponId
     match rng.random_range(0..8) {
-        0 => WeaponKind::Machinegun,
-        1 => WeaponKind::Shotgun,
-        2 => WeaponKind::Crossbow,
-        3 => WeaponKind::GrenadeLauncher,
-        4 => WeaponKind::Smg,
-        5 => WeaponKind::AssaultRifle,
-        6 => WeaponKind::Wrench,
-        _ => WeaponKind::Sledgehammer,
+        0 => WeaponId::MACHINEGUN,
+        1 => WeaponId(5),
+        2 => WeaponId::CROSSBOW,
+        3 => WeaponId::GRENADE_LAUNCHER,
+        4 => WeaponId::SMG,
+        5 => WeaponId::ASSAULT_RIFLE,
+        6 => WeaponId::WRENCH,
+        _ => WeaponId::SLEDGEHAMMER,
     }
 }
 
-pub fn spawn_chest(commands: &mut Commands, pos: Vec2) {
-    use crate::game::pickups::spawn_pickup;
-    spawn_pickup(commands, PickupKind::Chest, pos);
-}
-
-pub fn spawn_chest_with_assets(
+pub fn spawn_chest(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
     asset_server: &AssetServer,
     pos: Vec2,
 ) {
-    use crate::game::pickups::spawn_pickup_with_assets;
-    spawn_pickup_with_assets(commands, Some(asset_server), PickupKind::Chest, pos);
+    crate::game::pickups::spawn_chest(commands, catalog, asset_server, ChestKind::Weapon, pos);
 }

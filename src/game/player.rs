@@ -9,6 +9,7 @@ use rand::RngExt;
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
@@ -19,7 +20,7 @@ use game_utils_bevy::screen_effects::{ChromaticAberration, FlashWhite, ScreenEff
 use game_utils_bevy::vfx::VfxSpawner;
 
 pub fn player_move(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     keys: Res<ButtonInput<KeyCode>>,
     mask: Res<FloorMask>,
     mut q: Query<
@@ -78,8 +79,9 @@ pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
     sprite.flip_x = aim.0.x < 0.0;
 }
 
-pub fn tick_dash(mut commands: Commands, mut q: Query<(Entity, &mut Dash)>) {
-    for (e, dash) in &mut q {
+pub fn tick_dash(time: Res<Time<Fixed>>, mut commands: Commands, mut q: Query<(Entity, &mut Dash)>) {
+    for (e, mut dash) in &mut q {
+        dash.timer.tick(time.delta());
         if dash.timer.just_finished() {
             commands.entity(e).remove::<Dash>();
         }
@@ -125,14 +127,25 @@ pub fn weapon_switch(
         return;
     };
     let mut switched = false;
-    if keys.just_pressed(KeyCode::Digit1) && inv.weapons[0] != WeaponKind::None {
+    if keys.just_pressed(KeyCode::Digit1) && inv.weapons[0] != WeaponId::NONE {
         inv.current = 0;
         switched = true;
     }
-    if keys.just_pressed(KeyCode::Digit2) && inv.weapons[1] != WeaponKind::None {
+    if keys.just_pressed(KeyCode::Digit2)
+        && inv.weapon_slots > 1
+        && inv.weapons[1] != WeaponId::NONE
+    {
         inv.current = 1;
         switched = true;
     }
+    if keys.just_pressed(KeyCode::Digit3)
+        && inv.weapon_slots > 2
+        && inv.weapons[2] != WeaponId::NONE
+    {
+        inv.current = 2;
+        switched = true;
+    }
+    // Scroll wheel could be added later
     if switched {
         game_utils_bevy::audio::AudioM::play_sfx_varied(
             &mut commands,
@@ -144,7 +157,7 @@ pub fn weapon_switch(
 }
 
 pub fn tick_player_timers(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut q: Query<(
         &mut Player,
         &mut Health,
@@ -314,7 +327,7 @@ pub fn player_ability(
 }
 
 pub fn player_fire(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
@@ -347,11 +360,11 @@ pub fn player_fire(
     cooldown.timer.tick(time.delta());
     cooldown.burst_timer.tick(time.delta());
 
-    let kind = inv.weapons[inv.current];
-    let def = weapon_def(kind);
+    let weapon_id = inv.weapons[inv.current];
+    let def = weapon_runtime_def(weapon_id);
 
     // Empty slot: nothing to fire.
-    if kind == WeaponKind::None {
+    if weapon_id == WeaponId::NONE {
         cooldown.timer = Timer::from_seconds(0.0, TimerMode::Once);
         cooldown.burst_left = 0;
         return;
@@ -369,7 +382,7 @@ pub fn player_fire(
             tf,
             aim,
             player,
-            kind,
+            weapon_id,
             &def,
         );
         cooldown.burst_left -= 1;
@@ -431,7 +444,7 @@ pub fn player_fire(
         tf,
         aim,
         player,
-        kind,
+        weapon_id,
         &def,
     );
 
@@ -454,13 +467,14 @@ fn spawn_pellets(
     tf: &Transform,
     aim: &AimDir,
     player: &Player,
-    kind: WeaponKind,
+    id: WeaponId,
     def: &WeaponDef,
 ) {
     ScreenEffects::add_trauma(trauma, def.shake);
     GameFeel::add_recoil(commands, player_ent, -aim.0, def.recoil, 0.08);
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 
+    let kind: WeaponKind = id.into();
     match kind {
         WeaponKind::Revolver => {
             audio.play_shoot(commands);
@@ -471,7 +485,13 @@ fn spawn_pellets(
         WeaponKind::Shotgun => audio.play_shotgun(commands),
         WeaponKind::Crossbow => audio.play_bolt(commands),
         WeaponKind::GrenadeLauncher => audio.play_explode(commands),
-        _ => {}
+        _ => {
+            if def.explosive {
+                audio.play_explode(commands);
+            } else if def.melee.is_none() {
+                audio.play_shoot(commands);
+            }
+        }
     }
 
     let muzzle = tf.translation.truncate() + aim.0 * 24.0;
@@ -491,7 +511,7 @@ fn spawn_pellets(
         let base_angle = aim.0.y.atan2(aim.0.x);
         let angle = base_angle + rng.random_range(-spread..spread);
         let dir = Vec2::new(angle.cos(), angle.sin());
-        spawn_player_projectile(
+        spawn_player_projectile_with_source(
             commands,
             muzzle,
             dir,
@@ -503,6 +523,11 @@ fn spawn_pellets(
             def.explosive,
             def.color,
             def.size,
+            Some(DamageSource {
+                owner: player_ent,
+                team: Team::Player,
+                hit_id: HitId::Weapon(id),
+            }),
         );
     }
 }
@@ -621,6 +646,25 @@ pub fn spawn_player_projectile(
     color: Color,
     size: Vec2,
 ) {
+    spawn_player_projectile_with_source(
+        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size, None,
+    )
+}
+
+pub fn spawn_player_projectile_with_source(
+    commands: &mut Commands,
+    pos: Vec2,
+    dir: Vec2,
+    speed: f32,
+    damage: i32,
+    lifetime: f32,
+    radius: f32,
+    knockback: f32,
+    explosive: bool,
+    color: Color,
+    size: Vec2,
+    source: Option<DamageSource>,
+) {
     let angle = dir.y.atan2(dir.x);
     let e = commands
         .spawn((
@@ -633,6 +677,7 @@ pub fn spawn_player_projectile(
                 radius,
                 knockback,
                 explosive,
+                source,
             },
             Velocity(dir * speed),
             Sprite {
@@ -651,7 +696,7 @@ pub fn spawn_player_projectile(
 }
 
 pub fn move_swing_fx(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut SwingFx, &mut Sprite)>,
 ) {

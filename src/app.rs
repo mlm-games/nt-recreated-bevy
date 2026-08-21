@@ -103,10 +103,10 @@ pub struct SharedUi {
     pub floor_in_world: u32,
     pub level: u32,
     pub rads: u32,
-    pub weapon1: String,
-    pub weapon2: String,
+    pub max_rads: u32,
+    pub weapons: Vec<String>,
     pub current_weapon: usize,
-    pub ammo: [i32; 4],
+    pub ammo: [i32; 6],
     pub ability: String,
     pub ability_ready: bool,
     pub boss_hp: u32,
@@ -146,10 +146,10 @@ impl Default for SharedUi {
             floor_in_world: 1,
             level: 1,
             rads: 0,
-            weapon1: "Revolver".to_string(),
-            weapon2: "Shotgun".to_string(),
+            max_rads: 60,
+            weapons: vec!["Revolver".to_string(), "Shotgun".to_string()],
             current_weapon: 0,
-            ammo: [0, 0, 0, 0],
+            ammo: [0, 0, 0, 0, 0, 0],
             ability: "Flip".to_string(),
             ability_ready: true,
             boss_hp: 0,
@@ -166,6 +166,18 @@ impl Default for SharedUi {
     }
 }
 
+pub const NT_SIM_HZ: f64 = 30.0;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NtSimSet {
+    Always,
+    Input,
+    Movement,
+    Combat,
+    Progression,
+    Cleanup,
+}
+
 pub struct AppPlugin;
 
 impl Plugin for AppPlugin {
@@ -179,6 +191,7 @@ impl Plugin for AppPlugin {
             .insert_resource(Paused(false))
             .insert_resource(OverlayMenu::None)
             .insert_resource(PendingUnpause(None))
+            .insert_resource(Time::<Fixed>::from_hz(NT_SIM_HZ))
             .insert_resource(UiBridge {
                 shared: shared.clone(),
                 actions: actions.clone(),
@@ -214,6 +227,18 @@ impl Plugin for AppPlugin {
                 DevToolsPlugin,
             ))
             .add_systems(Startup, setup_camera)
+            .configure_sets(
+                FixedUpdate,
+                (
+                    NtSimSet::Always,
+                    NtSimSet::Input,
+                    NtSimSet::Movement,
+                    NtSimSet::Combat,
+                    NtSimSet::Progression,
+                    NtSimSet::Cleanup,
+                )
+                    .chain(),
+            )
             .add_systems(
                 Update,
                 (
@@ -426,7 +451,7 @@ fn process_ui_actions(
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.selected_character = idx;
                 }
-                if let Some(id) = crate::game::content::CHARACTERS.get(idx).copied() {
+                if let Some(id) = crate::game::content::PLAYABLE_RACES.get(idx).copied() {
                     selected.0 = id;
                 }
             }

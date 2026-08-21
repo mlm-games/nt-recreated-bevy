@@ -43,10 +43,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SRC = Path(
-    "/home/ymsr/Downloads/nuclear_throne/game-src"
-    "/game/assets"
-)
+DEFAULT_SRC = Path("/home/ymsr/Downloads/nuclear_throne/game-src/game/assets")
 
 DEST_AUDIO = REPO_ROOT / "assets" / "audio"
 DEST_IMAGES = REPO_ROOT / "assets" / "images"

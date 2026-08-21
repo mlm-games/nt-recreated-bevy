@@ -50,7 +50,7 @@ pub fn sync_hud(
 
     if let Some(character) = character {
         ui.character = character_def(character.0).name.to_string();
-        ui.selected_character = CHARACTERS
+        ui.selected_character = PLAYABLE_RACES
             .iter()
             .position(|c| *c == character.0)
             .unwrap_or(0);
@@ -61,8 +61,10 @@ pub fn sync_hud(
         ui.max_hp = health.max;
         ui.level = player.level;
         ui.rads = player.rads;
-        ui.weapon1 = weapon_name(inv.weapons[0]).to_string();
-        ui.weapon2 = weapon_name(inv.weapons[1]).to_string();
+        ui.max_rads = player.next_level_rads;
+        ui.weapons = (0..inv.weapon_slots)
+            .map(|i| weapon_id_name(inv.weapons[i]).to_string())
+            .collect();
         ui.current_weapon = inv.current;
         ui.ammo = inv.ammo;
         ui.ability = ability_name(player.ability).to_string();

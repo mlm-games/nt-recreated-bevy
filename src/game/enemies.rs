@@ -9,85 +9,17 @@ use crate::game::content::*;
 use crate::game::world::*;
 use game_utils_bevy::juice::Juice;
 
-pub fn spawn_enemy_pack(
+pub fn spawn_enemy_at(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
     asset_server: &AssetServer,
-    run: &Run,
-    mask: &FloorMask,
+    kind: EnemyKind,
+    pos: Vec2,
+    difficulty: f32,
     scarier_face: bool,
     heavy_heart: bool,
 ) {
-    let floor = run.floor;
-    let diff = difficulty_multiplier(floor);
-    let mut rng = rand::rng();
-
-    if is_boss_floor(floor) {
-        let kind = boss_for_floor(floor);
-        let pos = mask.random_floor_pos(&mut rng, 280.0);
-        spawn_enemy(commands, asset_server, kind, pos, diff, scarier_face, heavy_heart);
-        return;
-    }
-
-    let count = (6 + floor as usize * 2).min(30);
-    for _ in 0..count {
-        let pos = mask.random_floor_pos(&mut rng, 140.0);
-        let kind = roll_enemy(floor, &mut rng);
-        spawn_enemy(commands, asset_server, kind, pos, diff, scarier_face, heavy_heart);
-    }
-}
-
-fn roll_enemy(floor: u32, rng: &mut impl RngExt) -> EnemyKind {
-    let f = floor_in_world(floor);
-    let roll = rng.random_range(0.0..1.0);
-    match f {
-        1 => {
-            if roll > 0.7 {
-                EnemyKind::Bandit
-            } else {
-                EnemyKind::Maggot
-            }
-        }
-        2 => {
-            if roll > 0.82 {
-                EnemyKind::Scorpion
-            } else if roll > 0.45 {
-                EnemyKind::Bandit
-            } else {
-                EnemyKind::Maggot
-            }
-        }
-        4 | 5 => {
-            if roll > 0.85 {
-                EnemyKind::Assassin
-            } else if roll > 0.55 {
-                EnemyKind::Scorpion
-            } else if roll > 0.3 {
-                EnemyKind::Bandit
-            } else {
-                EnemyKind::Maggot
-            }
-        }
-        6 => {
-            if roll > 0.8 {
-                EnemyKind::Assassin
-            } else if roll > 0.55 {
-                EnemyKind::Freak
-            } else if roll > 0.25 {
-                EnemyKind::Scorpion
-            } else {
-                EnemyKind::Bandit
-            }
-        }
-        _ => {
-            if roll > 0.75 {
-                EnemyKind::Assassin
-            } else if roll > 0.4 {
-                EnemyKind::Freak
-            } else {
-                EnemyKind::Scorpion
-            }
-        }
-    }
+    spawn_enemy(commands, catalog, asset_server, kind, pos, difficulty, scarier_face, heavy_heart);
 }
 
 pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
@@ -103,6 +35,7 @@ pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
 
 pub fn spawn_enemy(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
     asset_server: &AssetServer,
     kind: EnemyKind,
     pos: Vec2,
@@ -172,12 +105,7 @@ pub fn spawn_enemy(
             Team::Enemy,
             Hitbox { radius: def.radius },
             Velocity(Vec2::ZERO),
-            crate::game::content::sprite_or_fallback(
-                asset_server,
-                def.sprite,
-                def.color,
-                Vec2::splat(def.size),
-            ),
+            sprite_exact(catalog, asset_server, def.sprite),
             Transform::from_translation(pos.extend(10.0)),
         ))
         .id();
@@ -192,7 +120,7 @@ fn ready_timer() -> Timer {
 }
 
 pub fn enemy_ai(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
@@ -367,6 +295,11 @@ fn fire_enemy_bullet(
             radius: def.projectile_radius,
             knockback: 150.0,
             explosive: false,
+            source: Some(DamageSource {
+                owner: Entity::PLACEHOLDER,
+                team: Team::Enemy,
+                hit_id: HitId::Enemy(0),
+            }),
         },
         Velocity(shot_dir * speed),
         Sprite {
@@ -407,6 +340,11 @@ fn fire_enemy_shot(
                 radius: def.projectile_radius,
                 knockback: 150.0,
                 explosive: false,
+                source: Some(DamageSource {
+                    owner: Entity::PLACEHOLDER,
+                    team: Team::Enemy,
+                    hit_id: HitId::Enemy(0),
+                }),
             },
             Velocity(shot_dir * def.projectile_speed),
             Sprite {

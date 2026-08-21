@@ -12,6 +12,7 @@ rust-version = "1.96"
 default-run = "nt-recreated-bevy-desktop"
 
 [lib]
+name = "nt_recreated_bevy"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]

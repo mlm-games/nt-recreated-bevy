@@ -2,30 +2,186 @@
 //! All visuals are placeholder colored sprites; no external assets.
 //! Stats mirror the GPL Nuclear-Throne-Mobile rebuild reference.
 
+use std::collections::HashSet;
+
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Files that actually exist under `assets/images`, scanned once at startup.
+/// `sprite_or_fallback` consults this so a missing PNG can never produce an
+/// invisible entity (the Floppy-Warriors "never boot with blank art" rule).
+#[derive(Resource, Default, Clone)]
+pub struct AssetCatalog {
+    pub images: HashSet<String>,
+}
+
+impl AssetCatalog {
+    pub fn scan() -> Self {
+        let mut images = HashSet::new();
+        if let Ok(entries) = std::fs::read_dir("assets/images") {
+            for entry in entries.flatten() {
+                if let Ok(name) = entry.file_name().into_string()
+                    && name.ends_with(".png")
+                {
+                    images.insert(format!("images/{name}"));
+                }
+            }
+        } else {
+            panic!(
+                "assets/images is missing or unreadable. Run \
+                 `NT_ALL_SPRITES=1 python3 tools/gen_assets.py` to import original art."
+            );
+        }
+        if images.is_empty() {
+            panic!(
+                "assets/images contains no PNGs. Run `NT_ALL_SPRITES=1 python3 \
+                 tools/gen_assets.py` to import original art."
+            );
+        }
+        info!("AssetCatalog: {} sprites", images.len());
+        Self { images }
+    }
+
+    pub fn has(&self, path: &str) -> bool {
+        self.images.contains(path)
+    }
+
+    /// Panic when a referenced sprite was not imported.
+    pub fn require(&self, path: &str) {
+        if !self.images.contains(path) {
+            panic!(
+                "Missing art asset: {path}. Run `NT_ALL_SPRITES=1 python3 \
+                 tools/gen_assets.py`."
+            );
+        }
+    }
+}
+
+pub fn scan_asset_catalog() -> AssetCatalog {
+    AssetCatalog::scan()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum AmmoKind {
-    Bullets,
-    Shells,
-    Bolts,
-    Explosives,
+    None = 0,
+    Bullets = 1,
+    Shells = 2,
+    Bolts = 3,
+    Explosives = 4,
+    Energy = 5,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CharacterId {
-    Fish,
-    Crystal,
-    Eyes,
-    Melting,
+// Keep legacy AmmoType alias for weapons_data bridge
+pub use crate::game::weapons_data::AmmoType;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum RaceId {
+    Random = 0,
+    Fish = 1,
+    Crystal = 2,
+    Eyes = 3,
+    Melting = 4,
+    Plant = 5,
+    Venuz = 6,
+    Steroids = 7,
+    Robot = 8,
+    Chicken = 9,
+    Rebel = 10,
+    Horror = 11,
+    Rogue = 12,
+    BigDog = 13,
+    Skeleton = 14,
+    Frog = 15,
+    Cuz = 16,
 }
 
+pub const PLAYABLE_RACES: [RaceId; 16] = [
+    RaceId::Fish,
+    RaceId::Crystal,
+    RaceId::Eyes,
+    RaceId::Melting,
+    RaceId::Plant,
+    RaceId::Venuz,
+    RaceId::Steroids,
+    RaceId::Robot,
+    RaceId::Chicken,
+    RaceId::Rebel,
+    RaceId::Horror,
+    RaceId::Rogue,
+    RaceId::BigDog,
+    RaceId::Skeleton,
+    RaceId::Frog,
+    RaceId::Cuz,
+];
+
+/// Back-compat: old 4-race code used CharacterId::Fish etc.
+pub type CharacterId = RaceId;
 pub const CHARACTERS: [CharacterId; 4] = [
     CharacterId::Fish,
     CharacterId::Crystal,
     CharacterId::Eyes,
     CharacterId::Melting,
 ];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum SkinLetter {
+    A = 0,
+    B = 1,
+    C = 2,
+    D = 3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct WeaponId(pub u8);
+
+impl WeaponId {
+    pub const NONE: Self = Self(0);
+    pub const REVOLVER: Self = Self(1);
+    pub const WRENCH: Self = Self(3);
+    pub const MACHINEGUN: Self = Self(4);
+    pub const SHOTGUN: Self = Self(5);
+    pub const CROSSBOW: Self = Self(6);
+    pub const GRENADE_LAUNCHER: Self = Self(7);
+    pub const SMG: Self = Self(16);
+    pub const ASSAULT_RIFLE: Self = Self(17);
+    pub const SLEDGEHAMMER: Self = Self(88);
+}
+
+impl From<WeaponKind> for WeaponId {
+    fn from(k: WeaponKind) -> Self {
+        match k {
+            WeaponKind::None => Self(0),
+            WeaponKind::Revolver => Self(1),
+            WeaponKind::Wrench => Self(3),
+            WeaponKind::Machinegun => Self(4),
+            WeaponKind::Shotgun => Self(5),
+            WeaponKind::Crossbow => Self(6),
+            WeaponKind::GrenadeLauncher => Self(7),
+            WeaponKind::Smg => Self(16),
+            WeaponKind::AssaultRifle => Self(17),
+            WeaponKind::Sledgehammer => Self(88),
+        }
+    }
+}
+
+impl From<WeaponId> for WeaponKind {
+    fn from(id: WeaponId) -> Self {
+        match id.0 {
+            1 => WeaponKind::Revolver,
+            3 => WeaponKind::Wrench,
+            4 => WeaponKind::Machinegun,
+            5 => WeaponKind::Shotgun,
+            6 => WeaponKind::Crossbow,
+            7 => WeaponKind::GrenadeLauncher,
+            16 => WeaponKind::Smg,
+            17 => WeaponKind::AssaultRifle,
+            88 => WeaponKind::Sledgehammer,
+            _ => WeaponKind::None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AbilityKind {
@@ -53,9 +209,9 @@ pub struct CharacterDef {
     pub sprite: &'static str,
 }
 
-pub fn character_def(id: CharacterId) -> CharacterDef {
+pub fn character_def(id: RaceId) -> CharacterDef {
     match id {
-        CharacterId::Fish => CharacterDef {
+        RaceId::Fish => CharacterDef {
             name: "Fish",
             color: Color::srgb(0.25, 0.95, 0.35),
             max_hp: 8,
@@ -65,7 +221,7 @@ pub fn character_def(id: CharacterId) -> CharacterDef {
             passive: PassiveKind::None,
             sprite: "images/sprMutant1Idle.png",
         },
-        CharacterId::Crystal => CharacterDef {
+        RaceId::Crystal => CharacterDef {
             name: "Crystal",
             color: Color::srgb(0.35, 0.65, 1.0),
             max_hp: 10,
@@ -75,7 +231,7 @@ pub fn character_def(id: CharacterId) -> CharacterDef {
             passive: PassiveKind::ShieldOnHit,
             sprite: "images/sprMutant2Idle.png",
         },
-        CharacterId::Eyes => CharacterDef {
+        RaceId::Eyes => CharacterDef {
             name: "Eyes",
             color: Color::srgb(0.85, 0.4, 1.0),
             max_hp: 8,
@@ -85,7 +241,7 @@ pub fn character_def(id: CharacterId) -> CharacterDef {
             passive: PassiveKind::None,
             sprite: "images/sprMutant3Idle.png",
         },
-        CharacterId::Melting => CharacterDef {
+        RaceId::Melting => CharacterDef {
             name: "Melting",
             color: Color::srgb(0.95, 0.85, 0.45),
             max_hp: 2,
@@ -95,6 +251,127 @@ pub fn character_def(id: CharacterId) -> CharacterDef {
             passive: PassiveKind::ChainExplosions,
             sprite: "images/sprMutant4Idle.png",
         },
+        RaceId::Plant => CharacterDef {
+            name: "Plant",
+            color: Color::srgb(0.3, 0.85, 0.35),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant5Idle.png",
+        },
+        RaceId::Venuz => CharacterDef {
+            name: "Venuz",
+            color: Color::srgb(0.85, 0.7, 0.2),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant6Idle.png",
+        },
+        RaceId::Steroids => CharacterDef {
+            name: "Steroids",
+            color: Color::srgb(0.9, 0.25, 0.25),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant7Idle.png",
+        },
+        RaceId::Robot => CharacterDef {
+            name: "Robot",
+            color: Color::srgb(0.6, 0.6, 0.65),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant8Idle.png",
+        },
+        RaceId::Chicken => CharacterDef {
+            name: "Chicken",
+            color: Color::srgb(0.95, 0.9, 0.6),
+            max_hp: 8,
+            speed_mult: 1.2,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant9Idle.png",
+        },
+        RaceId::Rebel => CharacterDef {
+            name: "Rebel",
+            color: Color::srgb(0.75, 0.25, 0.55),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant10Idle.png",
+        },
+        RaceId::Horror => CharacterDef {
+            name: "Horror",
+            color: Color::srgb(0.5, 0.35, 0.85),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant11Idle.png",
+        },
+        RaceId::Rogue => CharacterDef {
+            name: "Rogue",
+            color: Color::srgb(0.35, 0.35, 0.45),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant12Idle.png",
+        },
+        RaceId::BigDog => CharacterDef {
+            name: "Big Dog",
+            color: Color::srgb(0.55, 0.38, 0.28),
+            max_hp: 12,
+            speed_mult: 0.95,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant13Idle.png",
+        },
+        RaceId::Skeleton => CharacterDef {
+            name: "Skeleton",
+            color: Color::srgb(0.9, 0.9, 0.92),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant14Idle.png",
+        },
+        RaceId::Frog => CharacterDef {
+            name: "Frog",
+            color: Color::srgb(0.45, 0.8, 0.55),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant15Idle.png",
+        },
+        RaceId::Cuz => CharacterDef {
+            name: "Cuz",
+            color: Color::srgb(0.8, 0.65, 0.35),
+            max_hp: 8,
+            speed_mult: 1.0,
+            pickup_range: 95.0,
+            ability: AbilityKind::Flip,
+            passive: PassiveKind::None,
+            sprite: "images/sprMutant16Idle.png",
+        },
+        RaceId::Random => character_def(RaceId::Fish),
     }
 }
 
@@ -401,21 +678,42 @@ pub fn weapon_color(kind: WeaponKind) -> Color {
     weapon_def(kind).color
 }
 
-/// Ammo capacity per kind (reference: bullets 255, others 55). Back Muscle adds
+pub fn weapon_meta(id: WeaponId) -> &'static crate::game::weapons_data::WeaponData {
+    &crate::game::weapons_data::WEAPONS[id.0 as usize]
+}
+
+pub fn weapon_id_name(id: WeaponId) -> &'static str {
+    weapon_meta(id).wep_name
+}
+
+pub fn weapon_id_color(id: WeaponId) -> Color {
+    // Map WeaponId via legacy WeaponKind color when known, else fallback
+    let kind: WeaponKind = id.into();
+    if kind != WeaponKind::None {
+        weapon_color(kind)
+    } else {
+        Color::srgb(0.85, 0.6, 0.2)
+    }
+}
+
+/// Ammo capacity per kind (reference: bullets 255, others 55, energy 55). Back Muscle adds
 /// +300 / +44 respectively.
 pub fn ammo_max(kind: AmmoKind) -> i32 {
     match kind {
+        AmmoKind::None => 0,
         AmmoKind::Bullets => 255,
-        AmmoKind::Shells | AmmoKind::Bolts | AmmoKind::Explosives => 55,
+        AmmoKind::Shells | AmmoKind::Bolts | AmmoKind::Explosives | AmmoKind::Energy => 55,
     }
 }
 
 pub fn ammo_pickup_amount(kind: AmmoKind) -> i32 {
     match kind {
+        AmmoKind::None => 0,
         AmmoKind::Bullets => 32,
         AmmoKind::Shells => 8,
         AmmoKind::Bolts => 7,
         AmmoKind::Explosives => 6,
+        AmmoKind::Energy => 8,
     }
 }
 
@@ -562,7 +860,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 11.0,
             size: 22.0,
             color: Color::srgb(0.2, 0.18, 0.24),
-            sprite: "images/sprAssassinIdle.png",
+            sprite: "images/sprJungleAssassinIdle.png",
             score: 25,
             touch_damage: 3,
             rad_drop: 4,
@@ -652,7 +950,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 34.0,
             size: 72.0,
             color: Color::srgb(0.15, 0.25, 0.45),
-            sprite: "images/sprThroneIdle.png",
+            sprite: "images/sprThroneStatue.png",
             score: 200,
             touch_damage: 5,
             rad_drop: 40,
@@ -707,27 +1005,17 @@ pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
     }
 }
 
-pub fn sprite_or_fallback(
+/// Load a sprite at its native pixel size. Panics when the art is missing —
+/// the game must never boot with invisible entities.
+pub fn sprite_exact(
+    catalog: &AssetCatalog,
     asset_server: &AssetServer,
-    path: &'static str,
-    fallback_color: Color,
-    size: Vec2,
+    path: &str,
 ) -> Sprite {
-    let looks_like_og = path.starts_with("images/spr");
-    if looks_like_og {
-        Sprite {
-            image: asset_server.load(path),
-            // NT art is pre-colored; do not multiply with fallback tint
-            color: Color::WHITE,
-            custom_size: Some(size),
-            ..Default::default()
-        }
-    } else {
-        Sprite {
-            color: fallback_color,
-            custom_size: Some(size),
-            ..Default::default()
-        }
+    catalog.require(path);
+    Sprite {
+        image: asset_server.load(path.to_string()),
+        ..Default::default()
     }
 }
 
