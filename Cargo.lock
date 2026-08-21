@@ -3828,6 +3828,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hound"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
+
+[[package]]
 name = "icu_collections"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4385,28 +4391,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 
 [[package]]
-name = "my-ecosystem-bevy"
-version = "0.2.1"
-dependencies = [
- "avian2d",
- "bevy 0.20.0-dev",
- "game-utils",
- "game-utils-bevy",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "getrandom 0.4.3",
- "rand",
- "repose-bevy",
- "repose-core",
- "repose-material",
- "repose-render-wgpu",
- "repose-ui",
- "serde",
- "wasm-bindgen",
- "wgpu 30.0.0",
-]
-
-[[package]]
 name = "naga"
 version = "29.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4560,6 +4544,28 @@ name = "nonmax"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
+
+[[package]]
+name = "nt-recreated-bevy"
+version = "0.1.0"
+dependencies = [
+ "avian2d",
+ "bevy 0.20.0-dev",
+ "game-utils",
+ "game-utils-bevy",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "rand",
+ "repose-bevy",
+ "repose-core",
+ "repose-material",
+ "repose-render-wgpu",
+ "repose-ui",
+ "serde",
+ "wasm-bindgen",
+ "wgpu 30.0.0",
+]
 
 [[package]]
 name = "nu-ansi-term"
@@ -5823,6 +5829,7 @@ checksum = "d0a536bb79db59098ef71a4dd4246c02eb87b316deceb1b68e0cde7167ec01eb"
 dependencies = [
  "cpal",
  "dasp_sample",
+ "hound",
  "lewton",
  "num-rational",
  "thiserror 2.0.20",

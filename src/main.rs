@@ -1,3 +1,3 @@
 fn main() {
-    my_ecosystem_bevy::run();
+    nt_recreated_bevy::run();
 }

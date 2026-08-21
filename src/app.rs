@@ -7,8 +7,8 @@ use repose_core::{prelude::Modifier, remember};
 use repose_ui::overlay::OverlayHandle;
 
 use crate::asset_tracking::AssetsLoading;
-use crate::demo::DemoPlugin;
 use crate::dev_tools::DevToolsPlugin;
+use crate::game::{GamePlugin, MutationChoice, SelectedCharacter};
 use crate::menus::{self, UiAction, UiBridge};
 use crate::save::SaveData;
 use crate::screens::ScreensPlugin;
@@ -96,6 +96,29 @@ pub struct SharedUi {
     pub saved_language: String,
     pub available_languages: Vec<String>,
     pub translations: HashMap<String, String>,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub floor: u32,
+    pub world: u32,
+    pub floor_in_world: u32,
+    pub level: u32,
+    pub rads: u32,
+    pub weapon1: String,
+    pub weapon2: String,
+    pub current_weapon: usize,
+    pub ammo: [i32; 4],
+    pub ability: String,
+    pub ability_ready: bool,
+    pub boss_hp: u32,
+    pub boss_max: u32,
+    pub toast: String,
+    pub toast_timer: f32,
+    pub mutation_choices: Vec<String>,
+    pub game_over: bool,
+    pub character: String,
+    pub selected_character: usize,
+    pub best_floor: u32,
+    pub total_kills: u32,
 }
 
 impl Default for SharedUi {
@@ -116,6 +139,29 @@ impl Default for SharedUi {
             saved_language: "en".to_string(),
             available_languages: vec!["en".to_string()],
             translations: HashMap::new(),
+            hp: 10,
+            max_hp: 10,
+            floor: 1,
+            world: 1,
+            floor_in_world: 1,
+            level: 1,
+            rads: 0,
+            weapon1: "Revolver".to_string(),
+            weapon2: "Shotgun".to_string(),
+            current_weapon: 0,
+            ammo: [0, 0, 0, 0],
+            ability: "Flip".to_string(),
+            ability_ready: true,
+            boss_hp: 0,
+            boss_max: 0,
+            toast: String::new(),
+            toast_timer: 0.0,
+            mutation_choices: Vec::new(),
+            game_over: false,
+            character: "Fish".to_string(),
+            selected_character: 0,
+            best_floor: 0,
+            total_kills: 0,
         }
     }
 }
@@ -158,13 +204,13 @@ impl Plugin for AppPlugin {
                 EcosystemPlugin::<AppState>::new(I18nPlugin::new(TRANSLATION_KEYS, LOCALES)),
                 SavePlugin::<SaveData>::new(SaveManager::new(
                     "com",
-                    "mlm-games",
-                    "my-ecosystem-bevy",
+                    "nt-recreated",
+                    "nt-recreated-bevy",
                     "save.ron",
                     1,
                 )),
                 ScreensPlugin,
-                DemoPlugin,
+                GamePlugin,
                 DevToolsPlugin,
             ))
             .add_systems(Startup, setup_camera)
@@ -200,6 +246,13 @@ fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>
 fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
+        // Arena art uses negative z for back-to-front ordering, so
+        // widen the frustum to include it (like floppy-warriors).
+        Projection::Orthographic(OrthographicProjection {
+            near: -10000.0,
+            far: 10000.0,
+            ..OrthographicProjection::default_2d()
+        }),
         Transform::from_xyz(0.0, 0.0, 1000.0),
         CameraBase {
             translation: Vec3::new(0.0, 0.0, 1000.0),
@@ -215,7 +268,7 @@ fn sync_shared_ui(
     overlay: Res<OverlayMenu>,
     bridge: Res<UiBridge>,
     save: Res<SaveData>,
-    score: Option<Res<crate::demo::Score>>,
+    score: Option<Res<crate::game::Score>>,
     transition: Res<Transition<AppState>>,
     flash: Res<game_utils_bevy::screen_effects::FlashWhite>,
     locale: Res<LocaleResources>,
@@ -285,6 +338,8 @@ fn process_ui_actions(
     manager: Res<SaveManager>,
     mut pending_unpause: ResMut<PendingUnpause>,
     mut locale: ResMut<LocaleResources>,
+    mut selected: ResMut<SelectedCharacter>,
+    mut mutation_choice: ResMut<MutationChoice>,
 ) {
     let Ok(mut q) = bridge.actions.lock() else {
         return;
@@ -366,6 +421,17 @@ fn process_ui_actions(
                 if locale.available.contains(lang) {
                     locale.set_locale(lang);
                 }
+            }
+            UiAction::SelectCharacter(idx) => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.selected_character = idx;
+                }
+                if let Some(id) = crate::game::content::CHARACTERS.get(idx).copied() {
+                    selected.0 = id;
+                }
+            }
+            UiAction::PickMutation(idx) => {
+                mutation_choice.0 = Some(idx);
             }
         }
     }

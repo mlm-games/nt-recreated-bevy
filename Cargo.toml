@@ -1,21 +1,21 @@
 [package]
-name = "my-ecosystem-bevy"
-version = "0.2.1"
+name = "nt-recreated-bevy"
+version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
-description = "Clone of my Godot template for bevy (port of my-ecosystem-template) with Repose UI"
-repository = "https://github.com/mlm-games/my-ecosystem-template-bevy"
+description = "Source-side playable Nuclear Throne recreation built on the mlm-games my-ecosystem-template-bevy (placeholder assets only)"
+repository = ""
 readme = "README.md"
-keywords = ["bevy", "gamedev", "template", "2d", "repose"]
+keywords = ["bevy", "gamedev", "nuclear-throne", "2d", "repose", "twin-stick"]
 categories = ["game-development"]
 rust-version = "1.96"
-default-run = "my-ecosystem-bevy-desktop"
+default-run = "nt-recreated-bevy-desktop"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "my-ecosystem-bevy-desktop"
+name = "nt-recreated-bevy-desktop"
 path = "src/main.rs"
 
 [features]
@@ -36,6 +36,7 @@ physics = ["dep:avian2d"]
 bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ffb6e5492ebb7c059ac8af", default-features = false, features = [
     "bevy_asset",
     "bevy_audio",
+    "wav",
     "bevy_color",
     "bevy_core_pipeline",
     "bevy_render",

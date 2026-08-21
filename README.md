@@ -1,26 +1,9 @@
-# My Ecosystem Bevy
+# Nuclear Throne (Dogfooding for bevy-repose)
 
-A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-template](https://github.com/mlm-games/my-ecosystem-template) (Godot).
-
-## Features
-
-- **Game Feel** - recoil, knockback, slow-motion, rumble (gamepad)
-- **Screen Effects** - trauma shake, freeze frame, flash white, chromatic aberration pulse + decay
-- **Transitions** - fade to black, circle wipe scene transitions with input edge blocking
-- **Audio** - channel-based SFX/Music/UI buses with independent volume control (`BaseVolume` × bus), pitch variation, pooled SFX (uses Bevy built-in audio, no external dep)
-- **Localization** - Fluent-based i18n with 7 bundled locales (en, es, fr, de, ja, zh, pt), language switcher in settings, `LocaleResources` resource
-- **Save System** - persistent RON save with atomic writes + version migration via `directories`
-- **Object Pooling** - generic entity pool with acquire/release
-- **Juice** - pop-in, squash & stretch, bounce scale, shake, particles with gravity/fade
-- **VFX** - damage numbers, particle bursts, trail emitters
-- **UI Effects** - hover scale, typewriter text, number counter
-- **Math Utils** - smooth_damp, approach, wave (f32, Vec2, Vec3)
-- **Center Pivot** - sprite origin centering component
-- **UI** - animated buttons, popup system, pause/settings/credits with localized text (Repose)
-- **States** - Splash -> Loading -> Title -> InGame with pause overlay
-- **Theme** - centralized color constants
-- **Dev Tools** - FPS overlay, state logging (dev feature)
-- **Demo Scene** - player with shooting, enemies, trauma, recoil, burst effects, damage numbers, gamepad rumble
+**No assets from the original game are included.** All visuals are placeholder
+colored sprites and all sounds are procedurally generated WAVs if `assets/og`
+is empty. Original `.ogg` (Vorbis) are used directly without conversion
+(`vorbis` feature) via `tools/gen_assets.py` if you have the game locally.
 
 ## Quick Start
 
@@ -28,61 +11,80 @@ A WIP Bevy 2D game template with ecosystem plugins ported from [my-ecosystem-tem
 cargo run
 ```
 
-With physics (Avian2d, will be switched to rapier soon):
-```bash
-cargo run --features physics
-```
+Dev build with hot-reload and FPS overlay:
 
-Dev build with hot-reload:
 ```bash
 cargo run --features dev
 ```
 
+placeholder SFX (pure Python stdlib, no deps, fallback when `assets/og` is empty):
+
+```bash
+python3 tools/gen_audio.py
+```
+
+import original assets locally (keeps `.ogg` as `.ogg`, never committed):
+
+```bash
+# copies .ogg (Vorbis) + texture atlases
+python3 tools/gen_assets.py
+python3 tools/gen_assets.py /path/to/NuclearThrone/game/assets
+NT_ASSETS=/path/to/game/assets python3 tools/gen_assets.py --dry-run
+```
+
+## Controls
+
+| Input | Action |
+|-------|--------|
+| WASD / Arrows | Move |
+| Mouse | Aim |
+| LMB / Space | Shoot / swing melee |
+| 1 / 2 | Switch weapon |
+| E / Left Shift | Active ability |
+| Esc | Pause |
+| 1 / 2 / 3 | Pick mutation |
+
 ## Structure
 
-The game-feel ecosystem (audio, transitions, juice, VFX, save, i18n, pooling, game feel)
-lives in the **[game-utils](https://github.com/mlm-games/game-utils)** workspace, split into:
-
-- `crates/game-utils` - Bevy-agnostic core (save manager, i18n, math, stats, achievements)
-- `crates/game-utils-bevy/src` - Bevy plugins:
-  - `audio.rs` - channel-based audio buses (SfxChannel/MusicChannel/UiChannel)
-  - `center_pivot.rs` - sprite origin centering
-  - `game_feel.rs` - recoil, knockback, slow-motion, gamepad rumble
-  - `i18n.rs` - Fluent-based localization (7 locales, language switcher)
-  - `juice.rs` - pop-in, squash/stretch, bounce, shake, particles
-  - `pooling.rs` - generic entity pooling
-  - `save.rs` - RON save/load with atomic writes + version migration
-  - `screen_effects.rs` - trauma, freeze frame, flash white, chromatic aberration
-  - `time_scale.rs` - single owner of virtual-time speed/pause
-  - `transitions.rs` - fade/circle wipe with input edge blocking
-  - `ui_effects.rs` - hover scale, typewriter, number counter
-  - `vfx.rs` - damage numbers, particle bursts, trail emitters
-
-This template repo holds only the app layer:
+The game-feel ecosystem (audio, transitions, juice, VFX, save, i18n, pooling)
+lives in the **[game-utils](https://github.com/mlm-games/game-utils)** workspace.
+This repo holds only the app layer:
 
 ```
 src/
 ├── main.rs              # Entry point
-├── app.rs               # AppPlugin, states, system sets
-├── save.rs              # SaveData type (persisted via game-utils)
+├── app.rs               # AppPlugin, states, UI action bridge, HUD shared state
+├── save.rs              # SaveData type (high score, best floor, runs, kills)
 ├── screens/             # Splash, loading, title
-├── menus/               # Main, pause, settings, credits (localized)
+├── menus/               # Title (character select), pause, settings, credits, HUD
+├── game/                # The Nuclear Throne-style game
+│   ├── content.rs       # Characters, weapons, enemies, mutations (data)
+│   ├── components.rs    # Resources + components + constants
+│   ├── world.rs         # Arena generation, props, collision helpers
+│   ├── player.rs        # Movement, aim, abilities, firing (ranged + melee)
+│   ├── enemies.rs       # Per-floor spawns, boss spawning, AI
+│   ├── combat.rs        # Projectiles, explosions, contact damage, deaths, drops
+│   ├── pickups.rs       # Rads, medkits, ammo, weapons, chests, toast
+│   ├── progression.rs   # Level-ups, mutations, portals, save flushing
+│   ├── audio.rs         # GameAudio handle set (generated WAVs)
+│   └── hud.rs           # Pushes live state into the Repose HUD
 ├── theme/               # Theme resource
-├── demo/                # Sample gameplay with all juice
-├── dev_tools.rs         # FPS overlay, state logging
+├── dev_tools.rs         # FPS overlay, state logging (dev feature)
 └── asset_tracking.rs    # Preload tracking
 ```
 
-## Dependencies
+```
+tools/
+├── gen_audio.py         # Generates placeholder SFX (WAV) into assets/audio/
+└── gen_assets.py        # Imports original .ogg/.png locally (gitignored, no conversion)
+```
 
-| Crate | Purpose |
-|-------|---------|
-| `bevy` (git rev) | Engine |
-| `repose-bevy` / `repose-*` | UI framework |
-| `fluent-bundle` + `unic-langid` | Localization (Fluent) |
-| `serde` + `ron` + `directories` | Save system |
-| `rand` | Random variation (audio pitch, VFX) |
-| `avian2d` (optional) | Physics |
+## Legal
+
+This is an unofficial, non-commercial fan recreation for learning purposes.
+"Nuclear Throne" and its characters are trademarks of Vlambeer. No copyrighted
+assets from the original game are included in this repository. It is just meant to showcase that the UI is capable. 
+Do also have a ported version (from godot) of floppy-warriors [here](https://github.com/mlm-games/floppy-warriors).
 
 ## License
 

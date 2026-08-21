@@ -9,6 +9,14 @@ pub struct SaveData {
     #[serde(default)]
     pub version: u32,
     pub high_score: u32,
+    #[serde(default)]
+    pub best_floor: u32,
+    #[serde(default)]
+    pub total_runs: u32,
+    #[serde(default)]
+    pub total_kills: u32,
+    #[serde(default)]
+    pub unlocked_characters: Vec<String>,
     pub settings: SettingsData,
 }
 
@@ -36,6 +44,10 @@ impl Default for SaveData {
         Self {
             version: SAVE_VERSION,
             high_score: 0,
+            best_floor: 0,
+            total_runs: 0,
+            total_kills: 0,
+            unlocked_characters: vec!["Fish".to_string()],
             settings: SettingsData::default(),
         }
     }

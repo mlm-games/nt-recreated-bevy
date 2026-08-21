@@ -5,3 +5,14 @@ target/
 *.wasm
 assets_export/
 dist/
+
+# Original Nuclear Throne assets - local only, never commit.
+# Imported via `python3 tools/gen_assets.py` (keeps .ogg/.wav directly, no conversion).
+# No fallback audio - silence when not present; sprites fallback to colored rects.
+assets/audio/*
+!assets/audio/.gitkeep
+assets/images/*.png
+assets/images/*.PNG
+assets/sprites/
+assets/og/
+assets/original/

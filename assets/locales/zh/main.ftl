@@ -1,4 +1,4 @@
-app-title = My Ecosystem Bevy
+app-title = Nuclear Throne (Bevy Recreation)
 start-game = 开始游戏
 settings = 设置
 credits = 致谢
@@ -14,5 +14,7 @@ music-volume = 音乐
 language = 语言
 score = 分数
 best = 最高分
-controls-hint = WASD移动 | 点击/空格射击 | Esc暂停
+controls-hint = WASD move | Mouse aim | LMB/Space shoot | 1/2 switch | E ability | Esc pause
 loading = 加载中...
+
+retry = Retry
