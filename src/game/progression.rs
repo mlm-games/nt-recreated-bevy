@@ -119,7 +119,7 @@ pub fn setup_run(
                 moving: false,
             },
             crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite).0,
-            Transform::from_xyz(0.0, 0.0, 20.0),
+            Transform::from_xyz(TILE * 0.5, TILE * 0.5, 20.0),
         ))
         .id();
 

@@ -5,8 +5,7 @@ impl Plugin for DevToolsPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "dev")]
         {
-            app.add_systems(Update, log_state_change);
-        }
+            app.add_systems(Update, log_state_change);        }
     }
 }
 
@@ -16,3 +15,4 @@ fn log_state_change(state: Res<State<crate::app::AppState>>) {
         bevy::log::info!("AppState  {:?}", state.get());
     }
 }
+

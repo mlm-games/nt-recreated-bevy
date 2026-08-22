@@ -49,11 +49,11 @@ pub enum ChestSpawn {
 /// Upstream `_area` ids for our compressed 7-floor world.
 fn gml_area(floor: u32) -> i32 {
     match floor_in_world(floor) {
-        1 | 2 => 1,  // Desert
-        3 => 1,      // Desert boss subarea (campfire-style goal)
-        4 | 5 => 2,  // Sewers
-        6 => 3,      // Scrapyards
-        _ => 7,      // Throne approach
+        1 | 2 => 1, // Desert
+        3 => 1,     // Desert boss subarea (campfire-style goal)
+        4 | 5 => 2, // Sewers
+        6 => 3,     // Scrapyards
+        _ => 7,     // Throne approach
     }
 }
 
@@ -69,7 +69,7 @@ pub fn generation_goal(floor: u32) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// scrMakeFloor port
+// scrMakeFloor port... (walls and screen ends are not yet one)
 // ---------------------------------------------------------------------------
 
 struct Maker {
@@ -194,9 +194,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
             // WeaponChest on hard turns (upstream: trn==180 always; +-90 only
             // in scrapyards/palace), away from spawn.
             let dist_from_spawn = ((mx * 32).pow(2) + (my * 32).pow(2)) as f32;
-            if dist_from_spawn > 48.0 * 48.0
-                && (trn == 180 || (trn.abs() == 90 && area == 3))
-            {
+            if dist_from_spawn > 48.0 * 48.0 && (trn == 180 || (trn.abs() == 90 && area == 3)) {
                 plan.chests.push(ChestSpawn::Weapon(cell_center_px(mx, my)));
             }
 
@@ -227,13 +225,21 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 _ => false,
             };
             if branches && makers.len() < 10 {
-                makers.push(Maker { x: mx, y: my, dir: makers[mi].dir });
+                makers.push(Maker {
+                    x: mx,
+                    y: my,
+                    dir: makers[mi].dir,
+                });
             }
         }
     }
 
     // Final floor + RadChest where the furthest floor ended up (stop perk).
-    if let Some(&(fx, fy)) = plan.floor_cells.iter().max_by_key(|c| c.0.abs() + c.1.abs()) {
+    if let Some(&(fx, fy)) = plan
+        .floor_cells
+        .iter()
+        .max_by_key(|c| c.0.abs() + c.1.abs())
+    {
         plan.chests.push(ChestSpawn::Rad(cell_center_px(fx, fy)));
     }
 
@@ -245,11 +251,19 @@ pub fn generate_level(run: &Run) -> LevelPlan {
 }
 
 fn cell_center_px(cx: i32, cy: i32) -> Vec2 {
-    Vec2::new(cx as f32 * TILE, cy as f32 * TILE)
+    Vec2::new(cx as f32 * TILE + TILE * 0.5, cy as f32 * TILE + TILE * 0.5)
 }
 
 fn cell_center_i(cx: i32, cy: i32) -> (f32, f32) {
-    (cx as f32 * TILE, cy as f32 * TILE)
+    (cx as f32 * TILE + TILE * 0.5, cy as f32 * TILE + TILE * 0.5)
+}
+
+/// Lattice (wx,wy) -> world center of one 16px wall cell.
+fn wall_center(wx: i32, wy: i32) -> Vec2 {
+    Vec2::new(
+        wx as f32 * WALL_PX + WALL_PX * 0.5,
+        wy as f32 * WALL_PX + WALL_PX * 0.5,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -264,10 +278,18 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
         // Tile spans lattice cells [2cx..2cx+2) x [2cy..2cy+2).
         // Probe the 12 surrounding 16px positions (mcr_floor_make_walls).
         let probes = [
-            (-1, -1), (0, -1), (1, -1), (2, -1), //
-            (2, 0), (2, 1), //
-            (-1, 0), (-1, 1), //
-            (-1, 2), (0, 2), (1, 2), (2, 2),
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (2, -1), //
+            (2, 0),
+            (2, 1), //
+            (-1, 0),
+            (-1, 1), //
+            (-1, 2),
+            (0, 2),
+            (1, 2),
+            (2, 2),
         ];
         for (ox, oy) in probes {
             let wx = cx * 2 + ox;
@@ -316,8 +338,8 @@ fn populate(
         if !boss_sub && rng.random::<f32>() * 5.0 < 1.0 && dist_sq > 100.0 * 100.0 {
             let sx = px + rng.random_range(-8.0..8.0);
             let sy = py + rng.random_range(-8.0..8.0);
-            let wx = ((sx / WALL_PX).floor() as i32) * 2;
-            let wy = ((sy / WALL_PX).floor() as i32) * 2;
+            let wx = (sx / WALL_PX).floor() as i32;
+            let wy = (sy / WALL_PX).floor() as i32;
             plan.small_walls.push((wx as i16, wy as i16));
             prop_tiles.insert((cx, cy));
         }
@@ -334,7 +356,9 @@ fn populate(
             ));
         }
 
-        if area == 1 && side_solid(walls, cx, cy, -1) && side_solid(walls, cx, cy, 1)
+        if area == 1
+            && side_solid(walls, cx, cy, -1)
+            && side_solid(walls, cx, cy, 1)
             && !walls_cover_tile_with_smalls(plan, cx, cy)
         {
             plan.bones.push((Vec2::new(px - 16.0, py - 16.0), false));
@@ -404,9 +428,10 @@ fn populate(
             continue;
         }
         if walls_cover_tile(walls, cx, cy)
-            || plan.small_walls.iter().any(|&(wx, wy)| {
-                (wx as i32).div_euclid(2) == cx && (wy as i32).div_euclid(2) == cy
-            })
+            || plan
+                .small_walls
+                .iter()
+                .any(|&(wx, wy)| (wx as i32).div_euclid(2) == cx && (wy as i32).div_euclid(2) == cy)
         {
             continue;
         }
@@ -416,10 +441,7 @@ fn populate(
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
-                    let k = pick_kind(
-                        &mut rng,
-                        &[EnemyKind::Maggot, EnemyKind::Scorpion],
-                    );
+                    let k = pick_kind(&mut rng, &[EnemyKind::Maggot, EnemyKind::Scorpion]);
                     plan.enemies.push((k, center));
                 } else if rng.random::<f32>() * 30.0 < 1.0 {
                     plan.props.push((PropKind::Barrel, center));
@@ -651,29 +673,34 @@ pub fn spawn_level(
     // The Top face overlays every wall 8px higher.
     let floor_set: std::collections::HashSet<(i32, i32)> =
         plan.floor_cells.iter().copied().collect();
-    for &(wx, wy) in &plan.wall_cells {
-        let x = (wx as f32 - cols as f32) * WALL_PX + WALL_PX * 0.5;
-        let y = (wy as f32 - rows as f32) * WALL_PX + WALL_PX * 0.5;
+    // Ring walls + interior small walls share the same renderer.
+    let mut all_walls: Vec<(i32, i32)> = plan.wall_cells.iter().copied().collect();
+    all_walls.extend(
+        plan.small_walls
+            .iter()
+            .map(|&(wx, wy)| (wx as i32, wy as i32)),
+    );
+    for (wx, wy) in all_walls {
+        let c = wall_center(wx, wy);
 
-        // Probe point in tile space: (left edge x, y + 16).
-        let owner = (
-            wx.div_euclid(2),
-            (wy * 2 + if wy.rem_euclid(2) == 0 { 1 } else { 2 }).div_euclid(2),
-        );
+        // Probe point in tile space: (left edge x, y + 16) — GML screen-down;
+        // in Bevy y-up that is the cell BELOW on screen (row wy+1).
+        let owner = (wx.div_euclid(2), (wy + 1).div_euclid(2));
         let floor_below = floor_set.contains(&owner);
         if floor_below {
             commands.spawn((
                 GameCleanup,
                 LevelCleanup,
                 sprite_exact(catalog, asset_server, wall_bot_png),
-                Transform::from_xyz(x, y, -40.0),
+                Transform::from_xyz(c.x, c.y, -40.0),
             ));
         }
+        // Top cap sits 8px ABOVE on screen (GML drew it at y-8 with y-down).
         commands.spawn((
             GameCleanup,
             LevelCleanup,
             sprite_exact(catalog, asset_server, wall_top_png),
-            Transform::from_xyz(x, y - 8.0, -36.0),
+            Transform::from_xyz(c.x, c.y + 8.0, -36.0),
         ));
 
         // Collision body (16px solid).
@@ -687,7 +714,7 @@ pub fn spawn_level(
                 destructible: false,
                 explosive: false,
             },
-            Transform::from_xyz(x, y, -30.0),
+            Transform::from_xyz(c.x, c.y, -30.0),
         ));
     }
 
@@ -742,8 +769,24 @@ fn spawn_prop(
     decal_png: &'static str,
 ) {
     let (png, size, hp, destructible, explosive, z, solid) = match kind {
-        PropKind::Cactus => ("images/sprCactus.png", 24.0, 9999, false, false, -10.0, true),
-        PropKind::BigSkull => ("images/sprBigSkull.png", 32.0, 9999, false, false, -10.0, true),
+        PropKind::Cactus => (
+            "images/sprCactus.png",
+            24.0,
+            9999,
+            false,
+            false,
+            -10.0,
+            true,
+        ),
+        PropKind::BigSkull => (
+            "images/sprBigSkull.png",
+            32.0,
+            9999,
+            false,
+            false,
+            -10.0,
+            true,
+        ),
         PropKind::Barrel => ("images/sprBarrel.png", 24.0, 1, true, true, -10.0, true),
         PropKind::Pipe => ("images/sprPipe.png", 24.0, 9999, false, false, -10.0, true),
         PropKind::Tires => ("images/sprTires.png", 28.0, 9999, false, false, -10.0, true),

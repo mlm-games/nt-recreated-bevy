@@ -87,7 +87,7 @@ pub fn weapon_runtime(id: crate::game::content::WeaponId) -> WeaponRuntime {
         projectile_kind: kind,
         pellets: 1,
         spread_deg: 0.07,
-        speed: 960.0,
+        speed: 480.0,
         lifetime_frames: 30,
         damage: 3,
         recoil: 3.0,

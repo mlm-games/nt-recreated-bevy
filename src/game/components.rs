@@ -23,16 +23,15 @@ pub struct FloorMask {
 }
 
 impl FloorMask {
+    /// Cells are origin-centered tile coords matching LevelPlan exactly.
     pub fn world_to_cell(&self, p: Vec2) -> (i32, i32) {
-        let fx = (p.x / TILE + self.cols as f32 * 0.5).floor() as i32;
-        let fy = (p.y / TILE + self.rows as f32 * 0.5).floor() as i32;
-        (fx, fy)
+        ((p.x / TILE).floor() as i32, (p.y / TILE).floor() as i32)
     }
 
     pub fn cell_center(&self, c: (i32, i32)) -> Vec2 {
         Vec2::new(
-            (c.0 as f32 - self.cols as f32 * 0.5 + 0.5) * TILE,
-            (c.1 as f32 - self.rows as f32 * 0.5 + 0.5) * TILE,
+            c.0 as f32 * TILE + TILE * 0.5,
+            c.1 as f32 * TILE + TILE * 0.5,
         )
     }
 
