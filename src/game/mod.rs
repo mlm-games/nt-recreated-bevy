@@ -57,7 +57,6 @@ impl Plugin for GamePlugin {
                     anim::animate_sprites.in_set(NtSimSet::Always),
                     anim::player_anim_switch.in_set(NtSimSet::Input),
                     progress_sys::handle_mutation_choice.in_set(NtSimSet::Always),
-                    player_sys::tick_dash.in_set(NtSimSet::Always),
                     player_sys::face_aim.in_set(NtSimSet::Always),
                     pickups::tick_toast.in_set(NtSimSet::Always),
                     (

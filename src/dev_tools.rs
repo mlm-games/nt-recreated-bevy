@@ -5,7 +5,8 @@ impl Plugin for DevToolsPlugin {
     fn build(&self, app: &mut App) {
         #[cfg(feature = "dev")]
         {
-            app.add_systems(Update, log_state_change);        }
+            app.add_systems(Update, log_state_change);
+        }
     }
 }
 

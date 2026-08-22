@@ -28,10 +28,12 @@ pub struct SaveData {
     pub achievements: BTreeMap<String, bool>,
     #[serde(default)]
     pub unlocked_cheats: bool,
+    #[serde(default)]
     pub settings: SettingsData,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SettingsData {
     pub master_volume: f32,
     pub sfx_volume: f32,
@@ -91,16 +93,13 @@ impl SaveData {
     }
 
     pub fn race_loadout(&self, race: RaceId) -> RaceLoadout {
-        self.races
-            .get(&race)
-            .cloned()
-            .unwrap_or(RaceLoadout {
-                unlocked: race == RaceId::Fish,
-                unlocked_skins: [race == RaceId::Fish, false, false, false],
-                stored_weapon: WeaponId(0),
-                start_weapon: WeaponId(0),
-                start_crown: 0,
-            })
+        self.races.get(&race).cloned().unwrap_or(RaceLoadout {
+            unlocked: race == RaceId::Fish,
+            unlocked_skins: [race == RaceId::Fish, false, false, false],
+            stored_weapon: WeaponId(0),
+            start_weapon: WeaponId(0),
+            start_crown: 0,
+        })
     }
 }
 
@@ -111,5 +110,21 @@ impl Versioned for SaveData {
 
     fn set_version(&mut self, version: u32) {
         self.version = version;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_files_receive_defaults_for_new_fields() {
+        let settings: SettingsData = serde_json::from_str(r#"{"master_volume":0.5}"#)
+            .expect("partial settings should deserialize");
+
+        assert_eq!(settings.master_volume, 0.5);
+        assert_eq!(settings.sfx_volume, 1.0);
+        assert_eq!(settings.music_volume, 0.8);
+        assert_eq!(settings.language, "en");
     }
 }

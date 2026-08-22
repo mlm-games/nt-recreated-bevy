@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use std::rc::Rc;
 
+use repose_core::PaddingValues;
 use repose_core::View;
 use repose_core::prelude::{
     AlignItems, AlignSelf, AnimationSpec, Color as RColor, Easing, JustifyContent, Modifier,
     remember,
 };
-use repose_core::PaddingValues;
 use repose_material::material3::{
     ButtonConfig, DropdownMenu, DropdownMenuConfig, DropdownMenuEntry, DropdownMenuItem,
     FilledTonalButton, MenuState,
@@ -79,7 +79,10 @@ fn slide_in_config(key: &str, dx: f32, dy: f32) -> AnimatedVisibilityConfig {
     AnimatedVisibilityConfig {
         key: key.into(),
         spec: AnimationSpec::tween(Duration::from_millis(260), Easing::EaseOut),
-        enter: EnterTransition::FadeIn.and(EnterTransition::SlideIn { offset_x: dx, offset_y: dy }),
+        enter: EnterTransition::FadeIn.and(EnterTransition::SlideIn {
+            offset_x: dx,
+            offset_y: dy,
+        }),
         exit: ExitTransition::FadeOut,
     }
 }
@@ -229,54 +232,6 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a4 = actions.clone();
     let tr = &st.translations;
 
-    // Character select grid (upstream Menu/Create_0 slot layout).
-    let mut char_buttons: Vec<View> = Vec::new();
-    for (i, cid) in PLAYABLE_RACES.iter().enumerate() {
-        let a = actions.clone();
-        let def = character_def(*cid);
-        let selected = st.selected_character == i;
-        char_buttons.push(
-            Column(
-                Modifier::new()
-                    .width(56.0)
-                    .height(56.0)
-                    .margin(2.0)
-                    .background(if selected {
-                        RColor::from_rgba(240, 210, 110, 60)
-                    } else {
-                        RColor::from_rgba(255, 255, 255, 14)
-                    })
-                    .border(
-                        2.0,
-                        if selected {
-                            col(255, 220, 130)
-                        } else {
-                            col(80, 80, 100)
-                        },
-                        6.0,
-                    )
-                    .clip_rounded(6.0)
-                    .justify_content(JustifyContent::CENTER)
-                    .align_items(AlignItems::CENTER)
-                    .clickable()
-                    .on_click(move || push(&a, UiAction::SelectCharacter(i))),
-            )
-            .child((
-                RText(&def.name[..1.min(def.name.len())])
-                    .size(22.0)
-                    .color(if selected { col(255, 220, 130) } else { col(190, 195, 210) }),
-                RText(def.name).size(8.0).color(col(150, 155, 168)),
-            )),
-        );
-    }
-
-    let mut char_rows: Vec<View> = Vec::new();
-    for chunk in char_buttons.chunks(8) {
-        char_rows.push(
-            Row(Modifier::new().justify_content(JustifyContent::CENTER)).child(chunk.to_vec()),
-        );
-    }
-
     Column(
         Modifier::new()
             .fill_max_size()
@@ -286,19 +241,18 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             // underneath (ui_art.rs).
             .background(RColor::from_rgba(10, 8, 16, 120)),
     )
-    .child(
-        AnimatedVisibility(
-            true,
-            Column(
-                Modifier::new()
-                    .width(560.0)
-                    .padding(28.0)
-                    .background(RColor::from_rgba(8, 8, 14, 150))
-                    .clip_rounded(18.0)
-                    .border(2.0, col(90, 90, 110), 18.0)
-                    .align_items(AlignItems::CENTER),
-            )
-            .child(vec![
+    .child(AnimatedVisibility(
+        true,
+        Column(
+            Modifier::new()
+                .width(560.0)
+                .padding(28.0)
+                .background(RColor::from_rgba(8, 8, 14, 150))
+                .clip_rounded(18.0)
+                .border(2.0, col(90, 90, 110), 18.0)
+                .align_items(AlignItems::CENTER),
+        )
+        .child(vec![
             RText(t(tr, "app-title", "NUCLEAR THRONE"))
                 .size(44.0)
                 .color(col(240, 210, 110)),
@@ -334,16 +288,9 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                     move || push(&a, UiAction::QuitApp)
                 }),
             ]),
-            spacer(18.0),
-            RText("SELECT MUTANT")
-                .size(11.0)
-                .color(col(120, 120, 140)),
-            spacer(6.0),
-            Column(Modifier::new().gap(2.0)).child(char_rows),
         ]),
         rise_in_config("title_card"),
-    ),
-)
+    ))
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -596,11 +543,15 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             } else {
                 RColor::from_rgba(255, 255, 255, 18)
             },
-            if active { col(255, 220, 150) } else { col(170, 175, 190) },
+            if active {
+                col(255, 220, 150)
+            } else {
+                col(170, 175, 190)
+            },
         ));
     }
-    let weapons_row = Row(Modifier::new().gap(6.0).align_items(AlignItems::CENTER))
-        .child(weapon_chips);
+    let weapons_row =
+        Row(Modifier::new().gap(6.0).align_items(AlignItems::CENTER)).child(weapon_chips);
 
     // Ammo type counters (upstream icon row: bullets/shells/bolts/explo/energy).
     const AMMO_LABELS: [&str; 5] = ["B", "S", "B", "E", "N"];
@@ -654,13 +605,15 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::STRETCH),
     )
     .child((
-        Row(
-            Modifier::new()
-                .justify_content(JustifyContent::SPACE_BETWEEN)
-                .align_items(AlignItems::CENTER),
-        )
+        Row(Modifier::new()
+            .justify_content(JustifyContent::SPACE_BETWEEN)
+            .align_items(AlignItems::CENTER))
         .child((
-            reward_chip(&st.character, RColor::from_rgba(120, 170, 255, 40), col(150, 190, 255)),
+            reward_chip(
+                &st.character,
+                RColor::from_rgba(120, 170, 255, 40),
+                col(150, 190, 255),
+            ),
             ability_chip,
         )),
         weapons_row,
@@ -707,9 +660,7 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .clip_rounded(12.0),
         )
         .child((
-            RText("BOSS")
-                .size(10.0)
-                .color(col(200, 160, 230)),
+            RText("BOSS").size(10.0).color(col(200, 160, 230)),
             hud_stat_bar(404.0, 10.0, pct, col(200, 110, 255)),
         ))
     } else {
@@ -728,13 +679,15 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .background(RColor::from_rgba(8, 8, 12, 150))
             .clip_rounded(999.0),
     )
-    .child(RText(t(
-        tr,
-        "controls-hint",
-        "WASD move | Mouse aim | LMB shoot | 1/2 swap | E ability | Esc pause",
-    ))
-    .size(12.0)
-    .color(col(150, 155, 168)));
+    .child(
+        RText(t(
+            tr,
+            "controls-hint",
+            "WASD move | Mouse aim | LMB shoot | 1/2 swap | E ability | Esc pause",
+        ))
+        .size(12.0)
+        .color(col(150, 155, 168)),
+    );
 
     let toast_view = if st.toast_timer > 0.0 && !st.toast.is_empty() {
         let a = ((st.toast_timer.clamp(0.0, 1.0)) * 255.0) as u8;
@@ -749,7 +702,11 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .background(RColor::from_rgba(18, 18, 28, a))
                 .clip_rounded(10.0),
         )
-        .child(RText(&st.toast).size(18.0).color(RColor::from_rgba(255, 230, 150, a)))
+        .child(
+            RText(&st.toast)
+                .size(18.0)
+                .color(RColor::from_rgba(255, 230, 150, a)),
+        )
     } else {
         Column(Modifier::new().width(0.0).height(0.0))
     };
@@ -944,7 +901,11 @@ pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> V
 /// Pill stat bar (Floppy-Warriors hud_stat_bar style).
 pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> View {
     let f = frac.clamp(0.0, 1.0);
-    let inner_w = if f <= 0.0 { 0.001 } else { (width * f).max(2.0) };
+    let inner_w = if f <= 0.0 {
+        0.001
+    } else {
+        (width * f).max(2.0)
+    };
     let radius = (height * 0.5).max(2.0);
 
     Column(

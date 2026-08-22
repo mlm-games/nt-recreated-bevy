@@ -10,7 +10,7 @@ use crate::asset_tracking::AssetsLoading;
 use crate::dev_tools::DevToolsPlugin;
 use crate::game::{GamePlugin, MutationChoice, SelectedCharacter};
 use crate::menus::{self, UiAction, UiBridge};
-use crate::save::SaveData;
+use crate::save::{SAVE_VERSION, SaveData};
 use crate::screens::ScreensPlugin;
 use crate::theme::ThemePlugin;
 use game_utils_bevy::{
@@ -220,7 +220,7 @@ impl Plugin for AppPlugin {
                     "nt-recreated",
                     "nt-recreated-bevy",
                     "save.ron",
-                    1,
+                    SAVE_VERSION,
                 )),
                 ScreensPlugin,
                 GamePlugin,
@@ -347,10 +347,12 @@ fn tick_pending_unpause(
     }
 }
 
-fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32) {
+fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
     if let Ok(mut ui) = bridge.shared.lock() {
-        *field(&mut ui) = v.clamp(0.0, 1.0);
+        *field(&mut ui) = v;
     }
+    v
 }
 
 fn process_ui_actions(
@@ -363,6 +365,7 @@ fn process_ui_actions(
     manager: Res<SaveManager>,
     mut pending_unpause: ResMut<PendingUnpause>,
     mut locale: ResMut<LocaleResources>,
+    mut channels: ResMut<AudioChannels>,
     mut selected: ResMut<SelectedCharacter>,
     mut mutation_choice: ResMut<MutationChoice>,
 ) {
@@ -413,9 +416,18 @@ fn process_ui_actions(
             UiAction::QuitApp => {
                 exit.write(AppExit::Success);
             }
-            UiAction::SetMasterVol(v) => set_vol(&bridge, |ui| &mut ui.master_vol, v),
-            UiAction::SetSfxVol(v) => set_vol(&bridge, |ui| &mut ui.sfx_vol, v),
-            UiAction::SetMusicVol(v) => set_vol(&bridge, |ui| &mut ui.music_vol, v),
+            UiAction::SetMasterVol(v) => {
+                let v = set_vol(&bridge, |ui| &mut ui.master_vol, v);
+                channels.master = v;
+            }
+            UiAction::SetSfxVol(v) => {
+                let v = set_vol(&bridge, |ui| &mut ui.sfx_vol, v);
+                channels.sfx = v;
+            }
+            UiAction::SetMusicVol(v) => {
+                let v = set_vol(&bridge, |ui| &mut ui.music_vol, v);
+                channels.music = v;
+            }
             UiAction::SaveSettings => {
                 if let Ok(ui) = bridge.shared.lock() {
                     save.settings.master_volume = ui.master_vol;
@@ -435,6 +447,9 @@ fn process_ui_actions(
             }
             UiAction::NextLanguage => {
                 let available = locale.available.clone();
+                if available.is_empty() {
+                    continue;
+                }
                 let current = locale.current.clone();
                 let idx = available.iter().position(|l| *l == current).unwrap_or(0);
                 let next = (idx + 1) % available.len();

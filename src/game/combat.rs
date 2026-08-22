@@ -218,6 +218,7 @@ pub fn apply_explosions(
         if boom.hits_player
             && let Ok((player_e, ptf, mut health, player)) = player_q.single_mut()
             && ptf.translation.truncate().distance(pos) < boom.radius
+            && health.invuln.is_finished()
         {
             let mut dmg = boom.damage;
             if player.boiling_veins {
@@ -418,6 +419,12 @@ pub fn contact_damage(
         return;
     };
 
+    // Contact damage must respect the same invulnerability window as
+    // projectile and explosion damage.
+    if !health.invuln.is_finished() {
+        return;
+    }
+
     let player_pos = player_tf.translation.truncate();
     let mut took_damage = 0;
 
@@ -446,8 +453,8 @@ pub fn contact_damage(
         }
 
         health.hp -= damage;
-                took_damage = damage;
-                health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
+        took_damage = damage;
+        health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
         brain.melee = Timer::from_seconds(0.5, TimerMode::Once);
 
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
@@ -618,7 +625,13 @@ pub fn resolve_deaths(
             GameFeel::rumble_controller(&mut rumble, &gamepads, 0.8, 1.0, 0.4);
             GameFeel::slow_motion(&mut slow_mo, 0.35, 0.6);
             for _ in 0..enemy.rad_drop.min(24) {
-                spawn_rad(&mut commands, &catalog, &asset_server, pos + random_offset(), 1);
+                spawn_rad(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    pos + random_offset(),
+                    1,
+                );
             }
             // Boss drops a chest with a weapon plus two drops.
             spawn_chest(
@@ -659,7 +672,13 @@ pub fn resolve_deaths(
                 ));
             }
             for _ in 0..enemy.rad_drop {
-                spawn_rad(&mut commands, &catalog, &asset_server, pos + random_offset(), 1);
+                spawn_rad(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    pos + random_offset(),
+                    1,
+                );
             }
             maybe_spawn_drop(
                 &mut commands,
@@ -811,7 +830,13 @@ pub fn spawn_rad(
     pos: Vec2,
     amount: u32,
 ) {
-    crate::game::pickups::spawn_pickup(commands, catalog, asset_server, PickupKind::Rad(amount), pos);
+    crate::game::pickups::spawn_pickup(
+        commands,
+        catalog,
+        asset_server,
+        PickupKind::Rad(amount),
+        pos,
+    );
 }
 
 fn random_offset() -> Vec2 {

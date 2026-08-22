@@ -40,12 +40,7 @@ impl SpriteAnim {
     pub fn rect(&self) -> Rect {
         let w = self.def.frame_px as f32;
         let h = self.def.height as f32;
-        Rect::new(
-            self.frame as f32 * w,
-            0.0,
-            self.frame as f32 * w + w,
-            h,
-        )
+        Rect::new(self.frame as f32 * w, 0.0, self.frame as f32 * w + w, h)
     }
 }
 

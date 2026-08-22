@@ -912,10 +912,18 @@ mod tests {
             // Walls never overlap floors, and every tile's 12-cell ring is
             // sealed (no dark gaps between wall masses and floors).
             const RING: [(i32, i32); 12] = [
-                (-1, -1), (0, -1), (1, -1), (2, -1), //
-                (2, 0), (2, 1), //
-                (-1, 0), (-1, 1), //
-                (-1, 2), (0, 2), (1, 2), (2, 2),
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (2, -1), //
+                (2, 0),
+                (2, 1), //
+                (-1, 0),
+                (-1, 1), //
+                (-1, 2),
+                (0, 2),
+                (1, 2),
+                (2, 2),
             ];
             let walls_and_smalls = |wx: i32, wy: i32| {
                 plan.wall_cells.contains(&(wx, wy))
@@ -945,4 +953,3 @@ mod tests {
         }
     }
 }
-

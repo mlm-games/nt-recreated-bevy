@@ -59,70 +59,69 @@ pub fn setup_run(
 
     let (player_sprite, player_strip) =
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
-    let mut player = commands
-        .spawn((
-            GameCleanup,
-            Player {
-                speed: 240.0 * def.speed_mult,
-                accel: PLAYER_ACCEL,
-                friction: PLAYER_FRICTION,
-                speed_mult: 1.0,
-                rads: 0,
-                level: 1,
-                next_level_rads: 60,
-                pickup_range: def.pickup_range,
-                fire_rate_mult: 1.0,
-                spread_mult: 1.0,
-                knockback_mult: 1.0,
-                melee_range_mult: 1.0,
-                drop_mult: 0.0,
-                medkit_mult: 1.0,
-                boiling_veins: false,
-                veins_threshold: 4,
-                bloodlust: false,
-                lucky_shot: false,
-                gamma_guts: false,
-                back_muscle: 0,
-                stress: false,
-                sharp_teeth: false,
-                strong_spirit_ready: false,
-                last_wish_used: false,
-                chain_explosions: def.passive == PassiveKind::ChainExplosions,
-                shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
-                ability: def.ability,
-                ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
-                mutations: Vec::new(),
-            },
-            Inventory {
-                weapons: [WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
-                weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
-                current: 0,
-                ammo: [0, 96, 0, 0, 0, 0],
-            },
-            FireCooldown {
-                timer: ready_timer(),
-                burst_left: 0,
-                burst_timer: ready_timer(),
-            },
-            Health {
-                hp: def.max_hp,
-                max: def.max_hp,
-                invuln: ready_timer(),
-            },
-            Team::Player,
-            Hitbox {
-                radius: PLAYER_RADIUS,
-            },
-            AimDir(Vec2::Y),
-            Velocity(Vec2::ZERO),
-            crate::game::anim::PlayerAnim {
-                idle: def.sprite,
-                walk: def.walk_sprite,
-                moving: false,
-            },
-            player_sprite,
-            Transform::from_xyz(TILE * 0.5, TILE * 0.5, 20.0),
-        ));
+    let mut player = commands.spawn((
+        GameCleanup,
+        Player {
+            speed: 240.0 * def.speed_mult,
+            accel: PLAYER_ACCEL,
+            friction: PLAYER_FRICTION,
+            speed_mult: 1.0,
+            rads: 0,
+            level: 1,
+            next_level_rads: 60,
+            pickup_range: def.pickup_range,
+            fire_rate_mult: 1.0,
+            spread_mult: 1.0,
+            knockback_mult: 1.0,
+            melee_range_mult: 1.0,
+            drop_mult: 0.0,
+            medkit_mult: 1.0,
+            boiling_veins: false,
+            veins_threshold: 4,
+            bloodlust: false,
+            lucky_shot: false,
+            gamma_guts: false,
+            back_muscle: 0,
+            stress: false,
+            sharp_teeth: false,
+            strong_spirit_ready: false,
+            last_wish_used: false,
+            chain_explosions: def.passive == PassiveKind::ChainExplosions,
+            shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
+            ability: def.ability,
+            ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            mutations: Vec::new(),
+        },
+        Inventory {
+            weapons: [WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
+            weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
+            current: 0,
+            ammo: [0, 96, 0, 0, 0, 0],
+        },
+        FireCooldown {
+            timer: ready_timer(),
+            burst_left: 0,
+            burst_timer: ready_timer(),
+        },
+        Health {
+            hp: def.max_hp,
+            max: def.max_hp,
+            invuln: ready_timer(),
+        },
+        Team::Player,
+        Hitbox {
+            radius: PLAYER_RADIUS,
+        },
+        AimDir(Vec2::Y),
+        Velocity(Vec2::ZERO),
+        crate::game::anim::PlayerAnim {
+            idle: def.sprite,
+            walk: def.walk_sprite,
+            moving: false,
+        },
+        player_sprite,
+        Transform::from_xyz(TILE * 0.5, TILE * 0.5, 20.0),
+    ));
     if let Some(player_strip) = player_strip {
         player.insert(player_strip);
     }
@@ -143,7 +142,14 @@ pub fn setup_run(
     }
 
     let plan = world::generate_level(&run);
-    world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
+    world::spawn_level(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        &run,
+        &plan,
+        &mut mask,
+    );
 }
 
 pub fn cleanup_run(
@@ -204,7 +210,7 @@ pub fn check_level_up(
         commands.insert_resource(PendingMutation { choices });
         toast.show("LEVEL UP! Choose a mutation (1/2/3)");
         ScreenEffects::add_trauma(trauma, 0.35);
-            VfxSpawner::spawn_burst(
+        VfxSpawner::spawn_burst(
             commands,
             pos,
             32,
@@ -522,7 +528,14 @@ pub fn portal_enter(
     health.hp = (health.hp + 1).min(health.max);
 
     let plan = world::generate_level(&run);
-    world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
+    world::spawn_level(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        &run,
+        &plan,
+        &mut mask,
+    );
     // Spawn player on a floor cell near origin
     if let Some(c) = mask.cells.iter().min_by_key(|c| {
         let p = mask.cell_center(**c);

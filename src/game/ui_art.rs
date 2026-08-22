@@ -33,16 +33,16 @@ pub struct HudArtRefs {
 // NT GUI space is 320x240; our ortho view shows window*scale world units.
 // Anchors are expressed as NT GUI coords and mapped 1:1 (NT pixels == world
 // pixels), offset from the view's top-left corner.
-fn view_top_left(cam_tf: &Transform, cam_scale: f32) -> Vec2 {
-    let half = Vec2::new(640.0 * cam_scale, 360.0 * cam_scale);
-    cam_tf.translation.truncate() - half
-}
 
 pub struct UiArtPlugin;
 
 impl Plugin for UiArtPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::Title), spawn_title_art)
+        app.add_systems(OnEnter(AppState::Title), (spawn_title_art, spawn_char_slots))
+            .add_systems(
+                Update,
+                char_slot_click.run_if(in_state(AppState::Title)),
+            )
             .add_systems(
                 OnExit(AppState::Title),
                 (despawn_title_art, despawn_hud_art),
@@ -115,7 +115,7 @@ fn spawn_title_art(
         TitleLogo,
         ChildOf(cam),
         sprite_exact(&catalog, &asset_server, "images/sprLogoGlow.png"),
-        Transform::from_xyz(0.0, 330.0, -880.0),
+        Transform::from_xyz(0.0, 300.0, -880.0),
     ));
 }
 
@@ -264,4 +264,125 @@ fn sync_exp_fill(
     spr.custom_size = Some(Vec2::new(14.0 * frac, 24.0));
     let s = 0.45f32;
     tf.translation.x = -(640.0 * s) + 4.0 + 7.0 * frac;
+}
+
+/// One selectable mutant pod.
+#[derive(Component)]
+pub struct CharSlot {
+    pub index: usize,
+    pub half: Vec2,
+}
+
+fn menu_sprite(
+    catalog: &AssetCatalog,
+    race: crate::game::content::RaceId,
+    selected: bool,
+) -> &'static str {
+    use crate::game::content::RaceId::*;
+    let name = match race {
+        Fish => "sprFishMenu",
+        Crystal => "sprCrystalMenu",
+        Eyes => "sprEyesMenu",
+        Melting => "sprMeltingMenu",
+        Plant => "sprPlantMenu",
+        Venuz => "sprVenuzMenu",
+        Steroids => "sprSteroidsMenu",
+        Robot => "sprRobotMenu",
+        Chicken => "sprChickenMenu",
+        Rebel => "sprRebelMenu",
+        Horror => "sprHorrorMenu",
+        Rogue => "sprRogueMenu",
+        BigDog | Skeleton | Frog | Random | Cuz => {
+            return "images/sprCharSelectLocked.png";
+        }
+    };
+    // Prefer Selected/Deselect variants, fall back to base, then to locked pod.
+    for cand in [
+        if selected {
+            format!("images/{name}Selected.png")
+        } else {
+            format!("images/{name}Deselect.png")
+        },
+        format!("images/{name}.png"),
+    ] {
+        if catalog.has(&cand) {
+            return Box::leak(cand.into_boxed_str());
+        }
+    }
+    "images/sprCharSelectLocked.png"
+}
+
+fn spawn_char_slots(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    selected: Res<crate::game::SelectedCharacter>,
+    cam_q: Query<Entity, With<Camera2d>>,
+) {
+    let Ok(cam) = cam_q.single() else {
+        return;
+    };
+    use crate::game::content::{PLAYABLE_RACES, RaceId};
+    let cols = 8usize;
+    let pitch_x = 64.0f32;
+    let pitch_y = 72.0;
+    for (i, race) in PLAYABLE_RACES.iter().enumerate() {
+        let col = i % cols;
+        let row = i / cols;
+        let n = PLAYABLE_RACES.len();
+        let row_n = if row == 0 { cols.min(n) } else { n - cols };
+        let x = (col as f32 - (cols as f32 - 1.0) * 0.5) * pitch_x;
+        let y = -250.0 - row as f32 * pitch_y + (row == 1) as i32 as f32 * 0.0;
+        let is_sel = selected.0 == *race;
+        let path = menu_sprite(&catalog, *race, is_sel);
+        // Native pod art varies from 16x24 to 96x96; normalise for a grid.
+        let mut spr = sprite_exact(&catalog, &asset_server, path);
+        spr.custom_size = Some(Vec2::splat(44.0));
+        commands.spawn((
+            TitleArt,
+            CharSlot {
+                index: i,
+                half: Vec2::splat(28.0),
+            },
+            ChildOf(cam),
+            spr,
+            Transform::from_xyz(x, y, -860.0),
+        ));
+        let _ = row_n;
+    }
+}
+
+/// Click hit-testing for char slots (Title state only).
+fn char_slot_click(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    slots: Query<(&CharSlot, &GlobalTransform)>,
+    bridge: Res<crate::menus::UiBridge>,
+) {
+    if !mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok((cam, cam_gt)) = cam_q.single() else {
+        return;
+    };
+    let Ok(world) = cam.viewport_to_world_2d(cam_gt, cursor) else {
+        return;
+    };
+    for (slot, tf) in &slots {
+        let c = tf.translation().truncate();
+        if (world.x - c.x).abs() <= slot.half.x && (world.y - c.y).abs() <= slot.half.y {
+            if let Ok(mut q) = bridge.actions.lock() {
+                q.push(crate::menus::UiAction::SelectCharacter(slot.index));
+            }
+            return;
+        }
+    }
 }

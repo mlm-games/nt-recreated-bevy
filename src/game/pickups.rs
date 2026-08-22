@@ -239,7 +239,14 @@ pub fn collect_pickups(
                 audio.play_pickup(&mut commands);
             }
             PickupKind::Weapon(weapon) => {
-                equip_weapon(&mut commands, &catalog, &asset_server, &mut inv, weapon, player_pos);
+                equip_weapon(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    &mut inv,
+                    weapon,
+                    player_pos,
+                );
                 Juice::bounce_scale(&mut commands, player_e, 1.3, 0.16);
                 audio.play_chest(&mut commands);
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
@@ -258,7 +265,14 @@ pub fn collect_pickups(
                 match chest {
                     ChestKind::Weapon => {
                         let weapon = random_weapon(&mut rand::rng());
-                        equip_weapon(&mut commands, &catalog, &asset_server, &mut inv, weapon, player_pos);
+                        equip_weapon(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut inv,
+                            weapon,
+                            player_pos,
+                        );
                         toast.show(&format!("Opened chest: {}", weapon_id_name(weapon)));
                     }
                     ChestKind::Ammo => {

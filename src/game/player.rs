@@ -21,15 +21,22 @@ use game_utils_bevy::vfx::VfxSpawner;
 
 pub fn player_move(
     time: Res<Time<Fixed>>,
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mask: Res<FloorMask>,
     mut q: Query<
-        (&Player, &mut Velocity, &mut Transform, Option<&mut Dash>),
+        (
+            Entity,
+            &Player,
+            &mut Velocity,
+            &mut Transform,
+            Option<&mut Dash>,
+        ),
         (With<Player>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
-    let Ok((player, mut vel, mut tf, dash)) = q.single_mut() else {
+    let Ok((entity, player, mut vel, mut tf, dash)) = q.single_mut() else {
         return;
     };
 
@@ -39,6 +46,10 @@ pub fn player_move(
         dash.timer.tick(time.delta());
         vel.0 = dash.dir * 950.0;
         tf.translation += (vel.0 * dt).extend(0.0);
+
+        if dash.timer.just_finished() {
+            commands.entity(entity).remove::<Dash>();
+        }
     } else {
         let mut input = Vec2::ZERO;
         if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
@@ -76,15 +87,6 @@ pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
     };
     // NT faces aim; flip X when aiming left
     sprite.flip_x = aim.0.x < 0.0;
-}
-
-pub fn tick_dash(time: Res<Time<Fixed>>, mut commands: Commands, mut q: Query<(Entity, &mut Dash)>) {
-    for (e, mut dash) in &mut q {
-        dash.timer.tick(time.delta());
-        if dash.timer.just_finished() {
-            commands.entity(e).remove::<Dash>();
-        }
-    }
 }
 
 pub fn player_aim(
@@ -643,7 +645,8 @@ pub fn spawn_player_projectile(
     size: Vec2,
 ) {
     spawn_player_projectile_with_source(
-        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size, None,
+        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size,
+        None,
     )
 }
 

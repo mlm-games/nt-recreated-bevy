@@ -42,8 +42,7 @@ impl AssetCatalog {
         }
         let mut anims = HashMap::new();
         if let Ok(txt) = std::fs::read_to_string("assets/images/anims.json")
-            && let Ok(raw) =
-                serde_json::from_str::<HashMap<String, HashMap<String, f32>>>(&txt)
+            && let Ok(raw) = serde_json::from_str::<HashMap<String, HashMap<String, f32>>>(&txt)
         {
             for (name, e) in raw {
                 if let (Some(frames), Some(w), Some(h)) = (
@@ -53,12 +52,7 @@ impl AssetCatalog {
                 ) {
                     anims.insert(
                         format!("images/{name}.png"),
-                        [
-                            frames,
-                            w,
-                            h,
-                            e.get("fps").copied().unwrap_or(8.0),
-                        ],
+                        [frames, w, h, e.get("fps").copied().unwrap_or(8.0)],
                     );
                 }
             }
@@ -1064,11 +1058,7 @@ pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
 
 /// Load a sprite at its native pixel size. Panics when the art is missing —
 /// the game must never boot with invisible entities.
-pub fn sprite_exact(
-    catalog: &AssetCatalog,
-    asset_server: &AssetServer,
-    path: &str,
-) -> Sprite {
+pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &str) -> Sprite {
     catalog.require(path);
     Sprite {
         image: asset_server.load(path.to_string()),

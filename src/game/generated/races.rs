@@ -2,4 +2,4 @@
 //! Do not edit by hand.
 //! Source: scrRaces.gml / scrSkins etc.
 
-pub use crate::game::content::{RaceId, SkinLetter, PLAYABLE_RACES, CharacterDef, character_def};
+pub use crate::game::content::{CharacterDef, PLAYABLE_RACES, RaceId, SkinLetter, character_def};

@@ -1,8 +1,8 @@
 //! Loadout menu — renders per-race stored weapon / crown / skin selection
 //! from SaveData::races. Currently stubbed; upstream logic in scrLoadoutMenuInit.
 
-use crate::game::content::{RaceId, SkinLetter, WeaponId};
 use crate::game::components::RaceLoadout;
+use crate::game::content::{RaceId, SkinLetter, WeaponId};
 use crate::save::SaveData;
 
 pub struct LoadoutViewModel {

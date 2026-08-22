@@ -19,7 +19,16 @@ pub fn spawn_enemy_at(
     scarier_face: bool,
     heavy_heart: bool,
 ) {
-    spawn_enemy(commands, catalog, asset_server, kind, pos, difficulty, scarier_face, heavy_heart);
+    spawn_enemy(
+        commands,
+        catalog,
+        asset_server,
+        kind,
+        pos,
+        difficulty,
+        scarier_face,
+        heavy_heart,
+    );
 }
 
 pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
@@ -57,59 +66,54 @@ pub fn spawn_enemy(
         def.weapon_chance
     };
 
-    let (sprite, strip) =
-        crate::game::anim::sprite_anim(catalog, asset_server, def.sprite);
-    let mut ec = commands
-        .spawn((
-            GameCleanup,
-            LevelCleanup,
-            Enemy {
-                kind,
-                score: def.score,
-                touch_damage: def.touch_damage,
-                rad_drop: def.rad_drop,
-                drop_chance: def.drop_chance,
-                weapon_chance,
+    let (sprite, strip) = crate::game::anim::sprite_anim(catalog, asset_server, def.sprite);
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Enemy {
+            kind,
+            score: def.score,
+            touch_damage: def.touch_damage,
+            rad_drop: def.rad_drop,
+            drop_chance: def.drop_chance,
+            weapon_chance,
+        },
+        EnemyBrain {
+            speed,
+            accel: def.accel,
+            preferred_range: def.preferred_range,
+            shoot_range: def.shoot_range,
+            attack: Timer::from_seconds(
+                def.attack_cooldown * rand::rng().random_range(0.5..1.5),
+                TimerMode::Once,
+            ),
+            burst_left: 0,
+            burst_timer: ready_timer(),
+            telegraph: 0.0,
+            dash: 0.0,
+            dash_cooldown: Timer::from_seconds(
+                1.2 + rand::rng().random_range(0.0..0.6),
+                TimerMode::Once,
+            ),
+            strafe_dir: if rand::rng().random_bool(0.5) {
+                1.0
+            } else {
+                -1.0
             },
-            EnemyBrain {
-                speed,
-                accel: def.accel,
-                preferred_range: def.preferred_range,
-                shoot_range: def.shoot_range,
-                attack: Timer::from_seconds(
-                    def.attack_cooldown * rand::rng().random_range(0.5..1.5),
-                    TimerMode::Once,
-                ),
-                burst_left: 0,
-                burst_timer: ready_timer(),
-                telegraph: 0.0,
-                dash: 0.0,
-                dash_cooldown: Timer::from_seconds(
-                    1.2 + rand::rng().random_range(0.0..0.6),
-                    TimerMode::Once,
-                ),
-                strafe_dir: if rand::rng().random_bool(0.5) {
-                    1.0
-                } else {
-                    -1.0
-                },
-                strafe_timer: Timer::from_seconds(
-                    rand::rng().random_range(0.8..1.6),
-                    TimerMode::Once,
-                ),
-                melee: ready_timer(),
-            },
-            Health {
-                hp,
-                max: hp,
-                invuln: ready_timer(),
-            },
-            Team::Enemy,
-            Hitbox { radius: def.radius },
-            Velocity(Vec2::ZERO),
-            sprite,
-            Transform::from_translation(pos.extend(10.0)),
-        ));
+            strafe_timer: Timer::from_seconds(rand::rng().random_range(0.8..1.6), TimerMode::Once),
+            melee: ready_timer(),
+        },
+        Health {
+            hp,
+            max: hp,
+            invuln: ready_timer(),
+        },
+        Team::Enemy,
+        Hitbox { radius: def.radius },
+        Velocity(Vec2::ZERO),
+        sprite,
+        Transform::from_translation(pos.extend(10.0)),
+    ));
     if let Some(strip) = strip {
         ec.insert(strip);
     }
@@ -132,7 +136,13 @@ pub fn enemy_ai(
     mask: Res<FloorMask>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
-        (&Enemy, &mut EnemyBrain, &mut Velocity, &mut Transform, &mut Sprite),
+        (
+            &Enemy,
+            &mut EnemyBrain,
+            &mut Velocity,
+            &mut Transform,
+            &mut Sprite,
+        ),
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
