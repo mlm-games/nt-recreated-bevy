@@ -683,9 +683,10 @@ pub fn spawn_level(
     for (wx, wy) in all_walls {
         let c = wall_center(wx, wy);
 
-        // Probe point in tile space: (left edge x, y + 16) — GML screen-down;
-        // in Bevy y-up that is the cell BELOW on screen (row wy+1).
-        let owner = (wx.div_euclid(2), (wy + 1).div_euclid(2));
+        // GML probes place_meeting(x, y+16) with y-down: shift the 16px box
+        // one cell SOUTH on screen. Bevy y-up => subtract one lattice row.
+        // wy even -> row wy/2 - 1; wy odd -> row (wy-1)/2.
+        let owner = (wx.div_euclid(2), (wy - 1).div_euclid(2));
         let floor_below = floor_set.contains(&owner);
         if floor_below {
             commands.spawn((
@@ -924,7 +925,21 @@ mod tests {
             } else {
                 assert!(plan.boss.is_some(), "floor {floor}: expected boss");
             }
-            // Walls never overlap floors.
+            // Walls never overlap floors, and every tile's 12-cell ring is
+            // sealed (no dark gaps between wall masses and floors).
+            const RING: [(i32, i32); 12] = [
+                (-1, -1), (0, -1), (1, -1), (2, -1), //
+                (2, 0), (2, 1), //
+                (-1, 0), (-1, 1), //
+                (-1, 2), (0, 2), (1, 2), (2, 2),
+            ];
+            let walls_and_smalls = |wx: i32, wy: i32| {
+                plan.wall_cells.contains(&(wx, wy))
+                    || plan
+                        .small_walls
+                        .iter()
+                        .any(|&(sx, sy)| sx as i32 == wx && sy as i32 == wy)
+            };
             for &(cx, cy) in &plan.floor_cells {
                 for ox in 0..2 {
                     for oy in 0..2 {
@@ -933,6 +948,14 @@ mod tests {
                             "floor {floor}: wall inside floor tile ({cx},{cy})"
                         );
                     }
+                }
+                for (ox, oy) in RING {
+                    let (wx, wy) = (cx * 2 + ox, cy * 2 + oy);
+                    let owner = (wx.div_euclid(2), wy.div_euclid(2));
+                    assert!(
+                        plan.floor_cells.contains(&owner) || walls_and_smalls(wx, wy),
+                        "floor {floor}: unsealed ring cell ({wx},{wy}) next to ({cx},{cy})"
+                    );
                 }
             }
         }
