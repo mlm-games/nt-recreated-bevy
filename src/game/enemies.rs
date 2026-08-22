@@ -57,7 +57,9 @@ pub fn spawn_enemy(
         def.weapon_chance
     };
 
-    let e = commands
+    let (sprite, strip) =
+        crate::game::anim::sprite_anim(catalog, asset_server, def.sprite);
+    let mut ec = commands
         .spawn((
             GameCleanup,
             LevelCleanup,
@@ -105,10 +107,13 @@ pub fn spawn_enemy(
             Team::Enemy,
             Hitbox { radius: def.radius },
             Velocity(Vec2::ZERO),
-            crate::game::anim::sprite_anim(catalog, asset_server, def.sprite).0,
+            sprite,
             Transform::from_translation(pos.extend(10.0)),
-        ))
-        .id();
+        ));
+    if let Some(strip) = strip {
+        ec.insert(strip);
+    }
+    let e = ec.id();
 
     Juice::pop_in(commands, e, 0.18);
 }

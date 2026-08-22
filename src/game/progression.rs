@@ -57,6 +57,8 @@ pub fn setup_run(
 
     let def = character_def(character.0);
 
+    let (player_sprite, player_strip) =
+        crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
     let mut player = commands
         .spawn((
             GameCleanup,
@@ -118,13 +120,15 @@ pub fn setup_run(
                 walk: def.walk_sprite,
                 moving: false,
             },
-            crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite).0,
+            player_sprite,
             Transform::from_xyz(TILE * 0.5, TILE * 0.5, 20.0),
-        ))
-        .id();
+        ));
+    if let Some(player_strip) = player_strip {
+        player.insert(player_strip);
+    }
+    let player = player.id();
 
     Juice::pop_in(&mut commands, player, 0.25);
-    let _ = &mut player;
 
     if let Ok(camera) = camera_q.single() {
         commands.entity(camera).insert(CameraFollow {
@@ -423,15 +427,19 @@ pub fn portal_check(
     let mut rng = rand::rng();
     let pos = mask.random_floor_pos(&mut rng, 80.0);
 
-    let e = commands
-        .spawn((
-            GameCleanup,
-            LevelCleanup,
-            Portal,
-            crate::game::anim::sprite_anim(&catalog, &asset_server, "images/sprPortal.png").0,
-            Transform::from_xyz(pos.x, pos.y, 5.0),
-        ))
-        .id();
+    let (portal_sprite, portal_strip) =
+        crate::game::anim::sprite_anim(&catalog, &asset_server, "images/sprPortal.png");
+    let mut pc = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Portal,
+        portal_sprite,
+        Transform::from_xyz(pos.x, pos.y, 5.0),
+    ));
+    if let Some(portal_strip) = portal_strip {
+        pc.insert(portal_strip);
+    }
+    let e = pc.id();
 
     Juice::pop_in(&mut commands, e, 0.3);
     ScreenEffects::add_trauma(&mut trauma, 0.25);
