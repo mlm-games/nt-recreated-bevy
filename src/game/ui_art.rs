@@ -38,18 +38,18 @@ pub struct UiArtPlugin;
 
 impl Plugin for UiArtPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::Title), (spawn_title_art, spawn_char_slots))
-            .add_systems(
-                Update,
-                char_slot_click.run_if(in_state(AppState::Title)),
-            )
-            .add_systems(
-                OnExit(AppState::Title),
-                (despawn_title_art, despawn_hud_art),
-            )
-            .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
-            .add_systems(OnExit(AppState::InGame), despawn_hud_art)
-            .add_systems(FixedUpdate, (spin_spiral, sync_hp_fill, sync_exp_fill));
+        app.add_systems(
+            OnEnter(AppState::Title),
+            (spawn_title_art, spawn_char_slots),
+        )
+        .add_systems(Update, char_slot_click.run_if(in_state(AppState::Title)))
+        .add_systems(
+            OnExit(AppState::Title),
+            (despawn_title_art, despawn_hud_art),
+        )
+        .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
+        .add_systems(OnExit(AppState::InGame), despawn_hud_art)
+        .add_systems(FixedUpdate, (spin_spiral, sync_hp_fill, sync_exp_fill));
     }
 }
 

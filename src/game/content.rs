@@ -150,12 +150,8 @@ pub const PLAYABLE_RACES: [RaceId; 16] = [
 
 /// Back-compat: old 4-race code used CharacterId::Fish etc.
 pub type CharacterId = RaceId;
-pub const CHARACTERS: [CharacterId; 4] = [
-    CharacterId::Fish,
-    CharacterId::Crystal,
-    CharacterId::Eyes,
-    CharacterId::Melting,
-];
+/// All 16 selectable races (upstream Menu/Create_0 grid).
+pub const CHARACTERS: [CharacterId; PLAYABLE_RACES.len()] = PLAYABLE_RACES;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 #[repr(u8)]
@@ -730,7 +726,30 @@ pub fn weapon_color(kind: WeaponKind) -> Color {
 }
 
 pub fn weapon_meta(id: WeaponId) -> &'static crate::game::weapons_data::WeaponData {
-    &crate::game::weapons_data::WEAPONS[id.0 as usize]
+    crate::game::weapons_data::WEAPONS
+        .get(id.0 as usize)
+        .unwrap_or(&crate::game::weapons_data::WEAPONS[0])
+}
+
+/// Corrupt/OOB ids collapse to NONE instead of indexing wild memory.
+pub fn sanitize_weapon_id(id: WeaponId) -> WeaponId {
+    if (id.0 as usize) < crate::game::weapons_data::WEAPONS.len() {
+        id
+    } else {
+        WeaponId::NONE
+    }
+}
+
+/// Ammo family of a weapon, safe for any id.
+pub fn weapon_ammo(id: WeaponId) -> AmmoKind {
+    match weapon_meta(sanitize_weapon_id(id)).wep_type {
+        crate::game::weapons_data::AmmoType::None => AmmoKind::None,
+        crate::game::weapons_data::AmmoType::Bullets => AmmoKind::Bullets,
+        crate::game::weapons_data::AmmoType::Shells => AmmoKind::Shells,
+        crate::game::weapons_data::AmmoType::Bolts => AmmoKind::Bolts,
+        crate::game::weapons_data::AmmoType::Explosives => AmmoKind::Explosives,
+        crate::game::weapons_data::AmmoType::Energy => AmmoKind::Energy,
+    }
 }
 
 pub fn weapon_id_name(id: WeaponId) -> &'static str {

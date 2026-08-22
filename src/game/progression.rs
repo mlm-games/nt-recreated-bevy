@@ -30,6 +30,7 @@ pub fn setup_run(
     mut pending_unpause: ResMut<PendingUnpause>,
     mut toast: ResMut<Toast>,
     character: Res<SelectedCharacter>,
+    save: Res<SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
 ) {
     score.0 = 0;
@@ -56,6 +57,30 @@ pub fn setup_run(
     commands.insert_resource(HeavyHeart(false));
 
     let def = character_def(character.0);
+
+    // Saved race loadout drives the starting kit (upstream Campfire menu).
+    let loadout = save.race_loadout(character.0);
+
+    let primary = {
+        let saved = sanitize_weapon_id(loadout.start_weapon);
+        if saved == WeaponId::NONE {
+            WeaponId::REVOLVER
+        } else {
+            saved
+        }
+    };
+
+    let secondary = {
+        let saved = sanitize_weapon_id(loadout.stored_weapon);
+        if saved == primary {
+            WeaponId::NONE
+        } else {
+            saved
+        }
+    };
+
+    let equipped = [primary, secondary, WeaponId::NONE];
+    let starting_ammo = starting_ammo_for(&equipped);
 
     let (player_sprite, player_strip) =
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
@@ -518,9 +543,10 @@ pub fn portal_enter(
     commands.entity(portal_e).despawn();
 
     run.floor += 1;
-    run.world = world::world_of(run.floor);
     run.loop_count = (run.floor - 1) / 7;
-    run.floor_in_area = ((run.floor - 1) % 7) + 1;
+    let (world, floor_in_world) = crate::game::areas::route_coordinates(run.floor);
+    run.world = world;
+    run.floor_in_area = floor_in_world;
     run.area = crate::game::areas::area_for_floor(run.floor, run.loop_count);
     run.portal_open = false;
     run.gen_seed = rand::rng().random_range(0..u64::MAX);
@@ -600,4 +626,58 @@ pub fn boss_info(q: &Query<(&Enemy, &Health), With<Enemy>>) -> Option<(u32, u32)
         }
     }
     None
+}
+
+/// NT starting ammo: bullets come pre-stacked; every other family starts at
+/// three pickup units of the weapon's type.
+fn starting_ammo_for(weapons: &[WeaponId; MAX_WEAPON_SLOTS]) -> [i32; MAX_AMMO_TYPES] {
+    let mut ammo = [0; MAX_AMMO_TYPES];
+
+    for &weapon in weapons {
+        if weapon == WeaponId::NONE {
+            continue;
+        }
+
+        let kind = weapon_ammo(weapon);
+        let index = match kind {
+            AmmoKind::None => continue,
+            AmmoKind::Bullets => 1,
+            AmmoKind::Shells => 2,
+            AmmoKind::Bolts => 3,
+            AmmoKind::Explosives => 4,
+            AmmoKind::Energy => 5,
+        };
+
+        let amount = match kind {
+            AmmoKind::Bullets => 96,
+            _ => ammo_pickup_amount(kind) * 3,
+        };
+
+        ammo[index] = ammo[index].max(amount);
+    }
+
+    ammo
+}
+
+#[cfg(test)]
+mod loadout_tests {
+    use super::*;
+
+    #[test]
+    fn revolver_receives_starting_bullets() {
+        let ammo = starting_ammo_for(&[WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE]);
+        assert_eq!(ammo[1], 96);
+    }
+
+    #[test]
+    fn shotgun_loadout_receives_shells() {
+        let ammo = starting_ammo_for(&[WeaponId(5), WeaponId::NONE, WeaponId::NONE]);
+        assert!(ammo[2] > 0);
+    }
+
+    #[test]
+    fn corrupt_weapon_does_not_grant_ammo() {
+        let ammo = starting_ammo_for(&[WeaponId(255), WeaponId::NONE, WeaponId::NONE]);
+        assert_eq!(ammo, [0; MAX_AMMO_TYPES]);
+    }
 }

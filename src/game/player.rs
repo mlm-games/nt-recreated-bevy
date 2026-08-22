@@ -9,6 +9,7 @@ use rand::RngExt;
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::input::NtInput;
 use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
@@ -22,8 +23,7 @@ use game_utils_bevy::vfx::VfxSpawner;
 pub fn player_move(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
-    mask: Res<FloorMask>,
+    input: Res<NtInput>,
     mut q: Query<
         (
             Entity,
@@ -51,22 +51,8 @@ pub fn player_move(
             commands.entity(entity).remove::<Dash>();
         }
     } else {
-        let mut input = Vec2::ZERO;
-        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-            input.y += 1.0;
-        }
-        if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-            input.y -= 1.0;
-        }
-        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-            input.x -= 1.0;
-        }
-        if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-            input.x += 1.0;
-        }
-
-        if input != Vec2::ZERO {
-            vel.0 += input.normalize() * player.accel * dt;
+        if input.move_axis != Vec2::ZERO {
+            vel.0 += input.move_axis * player.accel * dt;
         }
         let max_speed = player.speed * player.speed_mult;
         if vel.0.length() > max_speed {
@@ -90,18 +76,29 @@ pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
 }
 
 pub fn player_aim(
+    input: Res<NtInput>,
     windows: Query<&Window, With<PrimaryWindow>>,
     camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
     mut player_q: Query<(&Transform, &mut AimDir), With<Player>>,
     mut follow_q: Query<&mut CameraFollow>,
 ) {
+    let Ok((ptf, mut aim)) = player_q.single_mut() else {
+        return;
+    };
+
+    // Twin-stick aim (gamepad right stick / touch) takes precedence.
+    if input.aim_axis != Vec2::ZERO {
+        aim.0 = input.aim_axis.normalize_or_zero();
+        if let Ok(mut follow) = follow_q.single_mut() {
+            follow.set_aim(ptf.translation.truncate() + aim.0 * 160.0);
+        }
+        return;
+    }
+
     let Ok(window) = windows.single() else {
         return;
     };
     let Ok((camera, cam_gt)) = camera_q.single() else {
-        return;
-    };
-    let Ok((ptf, mut aim)) = player_q.single_mut() else {
         return;
     };
 
@@ -119,7 +116,7 @@ pub fn player_aim(
 }
 
 pub fn weapon_switch(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut input: ResMut<NtInput>,
     mut q: Query<&mut Inventory, With<Player>>,
     audio: Res<GameAudio>,
     mut commands: Commands,
@@ -128,25 +125,30 @@ pub fn weapon_switch(
         return;
     };
     let mut switched = false;
-    if keys.just_pressed(KeyCode::Digit1) && inv.weapons[0] != WeaponId::NONE {
-        inv.current = 0;
-        switched = true;
-    }
-    if keys.just_pressed(KeyCode::Digit2)
-        && inv.weapon_slots > 1
-        && inv.weapons[1] != WeaponId::NONE
+
+    if let Some(slot) = input.take_weapon_slot()
+        && slot < inv.weapon_slots
+        && inv.weapons[slot] != WeaponId::NONE
+        && slot != inv.current
     {
-        inv.current = 1;
+        inv.current = slot;
         switched = true;
     }
-    if keys.just_pressed(KeyCode::Digit3)
-        && inv.weapon_slots > 2
-        && inv.weapons[2] != WeaponId::NONE
-    {
-        inv.current = 2;
-        switched = true;
+
+    let cycle = input.take_cycle_weapon();
+    if cycle != 0 && inv.weapon_slots > 1 {
+        let direction = if cycle > 0 { 1 } else { inv.weapon_slots - 1 };
+
+        for step in 1..=inv.weapon_slots {
+            let slot = (inv.current + step * direction) % inv.weapon_slots;
+            if inv.weapons[slot] != WeaponId::NONE {
+                switched |= slot != inv.current;
+                inv.current = slot;
+                break;
+            }
+        }
     }
-    // Scroll wheel could be added later
+
     if switched {
         game_utils_bevy::audio::AudioM::play_sfx_varied(
             &mut commands,
@@ -191,7 +193,7 @@ pub fn blink_player(time: Res<Time>, mut q: Query<(&Health, &mut Sprite), With<P
 }
 
 pub fn player_ability(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut input: ResMut<NtInput>,
     mut commands: Commands,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
@@ -220,7 +222,7 @@ pub fn player_ability(
         return;
     };
 
-    let fire = keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::ShiftLeft);
+    let fire = input.take_ability_pressed();
     if !fire || !player.ability_cooldown.is_finished() {
         return;
     }
@@ -230,21 +232,8 @@ pub fn player_ability(
 
     match player.ability {
         AbilityKind::Flip => {
-            let mut dir = Vec2::ZERO;
-            if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-                dir.y += 1.0;
-            }
-            if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-                dir.y -= 1.0;
-            }
-            if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-                dir.x -= 1.0;
-            }
-            if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-                dir.x += 1.0;
-            }
-            let dir = if dir != Vec2::ZERO {
-                dir.normalize()
+            let dir = if input.move_axis != Vec2::ZERO {
+                input.move_axis.normalize()
             } else {
                 aim.0
             };
@@ -329,8 +318,7 @@ pub fn player_ability(
 
 pub fn player_fire(
     time: Res<Time<Fixed>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    mut input: ResMut<NtInput>,
     mut commands: Commands,
     mut trauma: ResMut<Trauma>,
     mut flash: ResMut<FlashWhite>,
@@ -391,10 +379,12 @@ pub fn player_fire(
         return;
     }
 
+    let fire_held = input.fire_held;
+    let fire_pressed = input.take_fire_pressed();
     let intent = if def.automatic {
-        mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space)
+        fire_held
     } else {
-        mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space)
+        fire_pressed
     };
 
     if !intent || !cooldown.timer.is_finished() {

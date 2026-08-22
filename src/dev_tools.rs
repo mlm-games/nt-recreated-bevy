@@ -16,4 +16,3 @@ fn log_state_change(state: Res<State<crate::app::AppState>>) {
         bevy::log::info!("AppState  {:?}", state.get());
     }
 }
-

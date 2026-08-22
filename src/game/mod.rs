@@ -10,6 +10,7 @@ pub mod content;
 pub mod enemies;
 pub mod generated;
 pub mod hud;
+pub mod input;
 pub mod pickups;
 pub mod player;
 pub mod progression;
@@ -35,6 +36,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
+            .init_resource::<input::NtInput>()
             .init_resource::<SaveDirty>()
             .init_resource::<Run>()
             .init_resource::<FloorMask>()
@@ -47,6 +49,7 @@ impl Plugin for GamePlugin {
             .init_resource::<HeavyHeart>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
+            .add_systems(PreUpdate, input::sample_input.run_if(gameplay_active))
             .add_plugins(ui_art::UiArtPlugin)
             .add_systems(OnEnter(AppState::InGame), setup_game)
             .add_systems(OnExit(AppState::InGame), teardown_game)
@@ -133,6 +136,7 @@ fn setup_game(
     pending_unpause: ResMut<crate::app::PendingUnpause>,
     toast: ResMut<Toast>,
     character: Res<SelectedCharacter>,
+    save: Res<crate::save::SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
 ) {
     progress_sys::setup_run(
@@ -148,6 +152,7 @@ fn setup_game(
         pending_unpause,
         toast,
         character,
+        save,
         camera_q,
     );
 }

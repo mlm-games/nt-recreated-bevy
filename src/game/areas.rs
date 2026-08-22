@@ -43,16 +43,58 @@ pub enum TransitionCondition {
     Secret,
 }
 
-pub fn area_for_floor(floor: u32, loop_count: u32) -> AreaId {
-    // Simplified mapping; upstream scrArea is far richer.
-    // Generates placeholder that keeps floor/world progression compatible.
-    match (floor % 7, loop_count) {
-        (3, _) => AreaId::Vault,
-        (0, _) if floor >= 7 => AreaId::Palace,
-        (1, _) => AreaId::Desert,
-        (2, _) => AreaId::Sewers,
-        (4, _) => AreaId::CrystalCaves,
-        (5, _) => AreaId::FrozenCity,
-        _ => AreaId::Desert,
+/// Normal route for a one-based global floor over the supported 7-floor
+/// cycle: 1-1..1-3 Desert, 2-1 Sewers, 3-1..3-3 Scrapyards, 4-1 Caves,
+/// 5-1..5-3 Frozen City, 6-1 Labs, 7-1 Palace (Throne).
+///
+/// Secret areas (Vault/CrownVault/Oasis) are NEVER produced here — they are
+/// reached only through explicit transition conditions upstream.
+pub fn area_for_floor(floor: u32, _loop_count: u32) -> AreaId {
+    let route_floor = ((floor.max(1) - 1) % 7) + 1;
+
+    match route_floor {
+        1..=3 => AreaId::Desert,
+        4 | 5 => AreaId::Sewers,
+        6 => AreaId::Scrapyards,
+        7 => AreaId::Palace,
+        _ => unreachable!(),
+    }
+}
+
+/// (world, floor-in-world) display coordinates for a global floor.
+pub fn route_coordinates(floor: u32) -> (u32, u32) {
+    let route_floor = ((floor.max(1) - 1) % 7) + 1;
+    let world = (floor.max(1) - 1) / 7 + 1;
+    (world, route_floor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normal_route_matches_world_order() {
+        assert_eq!(area_for_floor(1, 0), AreaId::Desert);
+        assert_eq!(area_for_floor(3, 0), AreaId::Desert);
+        assert_eq!(area_for_floor(4, 0), AreaId::Sewers);
+        assert_eq!(area_for_floor(6, 0), AreaId::Scrapyards);
+        assert_eq!(area_for_floor(7, 0), AreaId::Palace);
+        assert_eq!(area_for_floor(8, 1), AreaId::Desert);
+    }
+
+    #[test]
+    fn route_repeats_after_throne() {
+        assert_eq!(route_coordinates(8), (2, 1));
+        assert_eq!(route_coordinates(15), (3, 1));
+        assert_eq!(route_coordinates(21), (3, 7));
+    }
+
+    #[test]
+    fn secret_areas_are_not_inserted_automatically() {
+        for floor in 1..=30 {
+            assert_ne!(area_for_floor(floor, floor / 7), AreaId::Vault);
+            assert_ne!(area_for_floor(floor, floor / 7), AreaId::CrownVault);
+            assert_ne!(area_for_floor(floor, floor / 7), AreaId::Oasis);
+        }
     }
 }

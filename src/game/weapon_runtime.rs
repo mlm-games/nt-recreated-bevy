@@ -39,6 +39,24 @@ pub struct WeaponRuntime {
 }
 
 pub fn weapon_runtime(id: crate::game::content::WeaponId) -> WeaponRuntime {
+    let id = crate::game::content::sanitize_weapon_id(id);
+
+    if id == crate::game::content::WeaponId::NONE {
+        return WeaponRuntime {
+            projectile_kind: ProjectileKind::Melee,
+            pellets: 0,
+            spread_deg: 0.0,
+            speed: 0.0,
+            lifetime_frames: 0,
+            damage: 0,
+            recoil: 0.0,
+            explosion: None,
+            melee: None,
+            cooldown_frames: 1,
+            automatic: false,
+        };
+    }
+
     let meta = &WEAPONS[id.0 as usize];
     // Map AmmoType to ProjectileKind
     let kind = match meta.wep_type as u8 {
@@ -106,6 +124,11 @@ pub fn weapon_runtime(id: crate::game::content::WeaponId) -> WeaponRuntime {
 }
 
 pub fn weapon_runtime_def(id: crate::game::content::WeaponId) -> WeaponDef {
+    let id = crate::game::content::sanitize_weapon_id(id);
+    if id == crate::game::content::WeaponId::NONE {
+        return weapon_def(crate::game::content::WeaponKind::None);
+    }
+
     let rt = weapon_runtime(id);
     let meta = &WEAPONS[id.0 as usize];
     let ammo = match meta.wep_type as u8 {
