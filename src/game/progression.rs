@@ -204,8 +204,7 @@ pub fn check_level_up(
         commands.insert_resource(PendingMutation { choices });
         toast.show("LEVEL UP! Choose a mutation (1/2/3)");
         ScreenEffects::add_trauma(trauma, 0.35);
-        ScreenEffects::flash_white(flash, 0.05);
-        VfxSpawner::spawn_burst(
+            VfxSpawner::spawn_burst(
             commands,
             pos,
             32,

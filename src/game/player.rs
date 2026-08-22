@@ -67,7 +67,6 @@ pub fn player_move(
 
     // Order: props (walls) first, then snap onto floor mask, then outer AABB.
     resolve_prop_collision(&mut tf.translation, PLAYER_RADIUS, &props);
-    mask.resolve_circle(&mut tf.translation, PLAYER_RADIUS);
     clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
 }
 
@@ -401,7 +400,6 @@ pub fn player_fire(
     }
 
     if def.melee.is_none() && !consume_ammo(&mut inv, def.ammo, def.ammo_cost) {
-        ScreenEffects::flash_white(&mut flash, 0.035);
         return;
     }
 
@@ -471,7 +469,6 @@ fn spawn_pellets(
     def: &WeaponDef,
 ) {
     ScreenEffects::add_trauma(trauma, def.shake);
-    GameFeel::add_recoil(commands, player_ent, -aim.0, def.recoil, 0.08);
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 
     let kind: WeaponKind = id.into();
@@ -561,7 +558,6 @@ fn melee_attack(
     let melee_def = melee;
     let range = melee_def.range * player.melee_range_mult;
     ScreenEffects::add_trauma(trauma, def.shake.max(0.12));
-    GameFeel::add_recoil(commands, player_ent, -aim.0, 3.0, 0.08);
     audio.play_melee(commands);
 
     let player_pos = tf.translation.truncate();

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const ARENA_W: f32 = 2560.0;
 pub const ARENA_H: f32 = 1664.0;
 pub const WALL_THICK: f32 = 60.0;
-pub const PLAYER_RADIUS: f32 = 12.0;
+pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
 pub const PLAYER_ACCEL: f32 = 1500.0;
 pub const PLAYER_FRICTION: f32 = 0.82;
 

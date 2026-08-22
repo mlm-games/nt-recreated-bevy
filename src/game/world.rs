@@ -770,27 +770,11 @@ fn spawn_prop(
     decal_png: &'static str,
 ) {
     let (png, size, hp, destructible, explosive, z, solid) = match kind {
-        PropKind::Cactus => (
-            "images/sprCactus.png",
-            24.0,
-            9999,
-            false,
-            false,
-            -10.0,
-            true,
-        ),
-        PropKind::BigSkull => (
-            "images/sprBigSkull.png",
-            32.0,
-            9999,
-            false,
-            false,
-            -10.0,
-            true,
-        ),
+        PropKind::Cactus => ("images/sprCactus.png", 24.0, 4, true, false, -10.0, true),
+        PropKind::BigSkull => ("images/sprBigSkull.png", 32.0, 8, true, false, -10.0, true),
         PropKind::Barrel => ("images/sprBarrel.png", 24.0, 1, true, true, -10.0, true),
-        PropKind::Pipe => ("images/sprPipe.png", 24.0, 9999, false, false, -10.0, true),
-        PropKind::Tires => ("images/sprTires.png", 28.0, 9999, false, false, -10.0, true),
+        PropKind::Pipe => ("images/sprPipe.png", 24.0, 6, true, false, -10.0, true),
+        PropKind::Tires => ("images/sprTires.png", 28.0, 6, true, false, -10.0, true),
         PropKind::GroundDecal => (decal_png, 32.0, 9999, false, false, -42.0, false),
     };
 
@@ -961,3 +945,4 @@ mod tests {
         }
     }
 }
+

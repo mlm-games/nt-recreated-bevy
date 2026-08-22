@@ -13,6 +13,7 @@ pub mod hud;
 pub mod pickups;
 pub mod player;
 pub mod progression;
+pub mod ui_art;
 pub mod weapon_runtime;
 pub mod weapons_data;
 pub mod world;
@@ -46,6 +47,7 @@ impl Plugin for GamePlugin {
             .init_resource::<HeavyHeart>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
+            .add_plugins(ui_art::UiArtPlugin)
             .add_systems(OnEnter(AppState::InGame), setup_game)
             .add_systems(OnExit(AppState::InGame), teardown_game)
             .add_systems(

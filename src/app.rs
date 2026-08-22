@@ -268,9 +268,6 @@ fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>
     }
 }
 
-/// Upstream rounds the camera view position to whole pixels every step
-/// (BackCont.Step_0); without this the damped follow wobbles sub-pixel.
-
 fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,

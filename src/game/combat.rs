@@ -455,7 +455,6 @@ pub fn contact_damage(
 
         HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.15, 0.1), 0.18);
         ScreenEffects::add_trauma(&mut trauma, 0.35);
-        ScreenEffects::flash_white(&mut flash, 0.05);
         GameFeel::rumble_controller(&mut rumble, &gamepads, 0.2, 0.8, 0.16);
         audio.play_hurt(&mut commands);
 

@@ -163,7 +163,9 @@ pub fn collect_pickups(
         let pickup_pos = pickup_tf.translation.truncate();
         let dist = player_pos.distance(pickup_pos);
 
-        if dist < magnet {
+        // Chests never fly to the player (upstream: open on contact).
+        let is_chest = matches!(pickup.kind, PickupKind::Chest(_));
+        if !is_chest && dist < magnet {
             let dir = (player_pos - pickup_pos).normalize_or_zero();
             let pull = if telek_active { 900.0 } else { 460.0 };
             pickup_tf.translation += (dir * pull * dt).extend(0.0);
@@ -238,14 +240,12 @@ pub fn collect_pickups(
             }
             PickupKind::Weapon(weapon) => {
                 equip_weapon(&mut commands, &catalog, &asset_server, &mut inv, weapon, player_pos);
-                ScreenEffects::flash_white(&mut flash, 0.04);
                 Juice::bounce_scale(&mut commands, player_e, 1.3, 0.16);
                 audio.play_chest(&mut commands);
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
             }
             PickupKind::Chest(chest) => {
                 ScreenEffects::add_trauma(&mut trauma, 0.15);
-                ScreenEffects::flash_white(&mut flash, 0.05);
                 GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
                 audio.play_chest(&mut commands);
                 VfxSpawner::spawn_burst(

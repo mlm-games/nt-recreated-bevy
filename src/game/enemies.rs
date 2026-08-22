@@ -222,7 +222,6 @@ pub fn enemy_ai(
         tf.translation += (vel.0 * dt).extend(0.0);
 
         resolve_prop_collision(&mut tf.translation, def.radius, &props);
-        mask.resolve_circle(&mut tf.translation, def.radius);
         clamp_to_arena(&mut tf.translation, def.radius);
         sprite.flip_x = dir.x < 0.0;
 

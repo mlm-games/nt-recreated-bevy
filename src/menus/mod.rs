@@ -75,6 +75,19 @@ fn popup_anim_config(key: &str) -> AnimatedVisibilityConfig {
     }
 }
 
+fn slide_in_config(key: &str, dx: f32, dy: f32) -> AnimatedVisibilityConfig {
+    AnimatedVisibilityConfig {
+        key: key.into(),
+        spec: AnimationSpec::tween(Duration::from_millis(260), Easing::EaseOut),
+        enter: EnterTransition::FadeIn.and(EnterTransition::SlideIn { offset_x: dx, offset_y: dy }),
+        exit: ExitTransition::FadeOut,
+    }
+}
+
+fn rise_in_config(key: &str) -> AnimatedVisibilityConfig {
+    slide_in_config(key, 0.0, 18.0)
+}
+
 pub fn compose_root(
     overlay: OverlayHandle,
     st: SharedUi,
@@ -101,11 +114,22 @@ pub fn compose_root(
         )),
         AppState::InGame => {
             let hud = ingame_hud(&st, actions.clone());
+            let hud = AnimatedVisibility(true, hud, slide_in_config("hud_in", 0.0, -14.0));
             let mut children: Vec<View> = vec![hud];
             if st.game_over {
-                children.push(game_over_panel(&st, actions.clone()));
+                let panel = game_over_panel(&st, actions.clone());
+                children.push(AnimatedVisibility(
+                    true,
+                    panel,
+                    popup_anim_config("game_over_in"),
+                ));
             } else if !st.mutation_choices.is_empty() {
-                children.push(mutation_panel(&st, actions.clone()));
+                let panel = mutation_panel(&st, actions.clone());
+                children.push(AnimatedVisibility(
+                    true,
+                    panel,
+                    popup_anim_config("mutation_in"),
+                ));
             }
             children.push(AnimatedVisibility(
                 st.overlay == OverlayMenu::Pause,
@@ -258,19 +282,23 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(col(10, 8, 16)),
+            // Veil only — the NT spiral field + logo render as world sprites
+            // underneath (ui_art.rs).
+            .background(RColor::from_rgba(10, 8, 16, 120)),
     )
     .child(
-        Column(
-            Modifier::new()
-                .width(560.0)
-                .padding(28.0)
-                .background(RColor::from_rgba(8, 8, 14, 150))
-                .clip_rounded(18.0)
-                .border(2.0, col(90, 90, 110), 18.0)
-                .align_items(AlignItems::CENTER),
-        )
-        .child(vec![
+        AnimatedVisibility(
+            true,
+            Column(
+                Modifier::new()
+                    .width(560.0)
+                    .padding(28.0)
+                    .background(RColor::from_rgba(8, 8, 14, 150))
+                    .clip_rounded(18.0)
+                    .border(2.0, col(90, 90, 110), 18.0)
+                    .align_items(AlignItems::CENTER),
+            )
+            .child(vec![
             RText(t(tr, "app-title", "NUCLEAR THRONE"))
                 .size(44.0)
                 .color(col(240, 210, 110)),
@@ -313,7 +341,9 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             spacer(6.0),
             Column(Modifier::new().gap(2.0)).child(char_rows),
         ]),
-    )
+        rise_in_config("title_card"),
+    ),
+)
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -555,30 +585,6 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let tr = &st.translations;
 
-    // Layout mirrors upstream scrDrawPlayerHUD (320x240 GUI space):
-    //   HP frame 88x14 @(20,4); fill from (22,7);
-    //   weapon slots @(24,16) pitch 44; rad bar 14x24 @(4,4);
-    //   ammo icons y=32 x=2+type*10; area name bottom-right.
-    // Chrome follows the Floppy-Warriors HUD panels.
-    let hp_frac = (st.hp as f32 / st.max_hp.max(1) as f32).clamp(0.0, 1.0);
-
-    // HP bar block — frame + fill + centered hp/max text.
-    let health_bar_block = Column(Modifier::new().gap(3.0)).child((
-        Row(
-            Modifier::new()
-                .width(268.0)
-                .justify_content(JustifyContent::SPACE_BETWEEN)
-                .align_items(AlignItems::CENTER),
-        )
-        .child((
-            RText("HP").size(11.0).color(col(180, 185, 198)),
-            RText(format!("{}/{}", st.hp.max(0), st.max_hp.max(0)))
-                .size(13.0)
-                .color(RColor::WHITE),
-        )),
-        hud_stat_bar(268.0, 14.0, hp_frac, col(252, 56, 0)),
-    ));
-
     // Weapon slots row — active slot highlighted, ammo count beside each.
     let mut weapon_chips: Vec<View> = Vec::new();
     for (i, name) in st.weapons.iter().enumerate() {
@@ -595,43 +601,6 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     }
     let weapons_row = Row(Modifier::new().gap(6.0).align_items(AlignItems::CENTER))
         .child(weapon_chips);
-
-    // Rad / XP meter — vertical bar + level number (sprExpBar analog).
-    let rad_frac = (st.rads as f32 / st.max_rads.max(1) as f32).clamp(0.0, 1.0);
-    let rad_meter = Column(
-        Modifier::new()
-            .padding_values(PaddingValues {
-                left: 8.0,
-                right: 8.0,
-                top: 6.0,
-                bottom: 6.0,
-            })
-            .background(RColor::from_rgba(10, 12, 18, 200))
-            .border(1.5, RColor::from_rgba(120, 240, 120, 50), 12.0)
-            .clip_rounded(12.0)
-            .align_items(AlignItems::CENTER)
-            .gap(4.0),
-    )
-    .child((
-        Column(
-            Modifier::new()
-                .width(10.0)
-                .height(64.0)
-                .background(RColor::from_rgba(0, 0, 0, 160))
-                .clip_rounded(5.0)
-                .justify_content(JustifyContent::FLEX_END),
-        )
-        .child(Column(
-            Modifier::new()
-                .width(10.0)
-                .height((64.0 * rad_frac).max(if rad_frac > 0.0 { 2.0 } else { 0.0 }))
-                .background(col(68, 198, 22))
-                .clip_rounded(5.0),
-        )),
-        RText(format!("LV {}", st.level))
-            .size(11.0)
-            .color(col(150, 240, 150)),
-    ));
 
     // Ammo type counters (upstream icon row: bullets/shells/bolts/explo/energy).
     const AMMO_LABELS: [&str; 5] = ["B", "S", "B", "E", "N"];
@@ -676,6 +645,7 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let player_panel = Column(
         Modifier::new()
             .width(300.0)
+            .margin(36.0)
             .padding(12.0)
             .gap(8.0)
             .background(RColor::from_rgba(10, 12, 18, 215))
@@ -693,7 +663,6 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             reward_chip(&st.character, RColor::from_rgba(120, 170, 255, 40), col(150, 190, 255)),
             ability_chip,
         )),
-        health_bar_block,
         weapons_row,
         ammo_row,
     ));
@@ -786,19 +755,6 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     };
 
     ZStack(Modifier::new().fill_max_size()).child((
-        // Rad meter floats alone on the left edge (like sprExpBar at x=4).
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding_values(PaddingValues {
-                    left: 14.0,
-                    right: 0.0,
-                    top: 150.0,
-                    bottom: 0.0,
-                })
-                .align_items(AlignItems::FLEX_START),
-        )
-        .child(rad_meter),
         Column(
             Modifier::new()
                 .fill_max_size()
