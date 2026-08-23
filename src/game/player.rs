@@ -210,6 +210,7 @@ pub fn player_ability(
             &mut Velocity,
             &Transform,
             &mut AimDir,
+            &mut Inventory,
             Option<&mut Shield>,
             Option<&mut Telekinesis>,
         ),
@@ -217,7 +218,8 @@ pub fn player_ability(
     >,
     mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
 ) {
-    let Ok((player_e, mut player, mut health, mut vel, tf, aim, shield, telek)) = q.single_mut()
+    let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, shield, telek)) =
+        q.single_mut()
     else {
         return;
     };
@@ -227,10 +229,29 @@ pub fn player_ability(
         return;
     }
 
-    player.ability_cooldown = Timer::from_seconds(6.0, TimerMode::Once);
     let pos = tf.translation.truncate();
+    let ability = player.ability;
 
-    match player.ability {
+    let cd = match ability {
+        AbilityKind::Flip => 3.5,
+        AbilityKind::Shield => 5.0,
+        AbilityKind::Telekinesis => 4.5,
+        AbilityKind::Detonate => 5.5,
+        AbilityKind::Snare => 4.0,
+        AbilityKind::PopPop => 3.0,
+        AbilityKind::GetLoaded => 7.0,
+        AbilityKind::EatWeapon => 1.0,
+        AbilityKind::Throw => 4.0,
+        AbilityKind::SpawnAlly => 8.0,
+        AbilityKind::HorrorBeam => 5.0,
+        AbilityKind::PortalStrike => 6.0,
+        AbilityKind::RocketBarrage => 7.0,
+        AbilityKind::BloodGamble => 4.0,
+        AbilityKind::ToxicPuke => 5.0,
+        AbilityKind::CuzSwap => 0.4,
+    };
+
+    match ability {
         AbilityKind::Flip => {
             let dir = if input.move_axis != Vec2::ZERO {
                 input.move_axis.normalize()
@@ -243,6 +264,7 @@ pub fn player_ability(
             });
             health.invuln = Timer::from_seconds(15.0 / 30.0, TimerMode::Once);
             vel.0 = dir * 900.0;
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             ScreenEffects::add_trauma(&mut trauma, 0.12);
             GameFeel::slow_motion(&mut slow_mo, 0.55, 0.2);
             VfxSpawner::spawn_burst(
@@ -262,6 +284,7 @@ pub fn player_ability(
             } else {
                 commands.entity(player_e).insert(Shield { timer });
             }
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             ScreenEffects::add_trauma(&mut trauma, 0.08);
             VfxSpawner::spawn_burst(
                 &mut commands,
@@ -279,6 +302,7 @@ pub fn player_ability(
             } else {
                 commands.entity(player_e).insert(Telekinesis { timer });
             }
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             VfxSpawner::spawn_burst(
                 &mut commands,
                 pos,
@@ -290,10 +314,10 @@ pub fn player_ability(
         }
         AbilityKind::Detonate => {
             if health.hp <= 1 {
-                player.ability_cooldown.finish();
                 return;
             }
             health.hp -= 1;
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let radius = 150.0;
             for (_, etf, mut ehealth) in &mut enemies {
                 if etf.translation.truncate().distance(pos) < radius {
@@ -313,6 +337,278 @@ pub fn player_ability(
             hitstop.trigger(0.25, 0.12);
             audio.play_boom(&mut commands);
         }
+        AbilityKind::Snare => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            commands.spawn((
+                LevelCleanup,
+                SnareZone {
+                    timer: Timer::from_seconds(2.5, TimerMode::Once),
+                    radius: 110.0,
+                    slow: 0.35,
+                },
+                Transform::from_translation((pos + aim.0 * 70.0).extend(5.0)),
+                Sprite {
+                    color: Color::srgba(0.3, 0.9, 0.35, 0.35),
+                    custom_size: Some(Vec2::splat(220.0)),
+                    ..default()
+                },
+            ));
+            audio.play_pickup(&mut commands);
+        }
+        AbilityKind::PopPop => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            commands.entity(player_e).insert(PopPopCharges(1));
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                10,
+                Color::srgb(0.95, 0.85, 0.2),
+                (80.0, 200.0),
+            );
+            audio.play_bolt(&mut commands);
+        }
+        AbilityKind::GetLoaded => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            for slot in 0..inv.weapon_slots {
+                let w = inv.weapons[slot];
+                if w == WeaponId::NONE {
+                    continue;
+                }
+                let kind = weapon_ammo(w);
+                if kind == AmmoKind::None {
+                    continue;
+                }
+                let add = match kind {
+                    AmmoKind::Bullets => 32,
+                    AmmoKind::Shells => 8,
+                    AmmoKind::Bolts => 6,
+                    AmmoKind::Explosives => 4,
+                    AmmoKind::Energy => 10,
+                    AmmoKind::None => 0,
+                };
+                *inv.ammo_mut(kind) += add;
+            }
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                12,
+                Color::srgb(0.95, 0.3, 0.25),
+                (80.0, 200.0),
+            );
+            audio.play_pickup(&mut commands);
+        }
+        AbilityKind::EatWeapon => {
+            let slot = inv.current;
+            let w = inv.weapons[slot];
+            if w == WeaponId::NONE {
+                return;
+            }
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            inv.weapons[slot] = WeaponId::NONE;
+            if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
+                inv.current = next;
+            }
+            health.hp = (health.hp + 2).min(health.max);
+            player.rads = player.rads.saturating_add(20);
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                16,
+                Color::srgb(0.6, 0.7, 0.75),
+                (90.0, 220.0),
+            );
+            audio.play_pickup(&mut commands);
+        }
+        AbilityKind::Throw => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let dir = if input.move_axis != Vec2::ZERO {
+                input.move_axis.normalize()
+            } else {
+                aim.0
+            };
+            commands.entity(player_e).insert(Dash {
+                timer: Timer::from_seconds(0.14, TimerMode::Once),
+                dir,
+            });
+            health.hp = (health.hp + 1).min(health.max);
+            health.invuln = Timer::from_seconds(0.35, TimerMode::Once);
+            vel.0 = dir * 800.0;
+            audio.play_bolt(&mut commands);
+        }
+        AbilityKind::SpawnAlly => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let spawn_at = pos + aim.0 * 28.0;
+            commands.spawn((
+                LevelCleanup,
+                Ally {
+                    life: Timer::from_seconds(12.0, TimerMode::Once),
+                    shoot: Timer::from_seconds(0.35, TimerMode::Repeating),
+                },
+                Team::Player,
+                Health {
+                    hp: 8,
+                    max: 8,
+                    invuln: Timer::from_seconds(0.5, TimerMode::Once),
+                },
+                Hitbox { radius: 10.0 },
+                Velocity(Vec2::ZERO),
+                Transform::from_translation(spawn_at.extend(18.0)),
+                Sprite {
+                    color: Color::srgb(0.85, 0.25, 0.55),
+                    custom_size: Some(Vec2::splat(18.0)),
+                    ..default()
+                },
+            ));
+            audio.play_portal(&mut commands);
+        }
+        AbilityKind::HorrorBeam => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let dir = aim.0.normalize_or_zero();
+            for (_, etf, mut ehealth) in &mut enemies {
+                let to = etf.translation.truncate() - pos;
+                let proj = to.dot(dir);
+                if proj < 0.0 || proj > 320.0 {
+                    continue;
+                }
+                let lateral = (to - dir * proj).length();
+                if lateral < 22.0 {
+                    ehealth.hp -= 4;
+                }
+            }
+            commands.spawn((
+                LevelCleanup,
+                HazardCloud {
+                    timer: Timer::from_seconds(0.8, TimerMode::Once),
+                    radius: 28.0,
+                    dps: 1,
+                    tick: Timer::from_seconds(0.15, TimerMode::Repeating),
+                },
+                Transform::from_translation((pos + dir * 160.0).extend(6.0)),
+                Sprite {
+                    color: Color::srgba(0.55, 0.3, 0.95, 0.4),
+                    custom_size: Some(Vec2::new(320.0, 36.0)),
+                    ..default()
+                },
+            ));
+            ScreenEffects::add_trauma(&mut trauma, 0.18);
+            audio.play_bolt(&mut commands);
+        }
+        AbilityKind::PortalStrike => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let target = pos + aim.0.normalize_or_zero() * 180.0;
+            commands.spawn((
+                LevelCleanup,
+                PortalStrike {
+                    timer: Timer::from_seconds(0.55, TimerMode::Once),
+                    radius: 90.0,
+                    damage: 8,
+                },
+                Transform::from_translation(target.extend(8.0)),
+                Sprite {
+                    color: Color::srgba(0.3, 0.9, 1.0, 0.45),
+                    custom_size: Some(Vec2::splat(40.0)),
+                    ..default()
+                },
+            ));
+            audio.play_portal(&mut commands);
+        }
+        AbilityKind::RocketBarrage => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let base = aim.0.normalize_or_zero();
+            for i in -2..=2 {
+                let ang = (i as f32) * 0.12;
+                let dir = Vec2::new(
+                    base.x * ang.cos() - base.y * ang.sin(),
+                    base.x * ang.sin() + base.y * ang.cos(),
+                )
+                .normalize_or_zero();
+                commands.spawn((
+                    LevelCleanup,
+                    Projectile {
+                        damage: 3,
+                        life: Timer::from_seconds(0.9, TimerMode::Once),
+                        radius: 6.0,
+                        knockback: 40.0,
+                        explosive: true,
+                        source: Some(DamageSource {
+                            owner: player_e,
+                            team: Team::Player,
+                            hit_id: HitId::Weapon(WeaponId::GRENADE_LAUNCHER),
+                        }),
+                    },
+                    Team::Player,
+                    Velocity(dir * 420.0),
+                    Transform::from_translation(pos.extend(12.0)),
+                    Sprite {
+                        color: Color::srgb(1.0, 0.55, 0.15),
+                        custom_size: Some(Vec2::splat(10.0)),
+                        ..default()
+                    },
+                ));
+            }
+            ScreenEffects::add_trauma(&mut trauma, 0.25);
+            audio.play_boom(&mut commands);
+        }
+        AbilityKind::BloodGamble => {
+            if health.hp <= 1 {
+                return;
+            }
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            health.hp -= 1;
+            let roll = [
+                WeaponId::REVOLVER,
+                WeaponId::SHOTGUN,
+                WeaponId::CROSSBOW,
+                WeaponId::MACHINEGUN,
+                WeaponId::SMG,
+                WeaponId::GRENADE_LAUNCHER,
+                WeaponId::ASSAULT_RIFLE,
+                WeaponId::WRENCH,
+            ];
+            let idx = (pos.x.abs() as usize + player.rads as usize) % roll.len();
+            let cur = inv.current;
+            inv.weapons[cur] = roll[idx];
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                14,
+                Color::srgb(0.95, 0.95, 0.95),
+                (70.0, 180.0),
+            );
+            audio.play_pickup(&mut commands);
+        }
+        AbilityKind::ToxicPuke => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let spot = pos + aim.0.normalize_or_zero() * 48.0;
+            commands.spawn((
+                LevelCleanup,
+                HazardCloud {
+                    timer: Timer::from_seconds(3.0, TimerMode::Once),
+                    radius: 70.0,
+                    dps: 1,
+                    tick: Timer::from_seconds(0.25, TimerMode::Repeating),
+                },
+                Transform::from_translation(spot.extend(5.0)),
+                Sprite {
+                    color: Color::srgba(0.35, 0.85, 0.4, 0.4),
+                    custom_size: Some(Vec2::splat(140.0)),
+                    ..default()
+                },
+            ));
+            audio.play_boom(&mut commands);
+        }
+        AbilityKind::CuzSwap => {
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let n = inv.weapon_slots;
+            for step in 1..=n {
+                let slot = (inv.current + step) % n;
+                if inv.weapons[slot] != WeaponId::NONE {
+                    inv.current = slot;
+                    break;
+                }
+            }
+            audio.play_pickup(&mut commands);
+        }
     }
 }
 
@@ -326,6 +622,7 @@ pub fn player_fire(
     audio: Res<GameAudio>,
     player_q: Query<(Entity, &Transform, &AimDir, &Player, &Health), With<Player>>,
     mut fire_q: Query<(&mut FireCooldown, &mut Inventory, &mut Velocity), With<Player>>,
+    mut pop_q: Query<&mut PopPopCharges>,
     mut enemies: Query<
         (
             Entity,
@@ -374,6 +671,28 @@ pub fn player_fire(
             weapon_id,
             &def,
         );
+        // Y.V. Pop Pop: duplicate burst pellet
+        if let Ok(mut charges) = pop_q.get_mut(player_ent) {
+            if charges.0 > 0 {
+                charges.0 -= 1;
+                spawn_pellets(
+                    &mut commands,
+                    &mut trauma,
+                    &audio,
+                    &mut rumble,
+                    &gamepads,
+                    player_ent,
+                    tf,
+                    aim,
+                    player,
+                    weapon_id,
+                    &def,
+                );
+                if charges.0 == 0 {
+                    commands.entity(player_ent).remove::<PopPopCharges>();
+                }
+            }
+        }
         cooldown.burst_left -= 1;
         cooldown.burst_timer = Timer::from_seconds(def.burst_interval, TimerMode::Once);
         return;
@@ -437,6 +756,28 @@ pub fn player_fire(
         weapon_id,
         &def,
     );
+    // Y.V. Pop Pop: second volley
+    if let Ok(mut charges) = pop_q.get_mut(player_ent) {
+        if charges.0 > 0 {
+            charges.0 -= 1;
+            spawn_pellets(
+                &mut commands,
+                &mut trauma,
+                &audio,
+                &mut rumble,
+                &gamepads,
+                player_ent,
+                tf,
+                aim,
+                player,
+                weapon_id,
+                &def,
+            );
+            if charges.0 == 0 {
+                commands.entity(player_ent).remove::<PopPopCharges>();
+            }
+        }
+    }
 
     // Queue the rest of the burst.
     if def.burst_shots > 1 {
@@ -695,6 +1036,158 @@ pub fn move_swing_fx(
         sprite.color.set_alpha(0.45 * (1.0 - t));
         if fx.timer.just_finished() {
             commands.entity(e).despawn();
+        }
+    }
+}
+
+pub fn tick_snare_zones(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut zones: Query<(Entity, &Transform, &mut SnareZone)>,
+    enemies: Query<(Entity, &Transform), (With<Enemy>, Without<Slowed>)>,
+) {
+    for (e, ztf, mut zone) in &mut zones {
+        zone.timer.tick(time.delta());
+        if zone.timer.just_finished() {
+            commands.entity(e).despawn();
+            continue;
+        }
+        let z = ztf.translation.truncate();
+        for (ee, etf) in &enemies {
+            if etf.translation.truncate().distance(z) <= zone.radius {
+                commands.entity(ee).insert(Slowed {
+                    timer: Timer::from_seconds(0.4, TimerMode::Once),
+                    factor: zone.slow,
+                });
+            }
+        }
+    }
+}
+
+pub fn tick_slowed(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Slowed, &mut Velocity), With<Enemy>>,
+) {
+    for (e, mut s, mut vel) in &mut q {
+        s.timer.tick(time.delta());
+        vel.0 *= s.factor;
+        if s.timer.just_finished() {
+            commands.entity(e).remove::<Slowed>();
+        }
+    }
+}
+
+pub fn tick_portal_strikes(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut trauma: ResMut<Trauma>,
+    audio: Res<GameAudio>,
+    mut q: Query<(Entity, &Transform, &mut PortalStrike)>,
+    mut enemies: Query<(&Transform, &mut Health), With<Enemy>>,
+) {
+    for (e, tf, mut strike) in &mut q {
+        strike.timer.tick(time.delta());
+        if !strike.timer.just_finished() {
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        for (etf, mut h) in &mut enemies {
+            if etf.translation.truncate().distance(pos) <= strike.radius {
+                h.hp -= strike.damage;
+            }
+        }
+        ScreenEffects::add_trauma(&mut trauma, 0.4);
+        audio.play_boom(&mut commands);
+        VfxSpawner::spawn_burst(
+            &mut commands,
+            pos,
+            28,
+            Color::srgb(0.3, 0.9, 1.0),
+            (120.0, 360.0),
+        );
+        commands.entity(e).despawn();
+    }
+}
+
+pub fn tick_hazard_clouds(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &Transform, &mut HazardCloud)>,
+    mut enemies: Query<(&Transform, &mut Health), With<Enemy>>,
+) {
+    for (e, tf, mut cloud) in &mut q {
+        cloud.timer.tick(time.delta());
+        cloud.tick.tick(time.delta());
+        if cloud.timer.just_finished() {
+            commands.entity(e).despawn();
+            continue;
+        }
+        if !cloud.tick.just_finished() {
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        for (etf, mut h) in &mut enemies {
+            if etf.translation.truncate().distance(pos) <= cloud.radius {
+                h.hp -= cloud.dps;
+            }
+        }
+    }
+}
+
+pub fn ally_ai(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut allies: Query<(Entity, &mut Ally, &mut Transform, &mut Velocity), Without<Enemy>>,
+    enemies: Query<&Transform, With<Enemy>>,
+    audio: Res<GameAudio>,
+) {
+    for (e, mut ally, mut tf, mut vel) in &mut allies {
+        ally.life.tick(time.delta());
+        ally.shoot.tick(time.delta());
+        if ally.life.just_finished() {
+            commands.entity(e).despawn();
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        let mut best = None::<(f32, Vec2)>;
+        for etf in &enemies {
+            let p = etf.translation.truncate();
+            let d = p.distance_squared(pos);
+            if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                best = Some((d, p));
+            }
+        }
+        if let Some((_, target)) = best {
+            let dir = (target - pos).normalize_or_zero();
+            vel.0 = dir * 140.0;
+            tf.translation += (vel.0 * time.delta_secs()).extend(0.0);
+            if ally.shoot.just_finished() {
+                commands.spawn((
+                    LevelCleanup,
+                    Projectile {
+                        damage: 2,
+                        life: Timer::from_seconds(0.7, TimerMode::Once),
+                        radius: 4.0,
+                        knockback: 20.0,
+                        explosive: false,
+                        source: Some(DamageSource {
+                            owner: e,
+                            team: Team::Player,
+                            hit_id: HitId::Other(1),
+                        }),
+                    },
+                    Team::Player,
+                    Velocity(dir * 380.0),
+                    Transform::from_translation(pos.extend(12.0)),
+                    Sprite {
+                        color: Color::srgb(1.0, 0.7, 0.85),
+                        custom_size: Some(Vec2::splat(6.0)),
+                        ..default()
+                    },
+                ));
+                audio.play_bolt(&mut commands);
+            }
         }
     }
 }

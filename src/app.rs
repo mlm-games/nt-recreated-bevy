@@ -119,6 +119,11 @@ pub struct SharedUi {
     pub selected_character: usize,
     pub best_floor: u32,
     pub total_kills: u32,
+    pub loadout_summary: String,
+    pub start_weapon_name: String,
+    pub stored_weapon_name: String,
+    pub crown: u8,
+    pub selected_skin: u8,
 }
 
 impl Default for SharedUi {
@@ -162,6 +167,11 @@ impl Default for SharedUi {
             selected_character: 0,
             best_floor: 0,
             total_kills: 0,
+            loadout_summary: String::new(),
+            start_weapon_name: "None".to_string(),
+            stored_weapon_name: "None".to_string(),
+            crown: 0,
+            selected_skin: 0,
         }
     }
 }
@@ -300,6 +310,7 @@ fn sync_shared_ui(
     mut channels: ResMut<AudioChannels>,
     loading: Option<Res<AssetsLoading>>,
     asset_server: Res<AssetServer>,
+    selected: Res<SelectedCharacter>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -331,6 +342,30 @@ fn sync_shared_ui(
     channels.master = save.settings.master_volume;
     channels.sfx = save.settings.sfx_volume;
     channels.music = save.settings.music_volume;
+    // Loadout summary for title screen
+    {
+        let sel = selected.0;
+        let lo = save.race_loadout(sel);
+        let def = crate::game::content::character_def(sel);
+        ui.character = def.name.to_string();
+        if let Some(idx) = crate::game::content::PLAYABLE_RACES
+            .iter()
+            .position(|&r| r == sel)
+        {
+            ui.selected_character = idx;
+        }
+        ui.start_weapon_name = crate::game::content::weapon_id_name(lo.start_weapon).to_string();
+        ui.stored_weapon_name = crate::game::content::weapon_id_name(lo.stored_weapon).to_string();
+        ui.crown = lo.start_crown;
+        ui.loadout_summary = format!(
+            "{} | start {} | stored {} | crown {} | {}",
+            def.name,
+            crate::game::content::weapon_id_name(lo.start_weapon),
+            crate::game::content::weapon_id_name(lo.stored_weapon),
+            lo.start_crown,
+            crate::game::content::ability_name(def.ability)
+        );
+    }
 }
 
 fn tick_pending_unpause(
@@ -353,6 +388,17 @@ fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32)
         *field(&mut ui) = v;
     }
     v
+}
+
+fn cycle_weapon_id(id: crate::game::content::WeaponId, dir: i8) -> crate::game::content::WeaponId {
+    const POOL: [u8; 10] = [0, 1, 3, 4, 5, 6, 7, 16, 17, 88];
+    let cur = POOL.iter().position(|&x| x == id.0).unwrap_or(0);
+    let next = if dir >= 0 {
+        (cur + 1) % POOL.len()
+    } else {
+        (cur + POOL.len() - 1) % POOL.len()
+    };
+    crate::game::content::WeaponId(POOL[next])
 }
 
 fn process_ui_actions(
@@ -469,6 +515,30 @@ fn process_ui_actions(
                 if let Some(id) = crate::game::content::PLAYABLE_RACES.get(idx).copied() {
                     selected.0 = id;
                 }
+            }
+            UiAction::SelectSkin(s) => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.selected_skin = s;
+                }
+            }
+            UiAction::CycleStartWeapon(dir) => {
+                let race = selected.0;
+                let lo = save.race_loadout_mut(race);
+                lo.start_weapon = cycle_weapon_id(lo.start_weapon, dir);
+                let _ = manager.save(&*save);
+            }
+            UiAction::CycleStoredWeapon(dir) => {
+                let race = selected.0;
+                let lo = save.race_loadout_mut(race);
+                lo.stored_weapon = cycle_weapon_id(lo.stored_weapon, dir);
+                let _ = manager.save(&*save);
+            }
+            UiAction::CycleCrown(dir) => {
+                let race = selected.0;
+                let lo = save.race_loadout_mut(race);
+                let next = lo.start_crown as i16 + dir as i16;
+                lo.start_crown = next.rem_euclid(13) as u8;
+                let _ = manager.save(&*save);
             }
             UiAction::PickMutation(idx) => {
                 mutation_choice.0 = Some(idx);

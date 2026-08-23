@@ -694,6 +694,22 @@ pub fn resolve_deaths(
         }
     }
 
+    // Chicken headless soak: one lethal hit per floor buffered to 1 HP.
+    if phealth.hp <= 0 && player.headless_ready && !run.game_over {
+        player.headless_ready = false;
+        phealth.hp = 1;
+        phealth.invuln = Timer::from_seconds(1.5, TimerMode::Once);
+        HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.95, 0.6), 0.25);
+        audio.play_pickup(&mut commands);
+        VfxSpawner::spawn_burst(
+            &mut commands,
+            player_tf.translation.truncate(),
+            12,
+            Color::srgb(1.0, 0.95, 0.6),
+            (60.0, 160.0),
+        );
+        return;
+    }
     // Player death (with Strong Spirit / Last Wish revives).
     if phealth.hp <= 0 && !run.game_over {
         if player.strong_spirit_ready {

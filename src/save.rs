@@ -55,17 +55,18 @@ impl Default for SettingsData {
 impl Default for SaveData {
     fn default() -> Self {
         let mut races = BTreeMap::new();
-        // Fish unlocked by default; others locked until achievements — keep old unlocked_characters compat
-        races.insert(
-            RaceId::Fish,
-            RaceLoadout {
-                unlocked: true,
-                unlocked_skins: [true, false, false, false],
-                stored_weapon: WeaponId(0),
-                start_weapon: WeaponId(0),
-                start_crown: 0,
-            },
-        );
+        for &r in crate::game::content::PLAYABLE_RACES.iter() {
+            races.insert(
+                r,
+                RaceLoadout {
+                    unlocked: true,
+                    unlocked_skins: [true, true, false, false],
+                    stored_weapon: WeaponId(0),
+                    start_weapon: WeaponId(0),
+                    start_crown: 0,
+                },
+            );
+        }
         Self {
             version: SAVE_VERSION,
             high_score: 0,
@@ -84,8 +85,8 @@ impl Default for SaveData {
 impl SaveData {
     pub fn race_loadout_mut(&mut self, race: RaceId) -> &mut RaceLoadout {
         self.races.entry(race).or_insert_with(|| RaceLoadout {
-            unlocked: race == RaceId::Fish,
-            unlocked_skins: [race == RaceId::Fish, false, false, false],
+            unlocked: true,
+            unlocked_skins: [true, true, false, false],
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
             start_crown: 0,
@@ -94,8 +95,8 @@ impl SaveData {
 
     pub fn race_loadout(&self, race: RaceId) -> RaceLoadout {
         self.races.get(&race).cloned().unwrap_or(RaceLoadout {
-            unlocked: race == RaceId::Fish,
-            unlocked_skins: [race == RaceId::Fish, false, false, false],
+            unlocked: true,
+            unlocked_skins: [true, true, false, false],
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
             start_crown: 0,

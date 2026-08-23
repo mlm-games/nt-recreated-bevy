@@ -46,24 +46,32 @@ pub enum ChestSpawn {
     Rad(Vec2),
 }
 
-/// Upstream `_area` ids for our compressed 7-floor world.
+/// Upstream `_area` ids for our 15-floor NT route:
+/// 1 Desert, 2 Sewers, 3 Scrapyards, 4 Crystal Caves, 5 Frozen City, 6 Labs, 7 Palace
 fn gml_area(floor: u32) -> i32 {
-    match floor_in_world(floor) {
-        1 | 2 => 1, // Desert
-        3 => 1,     // Desert boss subarea (campfire-style goal)
-        4 | 5 => 2, // Sewers
-        6 => 3,     // Scrapyards
-        _ => 7,     // Throne approach
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    match rf {
+        1..=3 => 1,   // Desert
+        4 => 2,       // Sewers
+        5..=7 => 3,   // Scrapyards
+        8 => 4,       // Crystal Caves
+        9..=11 => 5,  // Frozen City
+        12 => 6,      // Labs
+        13..=15 => 7, // Palace
+        _ => 7,
     }
 }
 
 fn is_boss_subarea(floor: u32) -> bool {
-    matches!(floor_in_world(floor), 3 | 7)
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    // End of each multi-floor world: Desert 3, Scrapyards 7, Frozen 11, Palace 15
+    matches!(rf, 3 | 7 | 11 | 15)
 }
 
 pub fn generation_goal(floor: u32) -> usize {
     if is_boss_subarea(floor) {
-        return if floor_in_world(floor) == 7 { 48 } else { 60 };
+        let rf = ((floor.max(1) - 1) % 15) + 1;
+        return if rf == 15 { 48 } else { 60 };
     }
     110
 }
@@ -578,28 +586,46 @@ fn trim_chests(chests: &mut Vec<ChestSpawn>) {
 
 fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'static str) {
     // (floor, wall bot, wall top, ground decal prop)
-    // Upstream sprite families are named by _area id:
-    // 0=Campfire(night), 1=Desert(sand), 2=Sewers, 3=Scrapyards, 7=Palace.
-    match floor_in_world(floor) {
+    // Upstream sprite families are named by _area id.
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    match rf {
         3 => (
             "images/sprFloor0.png",
             "images/sprWall0Bot.png",
             "images/sprWall0Top.png",
             "images/sprNightDesertTopDecal.png",
         ),
-        4 | 5 => (
+        4 => (
             "images/sprFloor2.png",
             "images/sprWall2Bot.png",
             "images/sprWall2Top.png",
             "images/sprTopDecalSewers.png",
         ),
-        6 => (
+        5..=7 => (
             "images/sprFloor3.png",
             "images/sprWall3Bot.png",
             "images/sprWall3Top.png",
             "images/sprTopDecalScrapyard.png",
         ),
-        7 => (
+        8 => (
+            "images/sprFloor4.png",
+            "images/sprWall4Bot.png",
+            "images/sprWall4Top.png",
+            "images/sprTopDecalCave.png",
+        ),
+        9..=11 => (
+            "images/sprFloor5.png",
+            "images/sprWall5Bot.png",
+            "images/sprWall5Top.png",
+            "images/sprTopDecalCity.png",
+        ),
+        12 => (
+            "images/sprFloor6.png",
+            "images/sprWall6Bot.png",
+            "images/sprWall6Top.png",
+            "images/sprTopDecalCity.png",
+        ),
+        13..=15 => (
             "images/sprFloor7.png",
             "images/sprWall7Bot.png",
             "images/sprWall7Top.png",
@@ -804,7 +830,8 @@ pub fn is_boss_floor(floor: u32) -> bool {
 }
 
 pub fn boss_for_floor(floor: u32) -> EnemyKind {
-    if floor_in_world(floor) == 7 {
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    if rf == 15 {
         EnemyKind::Throne
     } else {
         EnemyKind::BigBandit
@@ -812,17 +839,38 @@ pub fn boss_for_floor(floor: u32) -> EnemyKind {
 }
 
 pub fn floor_in_world(floor: u32) -> u32 {
-    ((floor - 1) % 7) + 1
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    match rf {
+        1..=3 => rf,
+        4 => 1,
+        5..=7 => rf - 4,
+        8 => 1,
+        9..=11 => rf - 8,
+        12 => 1,
+        13..=15 => rf - 12,
+        _ => 1,
+    }
 }
 
 pub fn world_of(floor: u32) -> u32 {
-    ((floor - 1) / 7) + 1
+    let rf = ((floor.max(1) - 1) % 15) + 1;
+    match rf {
+        1..=3 => 1,
+        4 => 2,
+        5..=7 => 3,
+        8 => 4,
+        9..=11 => 5,
+        12 => 6,
+        13..=15 => 7,
+        _ => 1,
+    }
 }
 
 pub fn difficulty_multiplier(floor: u32) -> f32 {
-    let world = world_of(floor) as f32;
-    let f = floor_in_world(floor) as f32;
-    1.0 + (world - 1.0) * 0.18 + (f - 1.0) * 0.035
+    // Difficulty scales with loop (every 15 floors) plus intra-area progress.
+    let loop_n = ((floor.max(1) - 1) / 15) as f32;
+    let rf = ((floor.max(1) - 1) % 15) as f32;
+    1.0 + loop_n * 0.45 + rf * 0.015
 }
 
 /// Clamp into the generated mask bounds (secondary safety net).
@@ -897,7 +945,7 @@ mod tests {
 
     #[test]
     fn level_generation_produces_consistent_levels() {
-        for floor in 1..=7u32 {
+        for floor in 1..=15u32 {
             let plan = generate_level(&run_for(floor));
             assert!(!plan.floor_cells.is_empty(), "floor {floor}: no tiles");
             assert!(!plan.wall_cells.is_empty(), "floor {floor}: no walls");

@@ -84,6 +84,11 @@ pub fn setup_run(
 
     let (player_sprite, player_strip) =
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
+    let fire_rate_mult = if def.passive == PassiveKind::FastReload {
+        0.8 // 25% faster (lower cooldown)
+    } else {
+        1.0
+    };
     let mut player = commands.spawn((
         GameCleanup,
         Player {
@@ -95,7 +100,7 @@ pub fn setup_run(
             level: 1,
             next_level_rads: 60,
             pickup_range: def.pickup_range,
-            fire_rate_mult: 1.0,
+            fire_rate_mult,
             spread_mult: 1.0,
             knockback_mult: 1.0,
             melee_range_mult: 1.0,
@@ -115,6 +120,7 @@ pub fn setup_run(
             shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
             ability: def.ability,
             ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            headless_ready: def.passive == PassiveKind::Headless,
             mutations: Vec::new(),
         },
         RaceState {
@@ -518,7 +524,10 @@ pub fn portal_enter(
     audio: Res<GameAudio>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
     level_q: Query<Entity, With<LevelCleanup>>,
-    mut player_q: Query<(&mut Transform, &mut Health), (With<Player>, Without<Portal>)>,
+    mut player_q: Query<
+        (&mut Transform, &mut Health, &mut Player, &RaceState),
+        (With<Player>, Without<Portal>),
+    >,
 ) {
     if run.game_over {
         return;
@@ -528,7 +537,7 @@ pub fn portal_enter(
         return;
     };
 
-    let Ok((mut player_tf, mut health)) = player_q.single_mut() else {
+    let Ok((mut player_tf, mut health, mut player, race_state)) = player_q.single_mut() else {
         return;
     };
 
@@ -547,7 +556,7 @@ pub fn portal_enter(
     commands.entity(portal_e).despawn();
 
     run.floor += 1;
-    run.loop_count = (run.floor - 1) / 7;
+    run.loop_count = (run.floor - 1) / 15;
     let (world, floor_in_world) = crate::game::areas::route_coordinates(run.floor);
     run.world = world;
     run.floor_in_area = floor_in_world;
@@ -556,6 +565,10 @@ pub fn portal_enter(
     run.gen_seed = rand::rng().random_range(0..u64::MAX);
 
     health.hp = (health.hp + 1).min(health.max);
+    // Chicken passive: refresh headless each floor.
+    if character_def(race_state.race).passive == PassiveKind::Headless {
+        player.headless_ready = true;
+    }
 
     let plan = world::generate_level(&run);
     world::spawn_level(

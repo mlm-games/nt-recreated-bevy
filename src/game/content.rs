@@ -214,17 +214,32 @@ impl From<WeaponId> for WeaponKind {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AbilityKind {
-    Flip,
-    Shield,
-    Telekinesis,
-    Detonate,
+    Flip,          // Fish
+    Shield,        // Crystal
+    Telekinesis,   // Eyes
+    Detonate,      // Melting
+    Snare,         // Plant — slow enemies in a cone
+    PopPop,        // Y.V. — next shot fires twice
+    GetLoaded,     // Steroids — refill ammo
+    EatWeapon,     // Robot — consume current weapon for HP
+    Throw,         // Chicken — short thrash dash + heal 1
+    SpawnAlly,     // Rebel
+    HorrorBeam,    // Horror — rad beam along aim
+    PortalStrike,  // Rogue — delayed blast at aim point
+    RocketBarrage, // Big Dog
+    BloodGamble,   // Skeleton — spend 1 HP, random weapon
+    ToxicPuke,     // Frog — toxic cloud
+    CuzSwap,       // Cuz — cycle 3rd slot / quick-swap
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PassiveKind {
     None,
-    ShieldOnHit,
-    ChainExplosions,
+    ShieldOnHit,     // Crystal
+    ChainExplosions, // Melting
+    FastReload,      // Steroids-ish dual feel via fire-rate
+    Headless,        // Chicken survives lethal hit once per floor
+    FreeAmmo,        // Robot passive: ammo pickups heal slightly (hooked later)
 }
 
 pub struct CharacterDef {
@@ -292,7 +307,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::Snare,
             passive: PassiveKind::None,
             sprite: "images/sprMutant5Idle.png",
             walk_sprite: "images/sprMutant5Walk.png",
@@ -303,7 +318,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::PopPop,
             passive: PassiveKind::None,
             sprite: "images/sprMutant6Idle.png",
             walk_sprite: "images/sprMutant6Walk.png",
@@ -314,8 +329,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
-            passive: PassiveKind::None,
+            ability: AbilityKind::GetLoaded,
+            passive: PassiveKind::FastReload,
             sprite: "images/sprMutant7Idle.png",
             walk_sprite: "images/sprMutant7Walk.png",
         },
@@ -325,8 +340,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
-            passive: PassiveKind::None,
+            ability: AbilityKind::EatWeapon,
+            passive: PassiveKind::FreeAmmo,
             sprite: "images/sprMutant8Idle.png",
             walk_sprite: "images/sprMutant8Walk.png",
         },
@@ -336,8 +351,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.2,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
-            passive: PassiveKind::None,
+            ability: AbilityKind::Throw,
+            passive: PassiveKind::Headless,
             sprite: "images/sprMutant9Idle.png",
             walk_sprite: "images/sprMutant9Walk.png",
         },
@@ -347,7 +362,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::SpawnAlly,
             passive: PassiveKind::None,
             sprite: "images/sprMutant10Idle.png",
             walk_sprite: "images/sprMutant10Walk.png",
@@ -358,7 +373,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::HorrorBeam,
             passive: PassiveKind::None,
             sprite: "images/sprMutant11Idle.png",
             walk_sprite: "images/sprMutant11Walk.png",
@@ -369,7 +384,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::PortalStrike,
             passive: PassiveKind::None,
             sprite: "images/sprMutant12Idle.png",
             walk_sprite: "images/sprMutant12Walk.png",
@@ -380,7 +395,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 12,
             speed_mult: 0.95,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::RocketBarrage,
             passive: PassiveKind::None,
             sprite: "images/sprMutant13Idle.png",
             walk_sprite: "images/sprMutant13Walk.png",
@@ -391,7 +406,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::BloodGamble,
             passive: PassiveKind::None,
             sprite: "images/sprMutant14Idle.png",
             walk_sprite: "images/sprMutant14Walk.png",
@@ -402,7 +417,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::ToxicPuke,
             passive: PassiveKind::None,
             sprite: "images/sprMutant15Idle.png",
             walk_sprite: "images/sprMutant15Walk.png",
@@ -413,7 +428,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             max_hp: 8,
             speed_mult: 1.0,
             pickup_range: 95.0,
-            ability: AbilityKind::Flip,
+            ability: AbilityKind::CuzSwap,
             passive: PassiveKind::None,
             sprite: "images/sprMutant16Idle.png",
             walk_sprite: "images/sprMutant16Walk.png",
@@ -428,6 +443,18 @@ pub fn ability_name(kind: AbilityKind) -> &'static str {
         AbilityKind::Shield => "Shield",
         AbilityKind::Telekinesis => "Telekinesis",
         AbilityKind::Detonate => "Detonate",
+        AbilityKind::Snare => "Snare",
+        AbilityKind::PopPop => "Pop Pop",
+        AbilityKind::GetLoaded => "Get Loaded",
+        AbilityKind::EatWeapon => "Eat Weapon",
+        AbilityKind::Throw => "Throw",
+        AbilityKind::SpawnAlly => "Rebel Yell",
+        AbilityKind::HorrorBeam => "Irradiate",
+        AbilityKind::PortalStrike => "Portal Strike",
+        AbilityKind::RocketBarrage => "Barrage",
+        AbilityKind::BloodGamble => "Blood Gamble",
+        AbilityKind::ToxicPuke => "Puke",
+        AbilityKind::CuzSwap => "Extra Slot",
     }
 }
 

@@ -75,6 +75,11 @@ impl Plugin for GamePlugin {
                     (
                         player_sys::player_fire,
                         player_sys::move_swing_fx,
+                        player_sys::tick_snare_zones,
+                        player_sys::tick_slowed,
+                        player_sys::tick_portal_strikes,
+                        player_sys::tick_hazard_clouds,
+                        player_sys::ally_ai,
                         enemies::enemy_ai,
                         combat::move_projectiles,
                         combat::apply_explosions,
@@ -98,6 +103,8 @@ impl Plugin for GamePlugin {
                         .run_if(in_state(AppState::InGame)),
                 ),
             )
+            .add_systems(Update, clear_input_when_inactive)
+            .add_systems(OnExit(AppState::InGame), clear_input_pulses)
             .add_systems(
                 OnExit(AppState::InGame),
                 (progress_sys::flush_dirty_save_once, teardown_game_flags).chain(),
@@ -171,4 +178,18 @@ fn teardown_game(
 
 fn teardown_game_flags(bridge: Res<crate::menus::UiBridge>) {
     hud::reset_hud_flags(bridge);
+}
+
+fn clear_input_pulses(mut input: ResMut<input::NtInput>) {
+    input.clear_transient();
+}
+
+fn clear_input_when_inactive(
+    paused: Res<Paused>,
+    state: Res<State<AppState>>,
+    mut input: ResMut<input::NtInput>,
+) {
+    if paused.0 || *state.get() != AppState::InGame {
+        input.clear_transient();
+    }
 }

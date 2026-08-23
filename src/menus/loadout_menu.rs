@@ -39,3 +39,16 @@ pub fn build_loadout_vm(save: &SaveData, selected: RaceId) -> LoadoutViewModel {
         crown: lo.start_crown,
     }
 }
+
+pub fn loadout_summary(save: &SaveData, race: RaceId) -> String {
+    let lo = save.race_loadout(race);
+    let def = crate::game::content::character_def(race);
+    format!(
+        "{} | start {} | stored {} | crown {} | ability {}",
+        def.name,
+        crate::game::content::weapon_id_name(lo.start_weapon),
+        crate::game::content::weapon_id_name(lo.stored_weapon),
+        lo.start_crown,
+        crate::game::content::ability_name(def.ability),
+    )
+}

@@ -53,6 +53,10 @@ pub enum UiAction {
     NextLanguage,
     SetLanguage(String),
     SelectCharacter(usize),
+    SelectSkin(u8),
+    CycleStartWeapon(i8),
+    CycleStoredWeapon(i8),
+    CycleCrown(i8),
     PickMutation(usize),
 }
 
@@ -232,31 +236,63 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a4 = actions.clone();
     let tr = &st.translations;
 
+    // Character grid (2 rows of 8)
+    let mut row1: Vec<View> = Vec::new();
+    let mut row2: Vec<View> = Vec::new();
+    for (i, race) in PLAYABLE_RACES.iter().enumerate() {
+        let def = character_def(*race);
+        let label = def.name;
+        // Short label for button (first word)
+        let short = label.split_whitespace().next().unwrap_or(label);
+        let a = actions.clone();
+        // Highlight selected via btn content but keep helper simple
+        let btn = mk_button_sm(short, move || push(&a, UiAction::SelectCharacter(i)));
+        if i < 8 {
+            row1.push(btn);
+        } else {
+            row2.push(btn);
+        }
+    }
+    let sel_idx = st.selected_character.min(PLAYABLE_RACES.len() - 1);
+    let sel_def = character_def(PLAYABLE_RACES[sel_idx]);
+    let sel_ability = crate::game::content::ability_name(sel_def.ability);
+    let sel_line = format!(
+        "▶ {}  •  {}  •  {}",
+        sel_def.name, sel_ability, st.loadout_summary
+    );
+
+    // Loadout cycle buttons
+    let a_sw_prev = actions.clone();
+    let a_sw_next = actions.clone();
+    let a_st_prev = actions.clone();
+    let a_st_next = actions.clone();
+    let a_cr_prev = actions.clone();
+    let a_cr_next = actions.clone();
+
     Column(
         Modifier::new()
             .fill_max_size()
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            // Veil only — the NT spiral field + logo render as world sprites
-            // underneath (ui_art.rs).
             .background(RColor::from_rgba(10, 8, 16, 120)),
     )
     .child(AnimatedVisibility(
         true,
         Column(
             Modifier::new()
-                .width(560.0)
-                .padding(28.0)
+                .width(620.0)
+                .padding(24.0)
                 .background(RColor::from_rgba(8, 8, 14, 150))
                 .clip_rounded(18.0)
                 .border(2.0, col(90, 90, 110), 18.0)
-                .align_items(AlignItems::CENTER),
+                .align_items(AlignItems::CENTER)
+                .gap(6.0),
         )
         .child(vec![
             RText(t(tr, "app-title", "NUCLEAR THRONE"))
-                .size(44.0)
+                .size(40.0)
                 .color(col(240, 210, 110)),
-            spacer(4.0),
+            spacer(2.0),
             reward_chip(
                 format!(
                     "{} {} • {} {}",
@@ -268,7 +304,41 @@ fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 RColor::from_rgba(255, 255, 255, 16),
                 col(190, 195, 210),
             ),
-            spacer(20.0),
+            spacer(6.0),
+            RText("SELECT CHARACTER")
+                .size(12.0)
+                .color(col(150, 155, 168)),
+            Row(Modifier::new().gap(4.0)).child(row1),
+            Row(Modifier::new().gap(4.0)).child(row2),
+            reward_chip(
+                sel_line,
+                RColor::from_rgba(120, 170, 255, 30),
+                col(180, 200, 255),
+            ),
+            spacer(4.0),
+            RText(format!(
+                "Start: {}  •  Stored: {}  •  Crown: {}",
+                st.start_weapon_name, st.stored_weapon_name, st.crown
+            ))
+            .size(11.0)
+            .color(col(170, 175, 190)),
+            Row(Modifier::new().gap(6.0)).child(vec![
+                mk_button_sm("S-◀", move || {
+                    push(&a_sw_prev, UiAction::CycleStartWeapon(-1))
+                }),
+                mk_button_sm("S-▶", move || {
+                    push(&a_sw_next, UiAction::CycleStartWeapon(1))
+                }),
+                mk_button_sm("T-◀", move || {
+                    push(&a_st_prev, UiAction::CycleStoredWeapon(-1))
+                }),
+                mk_button_sm("T-▶", move || {
+                    push(&a_st_next, UiAction::CycleStoredWeapon(1))
+                }),
+                mk_button_sm("C◀", move || push(&a_cr_prev, UiAction::CycleCrown(-1))),
+                mk_button_sm("C▶", move || push(&a_cr_next, UiAction::CycleCrown(1))),
+            ]),
+            spacer(10.0),
             mk_button(
                 &t(tr, "start-game", "▶  PLAY"),
                 col(80, 160, 100),

@@ -217,6 +217,7 @@ pub struct Player {
     pub shield_on_hit: bool,
     pub ability: AbilityKind,
     pub ability_cooldown: Timer,
+    pub headless_ready: bool,
     pub mutations: Vec<MutationId>,
 }
 
@@ -429,3 +430,50 @@ pub struct Shield {
 pub struct Telekinesis {
     pub timer: Timer,
 }
+
+/// Y.V. Pop Pop — next successful shot fires a second volley.
+#[derive(Component)]
+pub struct PopPopCharges(pub u8);
+
+/// Plant snare zone — slows enemies while alive.
+#[derive(Component)]
+pub struct SnareZone {
+    pub timer: Timer,
+    pub radius: f32,
+    pub slow: f32,
+}
+
+/// Temporary enemy slow applied by Snare / toxic.
+#[derive(Component)]
+pub struct Slowed {
+    pub timer: Timer,
+    pub factor: f32,
+}
+
+/// Rebel ally that shoots toward nearest enemy.
+#[derive(Component)]
+pub struct Ally {
+    pub life: Timer,
+    pub shoot: Timer,
+}
+
+/// Rogue portal strike telegraphed blast.
+#[derive(Component)]
+pub struct PortalStrike {
+    pub timer: Timer,
+    pub radius: f32,
+    pub damage: i32,
+}
+
+/// Frog / Horror residual hazard cloud.
+#[derive(Component)]
+pub struct HazardCloud {
+    pub timer: Timer,
+    pub radius: f32,
+    pub dps: i32,
+    pub tick: Timer,
+}
+
+/// Chicken headless grace (one lethal soak per floor).
+#[derive(Component, Default)]
+pub struct HeadlessReady(pub bool);
