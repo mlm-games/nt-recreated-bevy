@@ -1059,7 +1059,7 @@ pub fn projectile_hits(
                 } else {
                     commands
                         .entity(proj_e)
-                        .insert(ProjectileHitSet(vec![target_e]));
+                        .try_insert(ProjectileHitSet(vec![target_e]));
                 }
             }
         }
