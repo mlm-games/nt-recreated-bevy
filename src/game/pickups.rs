@@ -253,6 +253,12 @@ pub fn collect_pickups(
                 audio.play_pickup(&mut commands);
             }
             PickupKind::Weapon(weapon) => {
+                commands.spawn((
+                    GameCleanup,
+                    crate::game::reactive_audio::QueuedReactiveCue(
+                        crate::game::reactive_audio::ReactiveCue::WeaponPickup,
+                    ),
+                ));
                 equip_weapon(
                     &mut commands,
                     &catalog,
@@ -288,6 +294,12 @@ pub fn collect_pickups(
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
             }
             PickupKind::Chest(chest) => {
+                commands.spawn((
+                    GameCleanup,
+                    crate::game::reactive_audio::QueuedReactiveCue(
+                        crate::game::reactive_audio::ReactiveCue::ChestOpen,
+                    ),
+                ));
                 ScreenEffects::add_trauma(&mut trauma, 0.15);
                 GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
                 audio.play_chest(&mut commands);

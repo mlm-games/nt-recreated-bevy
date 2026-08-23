@@ -23,6 +23,7 @@ pub mod player;
 pub mod progression;
 pub mod projectile_archetypes;
 pub mod projectile_math;
+pub mod reactive_audio;
 pub mod secret_areas;
 pub mod ui_art;
 pub mod weapon_runtime;
@@ -61,13 +62,25 @@ impl Plugin for GamePlugin {
             .init_resource::<idpd::IdpdRaidState>()
             .init_resource::<LoopTransition>()
             .init_resource::<ambience::AreaAudioState>()
+            .add_message::<reactive_audio::ReactiveAudioRequest>()
+            .add_message::<reactive_audio::UiBridgeAction>()
+            .init_resource::<reactive_audio::ReactiveAudioState>()
+            .init_resource::<reactive_audio::CombatIntensityState>()
             .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
             .add_systems(PreUpdate, input::sample_input.run_if(gameplay_active))
             .add_plugins(ui_art::UiArtPlugin)
             .add_systems(OnEnter(AppState::InGame), setup_game)
+            .add_systems(
+                OnEnter(AppState::InGame),
+                reactive_audio::reset_reactive_audio_state,
+            )
             .add_systems(OnExit(AppState::InGame), teardown_game)
+            .add_systems(
+                OnExit(AppState::InGame),
+                reactive_audio::reset_combat_intensity,
+            )
             .add_systems(
                 FixedUpdate,
                 (
@@ -173,6 +186,22 @@ impl Plugin for GamePlugin {
                     ambience::tick_area_audio_fades,
                     ambience::sync_area_audio_volumes.after(ambience::tick_area_audio_fades),
                 ),
+            )
+            .add_systems(
+                Update,
+                (
+                    (
+                        reactive_audio::observe_player_audio_state,
+                        reactive_audio::observe_boss_audio_state,
+                        reactive_audio::observe_kill_audio_state,
+                        reactive_audio::play_ui_action_audio,
+                        reactive_audio::flush_queued_cues,
+                        reactive_audio::play_reactive_audio_requests,
+                    )
+                        .chain(),
+                    reactive_audio::update_combat_intensity_audio,
+                )
+                    .in_set(NtSimSet::Always),
             )
             .add_systems(Update, clear_input_when_inactive)
             .add_systems(OnExit(AppState::InGame), clear_input_pulses)

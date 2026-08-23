@@ -1624,6 +1624,12 @@ pub fn resolve_deaths(
 
         run.game_over = true;
         commands.entity(player_e).despawn();
+        commands.spawn((
+            GameCleanup,
+            crate::game::reactive_audio::QueuedReactiveCue(
+                crate::game::reactive_audio::ReactiveCue::PlayerDeath,
+            ),
+        ));
 
         ScreenEffects::add_trauma(&mut trauma, 0.8);
         ScreenEffects::chromatic_pulse(&mut chroma, 0.7);

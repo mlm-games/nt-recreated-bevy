@@ -8,6 +8,7 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::{AssetCatalog, EnemyKind, enemy_def};
 use crate::game::enemies::spawn_enemy_at;
+use crate::game::reactive_audio::{QueuedReactiveCue, ReactiveCue};
 
 pub use crate::game::components::IdpdRaidState;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
@@ -166,6 +167,7 @@ pub fn tick_idpd_raids(
         raid.pending_wave = Some(wave);
         raid.warning = Timer::from_seconds(1.25, TimerMode::Once);
         toast.show("IDPD INCOMING");
+        commands.spawn((GameCleanup, QueuedReactiveCue(ReactiveCue::IdpdIncoming)));
         ScreenEffects::add_trauma(&mut trauma, 0.12);
         return;
     }

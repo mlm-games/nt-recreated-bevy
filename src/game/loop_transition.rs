@@ -10,6 +10,7 @@ use crate::game::areas::{area_for_floor, route_coordinates};
 use crate::game::components::*;
 use crate::game::content::EnemyKind;
 use crate::game::idpd::is_idpd_kind;
+use crate::game::reactive_audio::{QueuedReactiveCue, ReactiveCue};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
@@ -214,6 +215,7 @@ pub fn tick_campfire(
                 );
 
                 ScreenEffects::add_trauma(&mut trauma, 0.45);
+                commands.spawn((GameCleanup, QueuedReactiveCue(ReactiveCue::ThroneRises)));
                 toast.show("THE THRONE RISES");
 
                 commands.entity(_entity).despawn();

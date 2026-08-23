@@ -399,6 +399,13 @@ pub fn handle_mutation_choice(
             id,
         );
 
+        commands.spawn((
+            GameCleanup,
+            crate::game::reactive_audio::QueuedReactiveCue(
+                crate::game::reactive_audio::ReactiveCue::UltraChosen,
+            ),
+        ));
+
         ultra.choices.clear();
         commands.remove_resource::<PendingUltra>();
         paused.0 = false;
@@ -427,6 +434,13 @@ pub fn handle_mutation_choice(
         &audio,
         id,
     );
+
+    commands.spawn((
+        GameCleanup,
+        crate::game::reactive_audio::QueuedReactiveCue(
+            crate::game::reactive_audio::ReactiveCue::MutationChosen,
+        ),
+    ));
 
     pending.choices.clear();
     commands.remove_resource::<PendingMutation>();
@@ -858,6 +872,12 @@ pub fn portal_check(
     }
 
     run.portal_open = true;
+    commands.spawn((
+        GameCleanup,
+        crate::game::reactive_audio::QueuedReactiveCue(
+            crate::game::reactive_audio::ReactiveCue::PortalOpen,
+        ),
+    ));
 
     let mut rng = rand::rng();
     let pos = mask.random_floor_pos(&mut rng, 80.0);
@@ -960,6 +980,15 @@ pub fn portal_enter(
         &mut trauma,
     );
 
+    if looped {
+        commands.spawn((
+            GameCleanup,
+            crate::game::reactive_audio::QueuedReactiveCue(
+                crate::game::reactive_audio::ReactiveCue::LoopComplete,
+            ),
+        ));
+    }
+
     let entered_secret = if looped {
         None
     } else {
@@ -967,13 +996,27 @@ pub fn portal_enter(
     };
 
     if let Some(secret) = entered_secret {
+        commands.spawn((
+            GameCleanup,
+            crate::game::reactive_audio::QueuedReactiveCue(
+                crate::game::reactive_audio::ReactiveCue::SecretFound,
+            ),
+        ));
         toast.show(&format!("ENTERING {}", secret.name()));
-    } else {
+    } else if !looped {
+        commands.spawn((
+            GameCleanup,
+            crate::game::reactive_audio::QueuedReactiveCue(
+                crate::game::reactive_audio::ReactiveCue::PortalEnter,
+            ),
+        ));
         toast.show(&format!(
             "FLOOR {}-{}",
             run.world,
             world::floor_in_world(run.floor)
         ));
+    } else {
+        toast.show(&format!("LOOP {}", run.loop_count));
     }
 
     health.hp = (health.hp + 1).min(health.max);
