@@ -120,6 +120,7 @@ pub fn collect_pickups(
             &mut Player,
             &mut Health,
             &mut Inventory,
+            &RaceState,
             Option<&Telekinesis>,
         ),
         (With<Player>, Without<Pickup>),
@@ -127,7 +128,8 @@ pub fn collect_pickups(
     mut pickups: Query<(Entity, &mut Transform, &Pickup), Without<Player>>,
     mut toast: ResMut<Toast>,
 ) {
-    let Ok((player_e, player_tf, mut player, mut health, mut inv, telek)) = player_q.single_mut()
+    let Ok((player_e, player_tf, mut player, mut health, mut inv, race_state, telek)) =
+        player_q.single_mut()
     else {
         return;
     };
@@ -137,8 +139,13 @@ pub fn collect_pickups(
 
     // Telekinesis massively extends the magnet range while active.
     let telek_active = telek.is_some_and(|t| !t.timer.is_finished());
+    let telek_mult = if telek_active {
+        player.ultra_ability_mult
+    } else {
+        1.0
+    };
     let magnet = if telek_active {
-        player.pickup_range + 500.0
+        player.pickup_range + 500.0 * telek_mult
     } else {
         player.pickup_range
     };
@@ -151,7 +158,11 @@ pub fn collect_pickups(
         let is_chest = matches!(pickup.kind, PickupKind::Chest(_));
         if !is_chest && dist < magnet {
             let dir = (player_pos - pickup_pos).normalize_or_zero();
-            let pull = if telek_active { 900.0 } else { 460.0 };
+            let pull = if telek_active {
+                900.0 * telek_mult
+            } else {
+                460.0
+            };
             pickup_tf.translation += (dir * pull * dt).extend(0.0);
         }
 
@@ -176,6 +187,7 @@ pub fn collect_pickups(
                     &mut toast,
                     &audio,
                     player_pos,
+                    race_state.race,
                 );
             }
             PickupKind::Medkit(amount) => {
@@ -215,9 +227,14 @@ pub fn collect_pickups(
                 let gained = (amount + fish_bonus).min(cap - *slot).max(0);
                 *slot += gained;
 
-                // Robot FreeAmmo: ammo pickups restore a little HP.
+                // Robot FreeAmmo: ammo pickups restore HP; ultras heal more.
                 if player.free_ammo && gained > 0 {
-                    let heal = 1;
+                    let heal = match player.ultra {
+                        Some(
+                            UltraMutationId::RobotRefinedTaste | UltraMutationId::RobotRegurgitate,
+                        ) => 2,
+                        _ => 1,
+                    };
                     health.hp = (health.hp + heal).min(health.max);
                     VfxSpawner::spawn_damage_number(
                         &mut commands,
@@ -244,6 +261,28 @@ pub fn collect_pickups(
                     weapon,
                     player_pos,
                 );
+
+                // Fish ultra — Confiscate: weapon pickups grant extra ammo.
+                if matches!(player.ultra, Some(UltraMutationId::FishConfiscate)) {
+                    let kind = weapon_ammo(weapon);
+                    if kind != AmmoKind::None {
+                        let add = ammo_pickup_amount(kind) * 2;
+                        let slot = inv.ammo_mut(kind);
+                        *slot = (*slot + add).min(ammo_max(kind));
+                        VfxSpawner::spawn_damage_number(
+                            &mut commands,
+                            add,
+                            player_pos,
+                            Color::srgb(0.9, 0.82, 0.25),
+                        );
+                    }
+                }
+
+                // Robot ultra — Refined Taste: new hardware heals.
+                if matches!(player.ultra, Some(UltraMutationId::RobotRefinedTaste)) {
+                    health.hp = (health.hp + 1).min(health.max);
+                }
+
                 Juice::bounce_scale(&mut commands, player_e, 1.3, 0.16);
                 audio.play_chest(&mut commands);
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
@@ -321,6 +360,7 @@ pub fn collect_pickups(
                             &mut toast,
                             &audio,
                             player_pos,
+                            race_state.race,
                         );
                     }
                 }

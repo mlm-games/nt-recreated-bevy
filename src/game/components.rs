@@ -142,6 +142,12 @@ pub struct PendingMutation {
     pub choices: Vec<MutationId>,
 }
 
+/// Level-10 ultra choice. Uses the same `MutationChoice` click/number input.
+#[derive(Resource)]
+pub struct PendingUltra {
+    pub choices: Vec<UltraMutationId>,
+}
+
 /// Set by the UI (Repose buttons) when the player clicks a mutation choice.
 #[derive(Resource, Default)]
 pub struct MutationChoice(pub Option<usize>);
@@ -220,7 +226,75 @@ pub struct Player {
     pub headless_ready: bool,
     pub free_ammo: bool,
     pub crown: CrownKind,
+    pub bolt_marrow: bool,
+    pub hammerhead: bool,
+    pub laser_brain: bool,
+    pub recycle_gland: bool,
+    pub shotgun_shoulders: bool,
+    pub throne_butt: bool,
+    /// Eyes' Projectile Style ultra: enemy projectiles slow further.
+    pub euphoria: bool,
+    /// Patience is a one-time skip; next mutation roll gets four choices.
+    pub patience_bonus: bool,
+    pub patience_used: bool,
+    /// Chosen level-10 ultra, if any.
+    pub ultra: Option<UltraMutationId>,
+    /// Generic damage scaling granted by some ultras.
+    pub ultra_damage_mult: f32,
+    /// Generic ability scaling used by Throne Butt / ultras.
+    pub ultra_ability_mult: f32,
     pub mutations: Vec<MutationId>,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self {
+            speed: 240.0,
+            accel: PLAYER_ACCEL,
+            friction: PLAYER_FRICTION,
+            speed_mult: 1.0,
+            rads: 0,
+            level: 1,
+            next_level_rads: 60,
+            pickup_range: 95.0,
+            fire_rate_mult: 1.0,
+            spread_mult: 1.0,
+            knockback_mult: 1.0,
+            melee_range_mult: 1.0,
+            drop_mult: 0.0,
+            medkit_mult: 1.0,
+            boiling_veins: false,
+            veins_threshold: 4,
+            bloodlust: false,
+            lucky_shot: false,
+            gamma_guts: false,
+            back_muscle: 0,
+            stress: false,
+            sharp_teeth: false,
+            strong_spirit_ready: false,
+            last_wish_used: false,
+            chain_explosions: false,
+            shield_on_hit: false,
+            ability: AbilityKind::Flip,
+            ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            headless_ready: false,
+            free_ammo: false,
+            crown: CrownKind::None,
+            bolt_marrow: false,
+            hammerhead: false,
+            laser_brain: false,
+            recycle_gland: false,
+            shotgun_shoulders: false,
+            throne_butt: false,
+            euphoria: false,
+            patience_bonus: false,
+            patience_used: false,
+            ultra: None,
+            ultra_damage_mult: 1.0,
+            ultra_ability_mult: 1.0,
+            mutations: Vec::new(),
+        }
+    }
 }
 
 #[derive(Component)]

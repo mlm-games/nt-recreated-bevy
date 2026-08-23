@@ -309,42 +309,11 @@ pub fn crown_name_for_toast(crown: CrownKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::content::AbilityKind;
 
     fn base_player() -> Player {
         Player {
-            speed: 240.0,
-            accel: PLAYER_ACCEL,
-            friction: PLAYER_FRICTION,
-            speed_mult: 1.0,
-            rads: 0,
-            level: 1,
-            next_level_rads: 60,
             pickup_range: 80.0,
-            fire_rate_mult: 1.0,
-            spread_mult: 1.0,
-            knockback_mult: 1.0,
-            melee_range_mult: 1.0,
-            drop_mult: 0.0,
-            medkit_mult: 1.0,
-            boiling_veins: false,
-            veins_threshold: 4,
-            bloodlust: false,
-            lucky_shot: false,
-            gamma_guts: false,
-            back_muscle: 0,
-            stress: false,
-            sharp_teeth: false,
-            strong_spirit_ready: false,
-            last_wish_used: false,
-            chain_explosions: false,
-            shield_on_hit: false,
-            ability: AbilityKind::Flip,
-            ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
-            headless_ready: false,
-            free_ammo: false,
-            crown: CrownKind::None,
-            mutations: Vec::new(),
+            ..Default::default()
         }
     }
 

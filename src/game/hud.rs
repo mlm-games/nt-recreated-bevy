@@ -16,6 +16,7 @@ pub fn sync_hud(
     save: Option<Res<crate::save::SaveData>>,
     toast: Option<Res<Toast>>,
     pending: Option<Res<PendingMutation>>,
+    pending_ultra: Option<Res<PendingUltra>>,
     character: Option<Res<SelectedCharacter>>,
     player_q: Query<(&Player, &Health, &Inventory), With<Player>>,
     boss_q: Query<(&Enemy, &Health), With<Enemy>>,
@@ -85,17 +86,28 @@ pub fn sync_hud(
         ui.total_kills = save.total_kills;
     }
 
-    ui.mutation_choices = pending
-        .map(|p| {
-            p.choices
-                .iter()
-                .map(|m| {
-                    let def = mutation_def(*m);
-                    format!("{} — {}", def.name, def.description)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    ui.mutation_choices = if let Some(pending_ultra) = pending_ultra {
+        pending_ultra
+            .choices
+            .iter()
+            .map(|u| {
+                let def = ultra_mutation_def(*u);
+                format!("ULTRA: {} — {}", def.name, def.description)
+            })
+            .collect()
+    } else {
+        pending
+            .map(|p| {
+                p.choices
+                    .iter()
+                    .map(|m| {
+                        let def = mutation_def(*m);
+                        format!("{} — {}", def.name, def.description)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
 }
 
 /// Reset the HUD when a new run begins (called from OnEnter(InGame) after the

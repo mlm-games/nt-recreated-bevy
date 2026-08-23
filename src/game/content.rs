@@ -1522,6 +1522,244 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
     }
 }
 
+/// Level-10 race ultimates (two choices per playable race).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum UltraMutationId {
+    FishGunWarrant,
+    FishConfiscate,
+    CrystalFortress,
+    CrystalJuggernaut,
+    EyesMonsterStyle,
+    EyesProjectileStyle,
+    MeltingBrainCapacity,
+    MeltingDetachment,
+    PlantTrapper,
+    PlantKiller,
+    VenuzBack2Bizniz,
+    VenuzGunGod,
+    SteroidsAmbidextrous,
+    SteroidsGetArmed,
+    RobotRefinedTaste,
+    RobotRegurgitate,
+    ChickenHarderToKill,
+    ChickenDetermination,
+    RebelPersonalGuard,
+    RebelRiot,
+    HorrorStalker,
+    HorrorAnomaly,
+    RogueSuperBlastArmor,
+    RoguePortalStrike,
+    BigDogHeavyArtillery,
+    BigDogGuardian,
+    SkeletonBloodArmor,
+    SkeletonNecromancy,
+    FrogToxicLord,
+    FrogSwampBody,
+    CuzHoarder,
+    CuzQuickSwap,
+}
+
+pub struct UltraMutationDef {
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+pub fn ultra_choices_for(race: RaceId) -> [UltraMutationId; 2] {
+    match race {
+        RaceId::Fish | RaceId::Random => [
+            UltraMutationId::FishGunWarrant,
+            UltraMutationId::FishConfiscate,
+        ],
+        RaceId::Crystal => [
+            UltraMutationId::CrystalFortress,
+            UltraMutationId::CrystalJuggernaut,
+        ],
+        RaceId::Eyes => [
+            UltraMutationId::EyesMonsterStyle,
+            UltraMutationId::EyesProjectileStyle,
+        ],
+        RaceId::Melting => [
+            UltraMutationId::MeltingBrainCapacity,
+            UltraMutationId::MeltingDetachment,
+        ],
+        RaceId::Plant => [UltraMutationId::PlantTrapper, UltraMutationId::PlantKiller],
+        RaceId::Venuz => [
+            UltraMutationId::VenuzBack2Bizniz,
+            UltraMutationId::VenuzGunGod,
+        ],
+        RaceId::Steroids => [
+            UltraMutationId::SteroidsAmbidextrous,
+            UltraMutationId::SteroidsGetArmed,
+        ],
+        RaceId::Robot => [
+            UltraMutationId::RobotRefinedTaste,
+            UltraMutationId::RobotRegurgitate,
+        ],
+        RaceId::Chicken => [
+            UltraMutationId::ChickenHarderToKill,
+            UltraMutationId::ChickenDetermination,
+        ],
+        RaceId::Rebel => [
+            UltraMutationId::RebelPersonalGuard,
+            UltraMutationId::RebelRiot,
+        ],
+        RaceId::Horror => [
+            UltraMutationId::HorrorStalker,
+            UltraMutationId::HorrorAnomaly,
+        ],
+        RaceId::Rogue => [
+            UltraMutationId::RogueSuperBlastArmor,
+            UltraMutationId::RoguePortalStrike,
+        ],
+        RaceId::BigDog => [
+            UltraMutationId::BigDogHeavyArtillery,
+            UltraMutationId::BigDogGuardian,
+        ],
+        RaceId::Skeleton => [
+            UltraMutationId::SkeletonBloodArmor,
+            UltraMutationId::SkeletonNecromancy,
+        ],
+        RaceId::Frog => [
+            UltraMutationId::FrogToxicLord,
+            UltraMutationId::FrogSwampBody,
+        ],
+        RaceId::Cuz => [UltraMutationId::CuzHoarder, UltraMutationId::CuzQuickSwap],
+    }
+}
+
+pub fn ultra_mutation_def(id: UltraMutationId) -> UltraMutationDef {
+    match id {
+        UltraMutationId::FishGunWarrant => UltraMutationDef {
+            name: "Gun Warrant",
+            description: "Faster gun handling and stronger rolls",
+        },
+        UltraMutationId::FishConfiscate => UltraMutationDef {
+            name: "Confiscate",
+            description: "Weapon pickups grant extra ammo",
+        },
+        UltraMutationId::CrystalFortress => UltraMutationDef {
+            name: "Fortress",
+            description: "Much more HP and longer shield",
+        },
+        UltraMutationId::CrystalJuggernaut => UltraMutationDef {
+            name: "Juggernaut",
+            description: "Move faster while protected",
+        },
+        UltraMutationId::EyesMonsterStyle => UltraMutationDef {
+            name: "Monster Style",
+            description: "Telekinesis and pickup pull are stronger",
+        },
+        UltraMutationId::EyesProjectileStyle => UltraMutationDef {
+            name: "Projectile Style",
+            description: "Enemy projectiles are slowed further",
+        },
+        UltraMutationId::MeltingBrainCapacity => UltraMutationDef {
+            name: "Brain Capacity",
+            description: "Detonate reaches farther and hurts more",
+        },
+        UltraMutationId::MeltingDetachment => UltraMutationDef {
+            name: "Detachment",
+            description: "Gain emergency survivability",
+        },
+        UltraMutationId::PlantTrapper => UltraMutationDef {
+            name: "Trapper",
+            description: "Snare lasts longer and slows harder",
+        },
+        UltraMutationId::PlantKiller => UltraMutationDef {
+            name: "Killer",
+            description: "Move and fire faster",
+        },
+        UltraMutationId::VenuzBack2Bizniz => UltraMutationDef {
+            name: "Back 2 Bizniz",
+            description: "Pop Pop grants an extra charge",
+        },
+        UltraMutationId::VenuzGunGod => UltraMutationDef {
+            name: "Ima Gun God",
+            description: "Major fire-rate and accuracy boost",
+        },
+        UltraMutationId::SteroidsAmbidextrous => UltraMutationDef {
+            name: "Ambidextrous",
+            description: "Faster fire and lower recoil feel",
+        },
+        UltraMutationId::SteroidsGetArmed => UltraMutationDef {
+            name: "Get Armed",
+            description: "Get Loaded refills more ammunition",
+        },
+        UltraMutationId::RobotRefinedTaste => UltraMutationDef {
+            name: "Refined Taste",
+            description: "Ammo and weapon pickups heal more",
+        },
+        UltraMutationId::RobotRegurgitate => UltraMutationDef {
+            name: "Regurgitate",
+            description: "Eating weapons gives better rewards",
+        },
+        UltraMutationId::ChickenHarderToKill => UltraMutationDef {
+            name: "Harder To Kill",
+            description: "Headless survival returns with more HP",
+        },
+        UltraMutationId::ChickenDetermination => UltraMutationDef {
+            name: "Determination",
+            description: "Thrown weapons hit harder",
+        },
+        UltraMutationId::RebelPersonalGuard => UltraMutationDef {
+            name: "Personal Guard",
+            description: "Allies live longer and shoot faster",
+        },
+        UltraMutationId::RebelRiot => UltraMutationDef {
+            name: "Riot",
+            description: "Spawn more allies",
+        },
+        UltraMutationId::HorrorStalker => UltraMutationDef {
+            name: "Stalker",
+            description: "Beam and radiation effects are stronger",
+        },
+        UltraMutationId::HorrorAnomaly => UltraMutationDef {
+            name: "Anomaly",
+            description: "Energy weapons and pickups improve",
+        },
+        UltraMutationId::RogueSuperBlastArmor => UltraMutationDef {
+            name: "Super Blast Armor",
+            description: "Explosion damage is greatly reduced",
+        },
+        UltraMutationId::RoguePortalStrike => UltraMutationDef {
+            name: "Ultra Portal Strike",
+            description: "Portal strike is larger and faster",
+        },
+        UltraMutationId::BigDogHeavyArtillery => UltraMutationDef {
+            name: "Heavy Artillery",
+            description: "Rocket barrage gains side rockets",
+        },
+        UltraMutationId::BigDogGuardian => UltraMutationDef {
+            name: "Guardian",
+            description: "Gain bulk and protection",
+        },
+        UltraMutationId::SkeletonBloodArmor => UltraMutationDef {
+            name: "Blood Armor",
+            description: "More HP and blood-fueled kills",
+        },
+        UltraMutationId::SkeletonNecromancy => UltraMutationDef {
+            name: "Necromancy",
+            description: "Kills sometimes heal and refund ammo",
+        },
+        UltraMutationId::FrogToxicLord => UltraMutationDef {
+            name: "Toxic Lord",
+            description: "Toxic clouds are larger and longer",
+        },
+        UltraMutationId::FrogSwampBody => UltraMutationDef {
+            name: "Swamp Body",
+            description: "Gain bulk and blast resilience",
+        },
+        UltraMutationId::CuzHoarder => UltraMutationDef {
+            name: "Hoarder",
+            description: "Carry a full third weapon slot",
+        },
+        UltraMutationId::CuzQuickSwap => UltraMutationDef {
+            name: "Quick Swap",
+            description: "Swap ability is nearly instant",
+        },
+    }
+}
+
 pub fn is_boss(kind: EnemyKind) -> bool {
     enemy_def(kind).boss
 }
@@ -1562,7 +1800,7 @@ pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &s
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MutationId {
     RhinoSkin,
     PlutoniumHunger,
@@ -1586,9 +1824,18 @@ pub enum MutationId {
     StrongSpirit,
     SharpTeeth,
     LastWish,
+
+    // Missing upstream mutation pool.
+    BoltMarrow,
+    Hammerhead,
+    LaserBrain,
+    RecycleGland,
+    ShotgunShoulders,
+    ThroneButt,
+    Patience,
 }
 
-pub const ALL_MUTATIONS: [MutationId; 22] = [
+pub const ALL_MUTATIONS: [MutationId; 29] = [
     MutationId::RhinoSkin,
     MutationId::PlutoniumHunger,
     MutationId::TriggerFingers,
@@ -1611,6 +1858,13 @@ pub const ALL_MUTATIONS: [MutationId; 22] = [
     MutationId::StrongSpirit,
     MutationId::SharpTeeth,
     MutationId::LastWish,
+    MutationId::BoltMarrow,
+    MutationId::Hammerhead,
+    MutationId::LaserBrain,
+    MutationId::RecycleGland,
+    MutationId::ShotgunShoulders,
+    MutationId::ThroneButt,
+    MutationId::Patience,
 ];
 
 pub struct MutationDef {
@@ -1708,6 +1962,34 @@ pub fn mutation_def(id: MutationId) -> MutationDef {
             name: "Last Wish",
             description: "Heal and refill ammo when low",
         },
+        MutationId::BoltMarrow => MutationDef {
+            name: "Bolt Marrow",
+            description: "Bolts seek targets",
+        },
+        MutationId::Hammerhead => MutationDef {
+            name: "Hammerhead",
+            description: "Chew through destructible props",
+        },
+        MutationId::LaserBrain => MutationDef {
+            name: "Laser Brain",
+            description: "Energy weapons hit harder",
+        },
+        MutationId::RecycleGland => MutationDef {
+            name: "Recycle Gland",
+            description: "Bullet weapons sometimes refund ammo",
+        },
+        MutationId::ShotgunShoulders => MutationDef {
+            name: "Shotgun Shoulders",
+            description: "Shells bounce off walls",
+        },
+        MutationId::ThroneButt => MutationDef {
+            name: "Throne Butt",
+            description: "Active ability is upgraded",
+        },
+        MutationId::Patience => MutationDef {
+            name: "Patience",
+            description: "Skip now; get more choices next time",
+        },
     }
 }
 
@@ -1761,5 +2043,68 @@ mod crown_tests {
             assert!(!crown.name().is_empty());
             assert!(!crown.short_name().is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod mutation_pool_tests {
+    use super::*;
+
+    #[test]
+    fn normal_mutation_pool_has_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for id in ALL_MUTATIONS {
+            assert!(seen.insert(id), "duplicate mutation: {id:?}");
+        }
+    }
+
+    #[test]
+    fn missing_reference_mutations_are_in_pool() {
+        for id in [
+            MutationId::BoltMarrow,
+            MutationId::Hammerhead,
+            MutationId::LaserBrain,
+            MutationId::RecycleGland,
+            MutationId::ShotgunShoulders,
+            MutationId::ThroneButt,
+            MutationId::Patience,
+        ] {
+            assert!(
+                ALL_MUTATIONS.contains(&id),
+                "{id:?} missing from ALL_MUTATIONS"
+            );
+        }
+    }
+
+    #[test]
+    fn every_mutation_has_text() {
+        for id in ALL_MUTATIONS {
+            let def = mutation_def(id);
+            assert!(!def.name.is_empty(), "{id:?} has no name");
+            assert!(!def.description.is_empty(), "{id:?} has no description");
+        }
+    }
+
+    #[test]
+    fn every_playable_race_has_two_ultras() {
+        for race in PLAYABLE_RACES {
+            let [a, b] = ultra_choices_for(race);
+            assert_ne!(a, b, "{race:?} has duplicate ultras");
+
+            let da = ultra_mutation_def(a);
+            let db = ultra_mutation_def(b);
+
+            assert!(!da.name.is_empty());
+            assert!(!db.name.is_empty());
+            assert!(!da.description.is_empty());
+            assert!(!db.description.is_empty());
+        }
+    }
+
+    #[test]
+    fn random_race_uses_fish_ultras_as_safe_default() {
+        let choices = ultra_choices_for(RaceId::Random);
+        assert_eq!(choices[0], UltraMutationId::FishGunWarrant);
+        assert_eq!(choices[1], UltraMutationId::FishConfiscate);
     }
 }

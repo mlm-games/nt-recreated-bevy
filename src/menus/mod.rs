@@ -826,7 +826,7 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let mut rows: Vec<View> = vec![
         RText("CHOOSE A MUTATION").size(30.0).color(RColor::WHITE),
         spacer(6.0),
-        RText("(or press 1 / 2 / 3)")
+        RText("(or press 1 / 2 / 3 / 4)")
             .size(14.0)
             .color(col(170, 170, 170)),
         spacer(12.0),

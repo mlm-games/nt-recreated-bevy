@@ -147,14 +147,15 @@ pub fn enemy_ai(
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
-    let Ok((player_tf, _player)) = player_q.single() else {
+    let Ok((player_tf, player)) = player_q.single() else {
         return;
     };
 
     let player_pos = player_tf.translation.truncate();
     let dt = time.delta_secs();
     let mut rng = rand::rng();
-    let euphoria = euphoria.0;
+    // Euphoria mutation or Eyes' Projectile Style ultra slow enemy bullets.
+    let euphoria = euphoria.0 || player.euphoria;
 
     // Pairwise separation to avoid enemy stacking.
     let positions: Vec<Vec2> = enemies

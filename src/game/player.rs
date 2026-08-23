@@ -11,6 +11,7 @@ use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
+use crate::game::secret_areas::SecretTriggers;
 use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
@@ -252,6 +253,12 @@ pub fn player_ability(
         AbilityKind::CuzSwap => 0.4,
     };
 
+    let ability_mult = if player.throne_butt {
+        player.ultra_ability_mult * 1.35
+    } else {
+        player.ultra_ability_mult
+    };
+
     match ability {
         AbilityKind::Flip => {
             let dir = if input.move_axis != Vec2::ZERO {
@@ -260,7 +267,7 @@ pub fn player_ability(
                 aim.0
             };
             commands.entity(player_e).insert(Dash {
-                timer: Timer::from_seconds(0.18, TimerMode::Once),
+                timer: Timer::from_seconds(0.18 * ability_mult.clamp(1.0, 1.6), TimerMode::Once),
                 dir,
             });
             health.invuln = Timer::from_seconds(15.0 / 30.0, TimerMode::Once);
@@ -279,7 +286,7 @@ pub fn player_ability(
             audio.play_bolt(&mut commands);
         }
         AbilityKind::Shield => {
-            let timer = Timer::from_seconds(1.6, TimerMode::Once);
+            let timer = Timer::from_seconds(1.6 * ability_mult.clamp(1.0, 2.0), TimerMode::Once);
             if let Some(mut s) = shield {
                 s.timer = timer;
             } else {
@@ -319,10 +326,11 @@ pub fn player_ability(
             }
             health.hp -= 1;
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
-            let radius = 150.0;
+            let radius = 150.0 * ability_mult.clamp(1.0, 2.0);
+            let damage = (3.0 * ability_mult).round() as i32;
             for (_, etf, mut ehealth) in &mut enemies {
                 if etf.translation.truncate().distance(pos) < radius {
-                    ehealth.hp -= 3;
+                    ehealth.hp -= damage;
                 }
             }
             ScreenEffects::add_trauma(&mut trauma, 0.5);
@@ -343,9 +351,9 @@ pub fn player_ability(
             commands.spawn((
                 LevelCleanup,
                 SnareZone {
-                    timer: Timer::from_seconds(2.5, TimerMode::Once),
-                    radius: 110.0,
-                    slow: 0.35,
+                    timer: Timer::from_seconds(2.5 * ability_mult.clamp(1.0, 2.0), TimerMode::Once),
+                    radius: 110.0 * ability_mult.clamp(1.0, 1.8),
+                    slow: (0.35 / ability_mult).clamp(0.12, 0.35),
                 },
                 Transform::from_translation((pos + aim.0 * 70.0).extend(5.0)),
                 Sprite {
@@ -358,7 +366,14 @@ pub fn player_ability(
         }
         AbilityKind::PopPop => {
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
-            commands.entity(player_e).insert(PopPopCharges(1));
+            let charges = if player.throne_butt
+                || matches!(player.ultra, Some(UltraMutationId::VenuzBack2Bizniz))
+            {
+                2
+            } else {
+                1
+            };
+            commands.entity(player_e).insert(PopPopCharges(charges));
             VfxSpawner::spawn_burst(
                 &mut commands,
                 pos,
@@ -387,6 +402,7 @@ pub fn player_ability(
                     AmmoKind::Energy => 10,
                     AmmoKind::None => 0,
                 };
+                let add = ((add as f32) * ability_mult).round() as i32;
                 *inv.ammo_mut(kind) += add;
             }
             VfxSpawner::spawn_burst(
@@ -409,8 +425,11 @@ pub fn player_ability(
             if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
                 inv.current = next;
             }
-            health.hp = (health.hp + 2).min(health.max);
-            player.rads = player.rads.saturating_add(20);
+            let regurgitate = matches!(player.ultra, Some(UltraMutationId::RobotRegurgitate));
+            health.hp = (health.hp + if regurgitate { 3 } else { 2 }).min(health.max);
+            player.rads = player
+                .rads
+                .saturating_add(if regurgitate { 40 } else { 20 });
             VfxSpawner::spawn_burst(
                 &mut commands,
                 pos,
@@ -489,42 +508,63 @@ pub fn player_ability(
         }
         AbilityKind::SpawnAlly => {
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
-            let spawn_at = pos + aim.0 * 28.0;
-            commands.spawn((
-                LevelCleanup,
-                Ally {
-                    life: Timer::from_seconds(12.0, TimerMode::Once),
-                    shoot: Timer::from_seconds(0.35, TimerMode::Repeating),
-                },
-                Team::Player,
-                Health {
-                    hp: 8,
-                    max: 8,
-                    invuln: Timer::from_seconds(0.5, TimerMode::Once),
-                },
-                Hitbox { radius: 10.0 },
-                Velocity(Vec2::ZERO),
-                Transform::from_translation(spawn_at.extend(18.0)),
-                Sprite {
-                    color: Color::srgb(0.85, 0.25, 0.55),
-                    custom_size: Some(Vec2::splat(18.0)),
-                    ..default()
-                },
-            ));
+            let ally_count = if matches!(player.ultra, Some(UltraMutationId::RebelRiot)) {
+                3
+            } else if player.throne_butt {
+                2
+            } else {
+                1
+            };
+            for i in 0..ally_count {
+                let side = Vec2::new(-aim.0.y, aim.0.x)
+                    * ((i as f32) - (ally_count as f32 - 1.0) * 0.5)
+                    * 22.0;
+                let spawn_at = pos + aim.0 * 28.0 + side;
+                commands.spawn((
+                    LevelCleanup,
+                    Ally {
+                        life: Timer::from_seconds(
+                            12.0 * ability_mult.clamp(1.0, 2.0),
+                            TimerMode::Once,
+                        ),
+                        shoot: Timer::from_seconds(
+                            (0.35 / ability_mult).clamp(0.15, 0.35),
+                            TimerMode::Repeating,
+                        ),
+                    },
+                    Team::Player,
+                    Health {
+                        hp: 8,
+                        max: 8,
+                        invuln: Timer::from_seconds(0.5, TimerMode::Once),
+                    },
+                    Hitbox { radius: 10.0 },
+                    Velocity(Vec2::ZERO),
+                    Transform::from_translation(spawn_at.extend(18.0)),
+                    Sprite {
+                        color: Color::srgb(0.85, 0.25, 0.55),
+                        custom_size: Some(Vec2::splat(18.0)),
+                        ..default()
+                    },
+                ));
+            }
             audio.play_portal(&mut commands);
         }
         AbilityKind::HorrorBeam => {
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let dir = aim.0.normalize_or_zero();
+            let beam_len = 320.0 * ability_mult.clamp(1.0, 1.8);
+            let beam_damage = (4.0 * ability_mult).round() as i32;
+            let beam_width = 22.0 * ability_mult.sqrt();
             for (_, etf, mut ehealth) in &mut enemies {
                 let to = etf.translation.truncate() - pos;
                 let proj = to.dot(dir);
-                if proj < 0.0 || proj > 320.0 {
+                if proj < 0.0 || proj > beam_len {
                     continue;
                 }
                 let lateral = (to - dir * proj).length();
-                if lateral < 22.0 {
-                    ehealth.hp -= 4;
+                if lateral < beam_width {
+                    ehealth.hp -= beam_damage;
                 }
             }
             commands.spawn((
@@ -553,9 +593,12 @@ pub fn player_ability(
             commands.spawn((
                 LevelCleanup,
                 PortalStrike {
-                    timer: Timer::from_seconds(0.55, TimerMode::Once),
-                    radius: 90.0,
-                    damage: 8,
+                    timer: Timer::from_seconds(
+                        (0.55 / ability_mult).clamp(0.2, 0.55),
+                        TimerMode::Once,
+                    ),
+                    radius: 90.0 * ability_mult.clamp(1.0, 2.0),
+                    damage: (8.0 * ability_mult).round() as i32,
                 },
                 Transform::from_translation(target.extend(8.0)),
                 Sprite {
@@ -569,7 +612,12 @@ pub fn player_ability(
         AbilityKind::RocketBarrage => {
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let base = aim.0.normalize_or_zero();
-            for i in -2..=2 {
+            let rockets = if matches!(player.ultra, Some(UltraMutationId::BigDogHeavyArtillery)) {
+                -3..=3
+            } else {
+                -2..=2
+            };
+            for i in rockets {
                 let ang = (i as f32) * 0.12;
                 let dir = Vec2::new(
                     base.x * ang.cos() - base.y * ang.sin(),
@@ -639,9 +687,9 @@ pub fn player_ability(
                 AbilityHazard,
                 HazardCloud {
                     kind: HazardKind::Toxic,
-                    radius: 70.0,
-                    damage: 1,
-                    timer: Timer::from_seconds(3.0, TimerMode::Once),
+                    radius: 70.0 * ability_mult.clamp(1.0, 2.0),
+                    damage: ((1.0 * ability_mult).ceil() as i32).max(1),
+                    timer: Timer::from_seconds(3.0 * ability_mult.clamp(1.0, 1.8), TimerMode::Once),
                     tick: Timer::from_seconds(0.25, TimerMode::Repeating),
                 },
                 Transform::from_translation(spot.extend(5.0)),
@@ -654,7 +702,14 @@ pub fn player_ability(
             audio.play_boom(&mut commands);
         }
         AbilityKind::CuzSwap => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let swap_cd = if matches!(player.ultra, Some(UltraMutationId::CuzQuickSwap)) {
+                0.15
+            } else if player.throne_butt {
+                0.25
+            } else {
+                cd
+            };
+            player.ability_cooldown = Timer::from_seconds(swap_cd, TimerMode::Once);
             let n = inv.weapon_slots;
             for step in 1..=n {
                 let slot = (inv.current + step) % n;
@@ -673,7 +728,7 @@ pub fn player_fire(
     mut input: ResMut<NtInput>,
     mut commands: Commands,
     mut trauma: ResMut<Trauma>,
-    mut flash: ResMut<FlashWhite>,
+    _flash: ResMut<FlashWhite>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
     mut player_q: Query<(Entity, &Transform, &AimDir, &mut Player, &mut Health), With<Player>>,
@@ -831,6 +886,16 @@ pub fn player_fire(
         weapon_id,
         &def,
     );
+    // Recycle Gland: bullet weapons sometimes refund the shot.
+    if player.recycle_gland
+        && def.ammo == AmmoKind::Bullets
+        && def.melee.is_none()
+        && rand::rng().random_range(0..5) == 0
+    {
+        let slot = inv.ammo_mut(AmmoKind::Bullets);
+        *slot = (*slot + 1).min(ammo_max(AmmoKind::Bullets));
+    }
+
     // Y.V. Pop Pop: second volley
     if let Ok(mut charges) = pop_q.get_mut(player_ent) {
         if charges.0 > 0 {
@@ -862,6 +927,35 @@ pub fn player_fire(
 }
 
 /// Fires one volley of the current weapon (all pellets for one trigger pull).
+/// Mutation-layer adjustments applied on top of the generated runtime:
+/// Laser Brain, Shotgun Shoulders, Bolt Marrow, and ultra damage scaling.
+fn apply_weapon_mutation_mods(
+    def: &mut WeaponDef,
+    archetype: &mut ProjectileArchetype,
+    player: &Player,
+) {
+    def.damage = ((def.damage as f32) * player.ultra_damage_mult).round() as i32;
+
+    if player.laser_brain && def.ammo == AmmoKind::Energy && def.melee.is_none() {
+        def.damage = ((def.damage as f32) * 1.35).round() as i32;
+        def.speed *= 1.15;
+        def.size *= 1.15;
+        def.projectile_radius *= 1.15;
+    }
+
+    if player.shotgun_shoulders && def.ammo == AmmoKind::Shells && def.melee.is_none() {
+        def.bounces = def.bounces.max(1);
+        def.lifetime *= 1.25;
+    }
+
+    if player.bolt_marrow && def.ammo == AmmoKind::Bolts && def.melee.is_none() {
+        archetype.homing = Some(archetype.homing.unwrap_or(Homing {
+            turn_rate: 7.0,
+            acquire_range: 420.0,
+        }));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn_pellets(
     commands: &mut Commands,
@@ -910,7 +1004,9 @@ fn spawn_pellets(
         );
     }
 
-    let archetype = projectile_archetype(id);
+    let mut archetype = projectile_archetype(id);
+    let mut def = *def;
+    apply_weapon_mutation_mods(&mut def, &mut archetype, player);
 
     // Beam weapons override the normal projectile path entirely.
     if let Some(beam) = archetype.beam {
@@ -1282,6 +1378,60 @@ pub fn spawn_player_projectile_with_source(
     let e = ec.id();
     if explosive {
         Juice::shake(commands, e, 1.2, lifetime);
+    }
+}
+
+/// Hammerhead: while pushing into a destructible prop, chew it down over time.
+pub fn hammerhead_chew(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut cooldown: Local<f32>,
+    player_q: Query<&Transform, With<Player>>,
+    mut props: Query<(Entity, &mut Prop, &Transform)>,
+    entrances: Query<&SecretEntrance>,
+    mut secrets: ResMut<SecretTriggers>,
+) {
+    let Ok(player_tf) = player_q.single() else {
+        return;
+    };
+
+    *cooldown -= time.delta_secs();
+    if *cooldown > 0.0 {
+        return;
+    }
+
+    let pos = player_tf.translation.truncate();
+    for (prop_e, mut prop, prop_tf) in &mut props {
+        if !prop.destructible {
+            continue;
+        }
+        let center = prop_tf.translation.truncate();
+        let half = prop.size / 2.0;
+        let closest = Vec2::new(
+            pos.x.clamp(center.x - half.x, center.x + half.x),
+            pos.y.clamp(center.y - half.y, center.y + half.y),
+        );
+        if pos.distance(closest) > PLAYER_RADIUS + 6.0 {
+            continue;
+        }
+
+        *cooldown = 0.25;
+        prop.hp -= 1;
+        if prop.hp <= 0 {
+            // Hammerhead can also open secret entrances.
+            if let Ok(entrance) = entrances.get(prop_e) {
+                secrets.queue(entrance.target);
+            }
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                center,
+                8,
+                Color::srgb(0.8, 0.65, 0.4),
+                (50.0, 140.0),
+            );
+            commands.entity(prop_e).despawn();
+        }
+        return;
     }
 }
 

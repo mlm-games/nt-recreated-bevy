@@ -52,6 +52,7 @@ pub fn setup_run(
     *toast = Toast::default();
 
     commands.remove_resource::<PendingMutation>();
+    commands.remove_resource::<PendingUltra>();
     commands.insert_resource(MutationChoice(None));
     commands.insert_resource(ScarierFace(false));
     commands.insert_resource(Euphoria(false));
@@ -97,37 +98,15 @@ pub fn setup_run(
     // insertion (upstream crowns reshape HP/weapons at run start).
     let mut player_comp = Player {
         speed: 240.0 * def.speed_mult,
-        accel: PLAYER_ACCEL,
-        friction: PLAYER_FRICTION,
-        speed_mult: 1.0,
-        rads: 0,
-        level: 1,
-        next_level_rads: 60,
         pickup_range: def.pickup_range,
         fire_rate_mult,
-        spread_mult: 1.0,
-        knockback_mult: 1.0,
-        melee_range_mult: 1.0,
-        drop_mult: 0.0,
-        medkit_mult: 1.0,
-        boiling_veins: false,
-        veins_threshold: 4,
-        bloodlust: false,
-        lucky_shot: false,
-        gamma_guts: false,
-        back_muscle: 0,
-        stress: false,
-        sharp_teeth: false,
-        strong_spirit_ready: false,
-        last_wish_used: false,
         chain_explosions: def.passive == PassiveKind::ChainExplosions,
         shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
         ability: def.ability,
-        ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
         headless_ready: def.passive == PassiveKind::Headless,
         free_ammo: def.passive == PassiveKind::FreeAmmo,
         crown,
-        mutations: Vec::new(),
+        ..Default::default()
     };
 
     let mut inv_comp = Inventory {
@@ -262,11 +241,29 @@ pub fn check_level_up(
     toast: &mut Toast,
     audio: &GameAudio,
     pos: Vec2,
+    race: RaceId,
 ) {
-    while player.rads > player.next_level_rads && player.level < 10 {
+    while player.rads >= player.next_level_rads && player.level < 10 {
         player.rads -= player.next_level_rads;
         player.level += 1;
         player.next_level_rads = player.level.max(1) * 60;
+
+        if player.level >= 10 && player.ultra.is_none() {
+            let choices = ultra_choices_for(race).to_vec();
+            let _ = race;
+            commands.insert_resource(PendingUltra { choices });
+            toast.show("LEVEL ULTRA! Choose an ultra mutation (1/2)");
+            level_up_feedback(
+                commands,
+                trauma,
+                flash,
+                audio,
+                pos,
+                Color::srgb(1.0, 0.35, 1.0),
+            );
+            let _ = inv;
+            return;
+        }
 
         let choices = roll_mutations(player);
         if choices.is_empty() {
@@ -277,39 +274,66 @@ pub fn check_level_up(
 
         commands.insert_resource(PendingMutation { choices });
         toast.show("LEVEL UP! Choose a mutation (1/2/3)");
-        ScreenEffects::add_trauma(trauma, 0.35);
-        VfxSpawner::spawn_burst(
+        level_up_feedback(
             commands,
+            trauma,
+            flash,
+            audio,
             pos,
-            32,
             Color::srgb(0.25, 1.0, 0.25),
-            (120.0, 360.0),
         );
-        audio.play_levelup(commands);
         let _ = inv;
         return;
     }
 }
 
-fn roll_mutations(player: &Player) -> Vec<MutationId> {
+fn level_up_feedback(
+    commands: &mut Commands,
+    trauma: &mut Trauma,
+    flash: &mut game_utils_bevy::screen_effects::FlashWhite,
+    audio: &GameAudio,
+    pos: Vec2,
+    color: Color,
+) {
+    ScreenEffects::add_trauma(trauma, 0.35);
+    ScreenEffects::flash_white(flash, 0.15);
+    VfxSpawner::spawn_burst(commands, pos, 32, color, (120.0, 360.0));
+    audio.play_levelup(commands);
+}
+
+fn roll_mutations(player: &mut Player) -> Vec<MutationId> {
     let mut pool: Vec<MutationId> = ALL_MUTATIONS
         .iter()
         .copied()
-        .filter(|m| !player.mutations.contains(m))
+        .filter(|m| {
+            if *m == MutationId::Patience && player.patience_used {
+                return false;
+            }
+
+            !player.mutations.contains(m)
+        })
         .collect();
+
     let mut rng = rand::rng();
     let mut out = Vec::new();
-    let want = pool.len().min(3);
+
+    let want = if player.patience_bonus { 4 } else { 3 };
+    let want = pool.len().min(want);
+
+    player.patience_bonus = false;
+
     for _ in 0..want {
         let idx = rng.random_range(0..pool.len());
         out.push(pool.remove(idx));
     }
+
     out
 }
 
 pub fn handle_mutation_choice(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
+    ultra: Option<ResMut<PendingUltra>>,
     pending: Option<ResMut<PendingMutation>>,
     mut choice: ResMut<MutationChoice>,
     mut paused: ResMut<Paused>,
@@ -317,20 +341,20 @@ pub fn handle_mutation_choice(
     mut euphoria: ResMut<Euphoria>,
     mut open_mind: ResMut<OpenMind>,
     mut heavy_heart: ResMut<HeavyHeart>,
-    mut player_q: Query<(&mut Player, &mut Health), With<Player>>,
+    mut player_q: Query<(&mut Player, &mut Health, &mut Inventory, &RaceState), With<Player>>,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
     mut slow_mo: ResMut<SlowMotion>,
     mut toast: ResMut<Toast>,
     audio: Res<GameAudio>,
 ) {
-    let Some(mut pending) = pending else {
-        // Consume a stale UI choice if no mutation is pending.
+    if ultra.is_none() && pending.is_none() {
+        // Consume a stale UI choice if nothing is pending.
         if choice.0.is_some() {
             choice.0 = None;
         }
         return;
-    };
+    }
 
     // Freeze gameplay while choosing.
     if !paused.0 {
@@ -348,9 +372,38 @@ pub fn handle_mutation_choice(
         if keys.just_pressed(KeyCode::Digit3) {
             picked = Some(2);
         }
+        if keys.just_pressed(KeyCode::Digit4) {
+            picked = Some(3);
+        }
     }
 
     let Some(idx) = picked else {
+        return;
+    };
+
+    if let Some(mut ultra) = ultra {
+        let Some(id) = ultra.choices.get(idx).copied() else {
+            return;
+        };
+
+        apply_ultra_mutation(
+            &mut commands,
+            &mut player_q,
+            &mut trauma,
+            &mut chroma,
+            &mut slow_mo,
+            &mut toast,
+            &audio,
+            id,
+        );
+
+        ultra.choices.clear();
+        commands.remove_resource::<PendingUltra>();
+        paused.0 = false;
+        return;
+    }
+
+    let Some(mut pending) = pending else {
         return;
     };
 
@@ -381,7 +434,7 @@ pub fn handle_mutation_choice(
 #[allow(clippy::too_many_arguments)]
 fn apply_mutation(
     commands: &mut Commands,
-    player_q: &mut Query<(&mut Player, &mut Health), With<Player>>,
+    player_q: &mut Query<(&mut Player, &mut Health, &mut Inventory, &RaceState), With<Player>>,
     scarier: &mut ResMut<ScarierFace>,
     euphoria: &mut ResMut<Euphoria>,
     open_mind: &mut ResMut<OpenMind>,
@@ -393,7 +446,7 @@ fn apply_mutation(
     audio: &GameAudio,
     id: MutationId,
 ) {
-    let Ok((mut player, mut health)) = player_q.single_mut() else {
+    let Ok((mut player, mut health, mut inv, race_state)) = player_q.single_mut() else {
         return;
     };
 
@@ -467,6 +520,30 @@ fn apply_mutation(
         MutationId::LastWish => {
             player.last_wish_used = false;
         }
+
+        MutationId::BoltMarrow => {
+            player.bolt_marrow = true;
+        }
+        MutationId::Hammerhead => {
+            player.hammerhead = true;
+        }
+        MutationId::LaserBrain => {
+            player.laser_brain = true;
+        }
+        MutationId::RecycleGland => {
+            player.recycle_gland = true;
+        }
+        MutationId::ShotgunShoulders => {
+            player.shotgun_shoulders = true;
+        }
+        MutationId::ThroneButt => {
+            player.throne_butt = true;
+            apply_throne_butt_immediate_bonus(&mut player, &mut health, &mut inv, race_state.race);
+        }
+        MutationId::Patience => {
+            player.patience_used = true;
+            player.patience_bonus = true;
+        }
     }
 
     ScreenEffects::add_trauma(trauma, 0.3);
@@ -474,6 +551,284 @@ fn apply_mutation(
     GameFeel::slow_motion(slow_mo, 0.5, 0.35);
     audio.play_levelup(commands);
     toast.show(&format!("{}: {}", def.name, def.description));
+}
+
+fn apply_throne_butt_immediate_bonus(
+    player: &mut Player,
+    health: &mut Health,
+    inv: &mut Inventory,
+    race: RaceId,
+) {
+    player.ultra_ability_mult *= 1.15;
+
+    match race {
+        RaceId::Fish => {
+            player.speed_mult *= 1.05;
+        }
+        RaceId::Crystal => {
+            health.max += 2;
+            health.hp += 2;
+        }
+        RaceId::Eyes => {
+            player.pickup_range += 45.0;
+        }
+        RaceId::Melting => {
+            player.chain_explosions = true;
+        }
+        RaceId::Plant => {
+            player.speed_mult *= 1.08;
+        }
+        RaceId::Venuz => {
+            player.fire_rate_mult *= 0.92;
+        }
+        RaceId::Steroids => {
+            for kind in [
+                AmmoKind::Bullets,
+                AmmoKind::Shells,
+                AmmoKind::Bolts,
+                AmmoKind::Explosives,
+                AmmoKind::Energy,
+            ] {
+                *inv.ammo_mut(kind) += ammo_pickup_amount(kind);
+            }
+        }
+        RaceId::Robot => {
+            player.free_ammo = true;
+        }
+        RaceId::Chicken => {
+            player.headless_ready = true;
+        }
+        RaceId::Rebel => {
+            health.hp = (health.hp + 1).min(health.max);
+        }
+        RaceId::Horror => {
+            player.lucky_shot = true;
+        }
+        RaceId::Rogue => {
+            player.boiling_veins = true;
+        }
+        RaceId::BigDog => {
+            player.ultra_damage_mult *= 1.1;
+        }
+        RaceId::Skeleton => {
+            player.bloodlust = true;
+        }
+        RaceId::Frog => {
+            player.gamma_guts = true;
+        }
+        RaceId::Cuz | RaceId::Random => {
+            player.fire_rate_mult *= 0.95;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_ultra_mutation(
+    commands: &mut Commands,
+    player_q: &mut Query<(&mut Player, &mut Health, &mut Inventory, &RaceState), With<Player>>,
+    trauma: &mut Trauma,
+    chroma: &mut ChromaticAberration,
+    slow_mo: &mut SlowMotion,
+    toast: &mut Toast,
+    audio: &GameAudio,
+    id: UltraMutationId,
+) {
+    let Ok((mut player, mut health, mut inv, race_state)) = player_q.single_mut() else {
+        return;
+    };
+
+    player.ultra = Some(id);
+
+    match id {
+        UltraMutationId::FishGunWarrant => {
+            player.fire_rate_mult *= 0.75;
+            player.spread_mult *= 0.85;
+        }
+        UltraMutationId::FishConfiscate => {
+            player.drop_mult += 0.35;
+            for kind in [
+                AmmoKind::Bullets,
+                AmmoKind::Shells,
+                AmmoKind::Bolts,
+                AmmoKind::Explosives,
+                AmmoKind::Energy,
+            ] {
+                let slot = inv.ammo_mut(kind);
+                *slot = (*slot + ammo_pickup_amount(kind) * 2).min(ammo_max(kind));
+            }
+        }
+
+        UltraMutationId::CrystalFortress => {
+            health.max += 6;
+            health.hp += 6;
+            player.ultra_ability_mult *= 1.4;
+        }
+        UltraMutationId::CrystalJuggernaut => {
+            health.max += 3;
+            health.hp += 3;
+            player.speed_mult *= 1.18;
+        }
+
+        UltraMutationId::EyesMonsterStyle => {
+            player.pickup_range += 160.0;
+            player.ultra_ability_mult *= 1.45;
+        }
+        UltraMutationId::EyesProjectileStyle => {
+            player.ultra_ability_mult *= 1.2;
+            player.euphoria = true;
+        }
+
+        UltraMutationId::MeltingBrainCapacity => {
+            player.chain_explosions = true;
+            player.ultra_ability_mult *= 1.6;
+        }
+        UltraMutationId::MeltingDetachment => {
+            health.max += 2;
+            health.hp += 2;
+            player.strong_spirit_ready = true;
+        }
+
+        UltraMutationId::PlantTrapper => {
+            player.ultra_ability_mult *= 1.6;
+            player.speed_mult *= 1.06;
+        }
+        UltraMutationId::PlantKiller => {
+            player.speed_mult *= 1.18;
+            player.fire_rate_mult *= 0.85;
+        }
+
+        UltraMutationId::VenuzBack2Bizniz => {
+            player.ultra_ability_mult *= 1.5;
+            player.fire_rate_mult *= 0.9;
+        }
+        UltraMutationId::VenuzGunGod => {
+            player.fire_rate_mult *= 0.72;
+            player.spread_mult *= 0.7;
+        }
+
+        UltraMutationId::SteroidsAmbidextrous => {
+            player.fire_rate_mult *= 0.7;
+            player.knockback_mult *= 0.85;
+        }
+        UltraMutationId::SteroidsGetArmed => {
+            player.ultra_ability_mult *= 1.6;
+            for kind in [
+                AmmoKind::Bullets,
+                AmmoKind::Shells,
+                AmmoKind::Bolts,
+                AmmoKind::Explosives,
+                AmmoKind::Energy,
+            ] {
+                *inv.ammo_mut(kind) = ammo_max(kind);
+            }
+        }
+
+        UltraMutationId::RobotRefinedTaste => {
+            player.free_ammo = true;
+            player.medkit_mult *= 1.5;
+        }
+        UltraMutationId::RobotRegurgitate => {
+            player.free_ammo = true;
+            player.drop_mult += 0.5;
+            player.ultra_ability_mult *= 1.35;
+        }
+
+        UltraMutationId::ChickenHarderToKill => {
+            player.headless_ready = true;
+            health.max += 2;
+            health.hp += 2;
+        }
+        UltraMutationId::ChickenDetermination => {
+            player.ultra_damage_mult *= 1.25;
+            player.speed_mult *= 1.1;
+        }
+
+        UltraMutationId::RebelPersonalGuard => {
+            player.ultra_ability_mult *= 1.45;
+            health.max += 2;
+            health.hp += 2;
+        }
+        UltraMutationId::RebelRiot => {
+            player.ultra_ability_mult *= 1.8;
+            player.fire_rate_mult *= 0.9;
+        }
+
+        UltraMutationId::HorrorStalker => {
+            player.ultra_ability_mult *= 1.6;
+            player.laser_brain = true;
+        }
+        UltraMutationId::HorrorAnomaly => {
+            player.pickup_range += 80.0;
+            player.lucky_shot = true;
+            player.laser_brain = true;
+        }
+
+        UltraMutationId::RogueSuperBlastArmor => {
+            player.boiling_veins = true;
+            player.veins_threshold = 6;
+            health.max += 2;
+            health.hp += 2;
+        }
+        UltraMutationId::RoguePortalStrike => {
+            player.ultra_ability_mult *= 1.7;
+            player.fire_rate_mult *= 0.9;
+        }
+
+        UltraMutationId::BigDogHeavyArtillery => {
+            player.ultra_damage_mult *= 1.35;
+            player.knockback_mult *= 1.25;
+        }
+        UltraMutationId::BigDogGuardian => {
+            health.max += 5;
+            health.hp += 5;
+            player.strong_spirit_ready = true;
+        }
+
+        UltraMutationId::SkeletonBloodArmor => {
+            health.max += 4;
+            health.hp += 4;
+            player.bloodlust = true;
+        }
+        UltraMutationId::SkeletonNecromancy => {
+            player.bloodlust = true;
+            player.recycle_gland = true;
+            player.lucky_shot = true;
+        }
+
+        UltraMutationId::FrogToxicLord => {
+            player.ultra_ability_mult *= 1.7;
+            player.gamma_guts = true;
+        }
+        UltraMutationId::FrogSwampBody => {
+            health.max += 3;
+            health.hp += 3;
+            player.boiling_veins = true;
+        }
+
+        UltraMutationId::CuzHoarder => {
+            inv.weapon_slots = MAX_WEAPON_SLOTS;
+            player.drop_mult += 0.25;
+        }
+        UltraMutationId::CuzQuickSwap => {
+            inv.weapon_slots = MAX_WEAPON_SLOTS;
+            player.fire_rate_mult *= 0.82;
+            player.ultra_ability_mult *= 1.4;
+        }
+    }
+
+    let def = ultra_mutation_def(id);
+
+    ScreenEffects::add_trauma(trauma, 0.55);
+    ScreenEffects::chromatic_pulse(chroma, 0.4);
+    GameFeel::slow_motion(slow_mo, 0.35, 0.5);
+    audio.play_levelup(commands);
+    toast.show(&format!("ULTRA — {}: {}", def.name, def.description));
+
+    debug_assert!(
+        ultra_choices_for(race_state.race).contains(&id) || race_state.race == RaceId::Random,
+        "picked ultra {id:?} outside race {:?}",
+        race_state.race,
+    );
 }
 
 pub fn portal_check(
@@ -735,5 +1090,69 @@ mod loadout_tests {
     fn corrupt_weapon_does_not_grant_ammo() {
         let ammo = starting_ammo_for(&[WeaponId(255), WeaponId::NONE, WeaponId::NONE]);
         assert_eq!(ammo, [0; MAX_AMMO_TYPES]);
+    }
+}
+
+#[cfg(test)]
+mod mutation_progression_tests {
+    use super::*;
+    use crate::game::content::CrownKind;
+
+    fn dummy_player() -> Player {
+        Player {
+            crown: CrownKind::None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn patience_grants_four_next_roll_choices() {
+        let mut player = dummy_player();
+        player.patience_bonus = true;
+
+        let choices = roll_mutations(&mut player);
+
+        assert_eq!(choices.len(), 4);
+        assert!(!player.patience_bonus);
+    }
+
+    #[test]
+    fn patience_does_not_repeat_after_used() {
+        let mut player = dummy_player();
+        player.patience_used = true;
+
+        for _ in 0..100 {
+            let choices = roll_mutations(&mut player);
+            assert!(!choices.contains(&MutationId::Patience));
+        }
+    }
+
+    #[test]
+    fn normal_roll_has_three_choices() {
+        let mut player = dummy_player();
+
+        let choices = roll_mutations(&mut player);
+
+        assert_eq!(choices.len(), 3);
+    }
+
+    #[test]
+    fn completed_pool_heals_instead_of_rolling() {
+        let mut player = dummy_player();
+        player.mutations = ALL_MUTATIONS.to_vec();
+        // Patience was used, so it is excluded from the pool as well.
+        player.patience_used = true;
+
+        let choices = roll_mutations(&mut player);
+
+        assert!(choices.is_empty());
+    }
+
+    #[test]
+    fn ultra_choices_are_two_for_each_race() {
+        for race in PLAYABLE_RACES {
+            let [a, b] = ultra_choices_for(race);
+            assert_ne!(a, b);
+        }
     }
 }

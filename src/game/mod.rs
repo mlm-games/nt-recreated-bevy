@@ -81,6 +81,7 @@ impl Plugin for GamePlugin {
                         player_sys::tick_player_timers,
                         player_sys::player_aim,
                         player_sys::player_move,
+                        player_sys::hammerhead_chew,
                         player_sys::blink_player,
                         player_sys::weapon_switch,
                         player_sys::player_ability,

@@ -82,7 +82,7 @@ pub fn tick_sticky_projectiles(
     mut q: Query<(&mut Transform, &mut Velocity, &mut Sticky), With<Projectile>>,
     targets: Query<&Transform, Without<Projectile>>,
 ) {
-    for (mut tf, mut vel, mut sticky) in &mut q {
+    for (mut tf, mut vel, sticky) in &mut q {
         if !sticky.armed {
             continue;
         }
@@ -478,16 +478,6 @@ pub fn move_projectiles(
 
 fn spawn_explosion(commands: &mut Commands, pos: Vec2, damage: i32) {
     spawn_explosion_with_source_radius(commands, pos, damage, None, 130.0, Team::Player, true);
-}
-
-fn spawn_explosion_with_source(
-    commands: &mut Commands,
-    pos: Vec2,
-    damage: i32,
-    source: Option<DamageSource>,
-) {
-    let team = source.map(|s| s.team).unwrap_or(Team::Player);
-    spawn_explosion_with_source_radius(commands, pos, damage, source, 130.0, team, true);
 }
 
 fn spawn_explosion_with_source_radius(
@@ -930,7 +920,7 @@ pub fn projectile_hits(
 
     for (
         proj_e,
-        mut proj_tf,
+        proj_tf,
         proj_team,
         proj,
         mut proj_vel,
@@ -1137,7 +1127,7 @@ fn chain_to_nearby_targets(
         ),
         Without<Projectile>,
     >,
-    proj_team: Team,
+    _proj_team: Team,
     proj: &Projectile,
     first_target: Option<Entity>,
     first_pos: Vec2,
