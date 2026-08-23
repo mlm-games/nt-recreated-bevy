@@ -10,6 +10,7 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::input::NtInput;
+use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
 use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
@@ -420,20 +421,71 @@ pub fn player_ability(
             audio.play_pickup(&mut commands);
         }
         AbilityKind::Throw => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let dir = if input.move_axis != Vec2::ZERO {
                 input.move_axis.normalize()
             } else {
                 aim.0
             };
-            commands.entity(player_e).insert(Dash {
-                timer: Timer::from_seconds(0.14, TimerMode::Once),
+
+            let slot = inv.current;
+            let held = inv.weapons[slot];
+
+            // Empty-handed Chicken keeps the thrash-dash fallback.
+            if held == WeaponId::NONE {
+                player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+                commands.entity(player_e).insert(Dash {
+                    timer: Timer::from_seconds(0.14, TimerMode::Once),
+                    dir,
+                });
+                health.hp = (health.hp + 1).min(health.max);
+                health.invuln = Timer::from_seconds(0.35, TimerMode::Once);
+                vel.0 = dir * 800.0;
+                audio.play_bolt(&mut commands);
+                return;
+            }
+
+            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+
+            // Throw the held weapon: it leaves the inventory and drops where
+            // the projectile lands.
+            inv.weapons[slot] = WeaponId::NONE;
+            if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
+                inv.current = next;
+            }
+
+            let thrown_def = weapon_runtime_def(held);
+            let damage = (thrown_def.damage.max(6)) * 2;
+
+            spawn_player_projectile_with_source(
+                &mut commands,
+                pos + dir * 18.0,
                 dir,
-            });
-            health.hp = (health.hp + 1).min(health.max);
-            health.invuln = Timer::from_seconds(0.35, TimerMode::Once);
-            vel.0 = dir * 800.0;
-            audio.play_bolt(&mut commands);
+                520.0,
+                damage,
+                1.2,
+                8.0,
+                180.0,
+                false,
+                thrown_def.color,
+                Vec2::new(14.0, 6.0),
+                1,
+                0,
+                None,
+                None,
+                ProjectileArchetype {
+                    spawn_weapon_pickup: Some(SpawnsWeaponPickup { weapon: Some(held) }),
+                    ..ProjectileArchetype::default()
+                },
+                Some(DamageSource {
+                    owner: player_e,
+                    team: Team::Player,
+                    hit_id: HitId::Weapon(held),
+                }),
+            );
+
+            health.invuln = Timer::from_seconds(0.25, TimerMode::Once);
+            vel.0 = dir * 220.0;
+            audio.play_melee(&mut commands);
         }
         AbilityKind::SpawnAlly => {
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
@@ -624,7 +676,7 @@ pub fn player_fire(
     mut flash: ResMut<FlashWhite>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
-    player_q: Query<(Entity, &Transform, &AimDir, &Player, &Health), With<Player>>,
+    mut player_q: Query<(Entity, &Transform, &AimDir, &mut Player, &mut Health), With<Player>>,
     mut fire_q: Query<(&mut FireCooldown, &mut Inventory, &mut Velocity), With<Player>>,
     mut pop_q: Query<&mut PopPopCharges>,
     mut enemies: Query<
@@ -640,7 +692,7 @@ pub fn player_fire(
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
-    let Ok((player_ent, tf, aim, player, health)) = player_q.single() else {
+    let Ok((player_ent, tf, aim, mut player, mut health)) = player_q.single_mut() else {
         return;
     };
     let Ok((mut cooldown, mut inv, mut vel)) = fire_q.single_mut() else {
@@ -671,7 +723,7 @@ pub fn player_fire(
             player_ent,
             tf,
             aim,
-            player,
+            &*player,
             weapon_id,
             &def,
         );
@@ -688,7 +740,7 @@ pub fn player_fire(
                     player_ent,
                     tf,
                     aim,
-                    player,
+                    &*player,
                     weapon_id,
                     &def,
                 );
@@ -714,8 +766,27 @@ pub fn player_fire(
         return;
     }
 
-    if def.melee.is_none() && !consume_ammo(&mut inv, def.ammo, def.ammo_cost) {
-        return;
+    let archetype = projectile_archetype(weapon_id);
+
+    if def.melee.is_none() {
+        match pay_fire_cost(
+            &mut inv,
+            &mut health,
+            def.ammo,
+            def.ammo_cost,
+            archetype.blood_ammo,
+        ) {
+            AmmoPayment::Paid => {}
+            AmmoPayment::Blood(cost) => {
+                VfxSpawner::spawn_damage_number(
+                    &mut commands,
+                    cost,
+                    tf.translation.truncate(),
+                    Color::srgb(1.0, 0.35, 0.35),
+                );
+            }
+            AmmoPayment::Failed => return,
+        }
     }
 
     // Stress: fire rate scales with missing health (up to +100% at 1 HP).
@@ -738,7 +809,7 @@ pub fn player_fire(
             player_ent,
             tf,
             aim,
-            player,
+            &*player,
             &mut vel,
             &def,
             melee,
@@ -756,7 +827,7 @@ pub fn player_fire(
         player_ent,
         tf,
         aim,
-        player,
+        &*player,
         weapon_id,
         &def,
     );
@@ -773,7 +844,7 @@ pub fn player_fire(
                 player_ent,
                 tf,
                 aim,
-                player,
+                &*player,
                 weapon_id,
                 &def,
             );
@@ -839,8 +910,63 @@ fn spawn_pellets(
         );
     }
 
+    let archetype = projectile_archetype(id);
+
+    // Beam weapons override the normal projectile path entirely.
+    if let Some(beam) = archetype.beam {
+        spawn_beam_shot(
+            commands,
+            muzzle,
+            aim.0.normalize_or_zero(),
+            beam,
+            Some(DamageSource {
+                owner: player_ent,
+                team: Team::Player,
+                hit_id: HitId::Weapon(id),
+            }),
+        );
+        return;
+    }
+
+    // Sentry Gun deploys one pod, not a burst of bullets.
+    if let Some(sentry) = archetype.deploys_sentry {
+        spawn_player_projectile_with_source(
+            commands,
+            muzzle,
+            aim.0.normalize_or_zero(),
+            260.0,
+            0,
+            0.9,
+            6.0,
+            0.0,
+            false,
+            def.color,
+            Vec2::splat(10.0),
+            0,
+            0,
+            None,
+            None,
+            ProjectileArchetype {
+                deploys_sentry: Some(sentry),
+                ..ProjectileArchetype::default()
+            },
+            Some(DamageSource {
+                owner: player_ent,
+                team: Team::Player,
+                hit_id: HitId::Weapon(id),
+            }),
+        );
+        return;
+    }
+
     let mut rng = rand::rng();
     let spread = def.spread * player.spread_mult;
+    // Chain bolts jump between targets instead of piercing linearly.
+    let pierce = if archetype.chain_lightning.is_some() {
+        0
+    } else {
+        def.pierce
+    };
     for _ in 0..def.pellets {
         let base_angle = aim.0.y.atan2(aim.0.x);
         let angle = base_angle + rng.random_range(-spread..spread);
@@ -858,9 +984,10 @@ fn spawn_pellets(
             def.color,
             def.size,
             def.bounces,
-            def.pierce,
+            pierce,
             def.hazard,
             def.split,
+            archetype,
             Some(DamageSource {
                 owner: player_ent,
                 team: Team::Player,
@@ -957,17 +1084,75 @@ fn melee_attack(
     Juice::pop_in(commands, player_ent, 0.08);
 }
 
-fn consume_ammo(inv: &mut Inventory, ammo: AmmoKind, amount: i32) -> bool {
+enum AmmoPayment {
+    Paid,
+    Blood(i32),
+    Failed,
+}
+
+/// Spend ammo for a shot; Blood-family weapons pay HP when the pool is dry.
+fn pay_fire_cost(
+    inv: &mut Inventory,
+    health: &mut Health,
+    ammo: AmmoKind,
+    amount: i32,
+    blood: Option<crate::game::components::BloodAmmo>,
+) -> AmmoPayment {
     if amount <= 0 {
-        return true;
+        return AmmoPayment::Paid;
     }
+
     let slot = inv.ammo_mut(ammo);
     if *slot >= amount {
         *slot -= amount;
-        true
-    } else {
-        false
+        return AmmoPayment::Paid;
     }
+
+    if let Some(blood) = blood
+        && health.hp > blood.hp_cost
+    {
+        health.hp -= blood.hp_cost;
+        return AmmoPayment::Blood(blood.hp_cost);
+    }
+
+    AmmoPayment::Failed
+}
+
+/// Beam weapons (Ion / Laser Cannon): one persistent line entity, no pellets.
+#[allow(clippy::too_many_arguments)]
+fn spawn_beam_shot(
+    commands: &mut Commands,
+    pos: Vec2,
+    dir: Vec2,
+    spec: BeamSpec,
+    source: Option<DamageSource>,
+) {
+    let angle = dir.y.atan2(dir.x);
+    let center = pos + dir * (spec.length * 0.5);
+
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Team::Player,
+        crate::game::components::Beam {
+            team: Team::Player,
+            dir: dir.normalize_or_zero(),
+            length: spec.length,
+            width: spec.width,
+            damage: spec.damage,
+            knockback: spec.knockback,
+            timer: Timer::from_seconds(spec.duration, TimerMode::Once),
+            tick: Timer::from_seconds(spec.tick, TimerMode::Repeating),
+        },
+        Sprite {
+            color: spec.color,
+            custom_size: Some(Vec2::new(spec.length, spec.width)),
+            ..default()
+        },
+        Transform::from_translation(center.extend(18.0))
+            .with_rotation(Quat::from_rotation_z(angle)),
+    ));
+    let _ = source;
 }
 
 pub fn spawn_player_projectile(
@@ -984,8 +1169,23 @@ pub fn spawn_player_projectile(
     size: Vec2,
 ) {
     spawn_player_projectile_with_source(
-        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size, 0,
-        0, None, None, None,
+        commands,
+        pos,
+        dir,
+        speed,
+        damage,
+        lifetime,
+        radius,
+        knockback,
+        explosive,
+        color,
+        size,
+        0,
+        0,
+        None,
+        None,
+        ProjectileArchetype::default(),
+        None,
     )
 }
 
@@ -1005,6 +1205,7 @@ pub fn spawn_player_projectile_with_source(
     pierce: u8,
     hazard: Option<HazardDef>,
     split: Option<SplitDef>,
+    archetype: ProjectileArchetype,
     source: Option<DamageSource>,
 ) {
     let angle = dir.y.atan2(dir.x);
@@ -1032,7 +1233,7 @@ pub fn spawn_player_projectile_with_source(
     if bounces > 0 {
         ec.insert(BouncesLeft(bounces));
     }
-    if pierce > 0 {
+    if pierce > 0 || archetype.chain_lightning.is_some() {
         ec.insert(PiercesLeft(pierce));
         ec.insert(ProjectileHitSet::default());
     }
@@ -1041,6 +1242,41 @@ pub fn spawn_player_projectile_with_source(
     }
     if let Some(spec) = split {
         ec.insert(SplitOnDeath(spec));
+    }
+    if let Some(homing) = archetype.homing {
+        ec.insert(homing);
+    }
+    if let Some(sticky) = archetype.sticky {
+        ec.insert(sticky);
+    }
+    if let Some(chain) = archetype.chain_lightning {
+        // Chain bolts jump between targets; linear pierce would double-dip.
+        ec.remove::<PiercesLeft>();
+        ec.insert(chain);
+    }
+    if let Some(sentry) = archetype.deploys_sentry {
+        ec.insert(sentry);
+    }
+    if let Some(custom) = archetype.custom_explosion {
+        ec.insert(custom);
+    }
+    if let Some(blood) = archetype.blood_ammo {
+        ec.insert(blood);
+    }
+    if let Some(pickup) = archetype.spawn_weapon_pickup {
+        ec.insert(pickup);
+    }
+    if let Some(plasma) = archetype.plasma_burst {
+        ec.insert(crate::game::components::PlasmaBurst {
+            pellets: plasma.pellets,
+            speed: plasma.speed,
+            damage: plasma.damage,
+            lifetime: plasma.lifetime,
+            radius: plasma.radius,
+            knockback: plasma.knockback,
+            color: plasma.color,
+            size: plasma.size,
+        });
     }
 
     let e = ec.id();

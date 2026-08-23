@@ -15,6 +15,7 @@ pub mod input;
 pub mod pickups;
 pub mod player;
 pub mod progression;
+pub mod projectile_archetypes;
 pub mod projectile_math;
 pub mod secret_areas;
 pub mod ui_art;
@@ -95,6 +96,10 @@ impl Plugin for GamePlugin {
                         player_sys::tick_hazard_clouds,
                         player_sys::ally_ai,
                         enemies::enemy_ai,
+                        combat::tick_homing_projectiles,
+                        combat::tick_sticky_projectiles,
+                        combat::tick_beams,
+                        combat::tick_sentry_turrets,
                         combat::move_projectiles,
                         combat::tick_hazard_clouds,
                         combat::apply_explosions,

@@ -27,13 +27,13 @@ pub fn spawn_pickup(
     kind: PickupKind,
     pos: Vec2,
 ) {
-    let (path, size) = pickup_sprite(kind);
+    let (path, size) = pickup_sprite(kind, catalog);
     let e = commands
         .spawn((
             GameCleanup,
             LevelCleanup,
             Pickup { kind },
-            sprite_exact(catalog, asset_server, path),
+            sprite_exact(catalog, asset_server, &path),
             Transform::from_translation(pos.extend(8.0)),
         ))
         .id();
@@ -67,55 +67,39 @@ pub fn spawn_chest(
 }
 
 /// Native NT art per pickup kind.
-fn pickup_sprite(kind: PickupKind) -> (&'static str, f32) {
+fn pickup_sprite(kind: PickupKind, catalog: &AssetCatalog) -> (String, f32) {
     match kind {
-        PickupKind::Rad(_) => ("images/sprRad.png", 12.0),
-        PickupKind::Medkit(_) => ("images/sprHP.png", 16.0),
-        PickupKind::Ammo(AmmoKind::Bullets, _) => ("images/sprBulletIcon.png", 12.0),
-        PickupKind::Ammo(AmmoKind::Shells, _) => ("images/sprShotIcon.png", 12.0),
-        PickupKind::Ammo(AmmoKind::Bolts, _) => ("images/sprBoltIcon.png", 12.0),
-        PickupKind::Ammo(AmmoKind::Explosives, _) => ("images/sprExploIcon.png", 12.0),
-        PickupKind::Ammo(AmmoKind::Energy, _) => ("images/sprEnergyIcon.png", 12.0),
-        PickupKind::Ammo(AmmoKind::None, _) => ("images/sprRad.png", 12.0),
-        PickupKind::Weapon(k) => (weapon_id_sprite(k), 20.0),
+        PickupKind::Rad(_) => ("images/sprRad.png".to_string(), 12.0),
+        PickupKind::Medkit(_) => ("images/sprHP.png".to_string(), 16.0),
+        PickupKind::Ammo(AmmoKind::Bullets, _) => ("images/sprBulletIcon.png".to_string(), 12.0),
+        PickupKind::Ammo(AmmoKind::Shells, _) => ("images/sprShotIcon.png".to_string(), 12.0),
+        PickupKind::Ammo(AmmoKind::Bolts, _) => ("images/sprBoltIcon.png".to_string(), 12.0),
+        PickupKind::Ammo(AmmoKind::Explosives, _) => ("images/sprExploIcon.png".to_string(), 12.0),
+        PickupKind::Ammo(AmmoKind::Energy, _) => ("images/sprEnergyIcon.png".to_string(), 12.0),
+        PickupKind::Ammo(AmmoKind::None, _) => ("images/sprRad.png".to_string(), 12.0),
+        PickupKind::Weapon(k) => (weapon_id_sprite(k, catalog), 20.0),
         PickupKind::Chest(kind) => match kind {
-            ChestKind::Weapon => ("images/sprWeaponChest.png", 32.0),
-            ChestKind::Ammo => ("images/sprAmmoChest.png", 32.0),
-            ChestKind::Rad => ("images/sprRadChest.png", 32.0),
+            ChestKind::Weapon => ("images/sprWeaponChest.png".to_string(), 32.0),
+            ChestKind::Ammo => ("images/sprAmmoChest.png".to_string(), 32.0),
+            ChestKind::Rad => ("images/sprRadChest.png".to_string(), 32.0),
         },
     }
 }
 
-/// World sprite for a dropped weapon (upstream weapon sprites).
-fn weapon_id_sprite(id: WeaponId) -> &'static str {
-    if id == WeaponId::REVOLVER {
-        return "images/sprRevolver.png";
+/// World sprite for a dropped weapon.
+///
+/// Uses the generated registry's exact `wep_sprt` field when that art was
+/// imported, falling back to the Revolver so a missing PNG can never crash
+/// a drop.
+fn weapon_id_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
+    let meta = crate::game::content::weapon_meta(id);
+    if !meta.wep_sprt.is_empty() && meta.wep_sprt != "mskNone" {
+        let path = format!("images/{}.png", meta.wep_sprt);
+        if catalog.has(&path) {
+            return path;
+        }
     }
-    if id == WeaponId::MACHINEGUN {
-        return "images/sprMachinegun.png";
-    }
-    if id == WeaponId::CROSSBOW {
-        return "images/sprCrossbow.png";
-    }
-    if id == WeaponId::GRENADE_LAUNCHER {
-        return "images/sprNader.png";
-    }
-    if id == WeaponId::SMG {
-        return "images/sprSmg.png";
-    }
-    if id == WeaponId::ASSAULT_RIFLE {
-        return "images/sprARifle.png";
-    }
-    if id == WeaponId(5) {
-        return "images/sprShotgun.png";
-    }
-    if id == WeaponId::WRENCH {
-        return "images/sprWrench.png";
-    }
-    if id == WeaponId::SLEDGEHAMMER {
-        return "images/sprHammerHead.png";
-    }
-    "images/sprRevolver.png"
+    "images/sprRevolver.png".to_string()
 }
 
 pub fn collect_pickups(

@@ -31,9 +31,214 @@ pub struct Explosion {
     pub source: Option<DamageSource>,
 }
 
+pub fn tick_homing_projectiles(
+    time: Res<Time<Fixed>>,
+    mut q: Query<(&Team, &Transform, &mut Velocity, &Homing), With<Projectile>>,
+    enemies: Query<&Transform, With<Enemy>>,
+    player_q: Query<&Transform, (With<Player>, Without<Enemy>)>,
+) {
+    let dt = time.delta_secs();
+
+    for (team, tf, mut vel, homing) in &mut q {
+        let pos = tf.translation.truncate();
+
+        let target = match *team {
+            Team::Player => {
+                let mut best = None::<(f32, Vec2)>;
+                for etf in &enemies {
+                    let epos = etf.translation.truncate();
+                    let d2 = pos.distance_squared(epos);
+                    if d2 > homing.acquire_range * homing.acquire_range {
+                        continue;
+                    }
+                    if best.map(|(bd, _)| d2 < bd).unwrap_or(true) {
+                        best = Some((d2, epos));
+                    }
+                }
+                best.map(|(_, p)| p)
+            }
+            Team::Enemy => player_q.single().ok().map(|tf| tf.translation.truncate()),
+        };
+
+        let Some(target_pos) = target else {
+            continue;
+        };
+
+        let speed = vel.0.length();
+        if speed <= 1e-4 {
+            continue;
+        }
+
+        let current_dir = vel.0.normalize_or_zero();
+        let desired_dir = (target_pos - pos).normalize_or_zero();
+        let step = (homing.turn_rate * dt).clamp(0.0, 1.0);
+        let new_dir = current_dir.lerp(desired_dir, step).normalize_or_zero();
+
+        vel.0 = new_dir * speed;
+    }
+}
+
+pub fn tick_sticky_projectiles(
+    mut q: Query<(&mut Transform, &mut Velocity, &mut Sticky), With<Projectile>>,
+    targets: Query<&Transform, Without<Projectile>>,
+) {
+    for (mut tf, mut vel, mut sticky) in &mut q {
+        if !sticky.armed {
+            continue;
+        }
+
+        vel.0 = Vec2::ZERO;
+
+        if let Some(target) = sticky.stuck_to
+            && let Ok(target_tf) = targets.get(target)
+        {
+            tf.translation = target_tf.translation + sticky.offset.extend(0.0);
+        }
+    }
+}
+
+pub fn tick_beams(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut secrets: ResMut<SecretTriggers>,
+    mut beams: Query<(Entity, &Transform, &mut Beam)>,
+    mut targets: Query<
+        (
+            Entity,
+            &Transform,
+            &Team,
+            &mut Health,
+            Option<&mut Velocity>,
+        ),
+        (Without<Beam>, Without<Projectile>),
+    >,
+) {
+    for (beam_e, beam_tf, mut beam) in beams.iter_mut() {
+        beam.timer.tick(time.delta());
+        let expired = beam.timer.just_finished();
+        beam.tick.tick(time.delta());
+
+        if !expired && !beam.tick.just_finished() {
+            continue;
+        }
+
+        let center = beam_tf.translation.truncate();
+        let half = beam.dir.normalize_or_zero() * (beam.length * 0.5);
+        let a = center - half;
+        let b = center + half;
+
+        for (target_e, target_tf, target_team, mut health, mut vel) in &mut targets {
+            if *target_team == beam.team {
+                continue;
+            }
+
+            let p = target_tf.translation.truncate();
+            if distance_to_segment(p, a, b) > beam.width * 0.5 {
+                continue;
+            }
+
+            if *target_team == Team::Player && !health.invuln.is_finished() {
+                continue;
+            }
+
+            health.hp -= beam.damage;
+
+            if let Some(ref mut vel) = vel {
+                GameFeel::apply_knockback(&mut vel.0, beam.dir, beam.knockback);
+            }
+
+            if *target_team == Team::Player {
+                health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
+                secrets.mark_damage_taken();
+            }
+
+            HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.08);
+        }
+
+        if expired {
+            commands.entity(beam_e).despawn();
+        }
+    }
+}
+
+pub fn tick_sentry_turrets(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    enemies: Query<&Transform, With<Enemy>>,
+    mut sentries: Query<(Entity, &Transform, &mut SentryTurret)>,
+) {
+    for (entity, tf, mut sentry) in &mut sentries {
+        sentry.life.tick(time.delta());
+        if sentry.life.just_finished() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        sentry.fire.tick(time.delta());
+        if !sentry.fire.just_finished() {
+            continue;
+        }
+
+        let pos = tf.translation.truncate();
+        let mut best = None::<(f32, Vec2)>;
+        for etf in &enemies {
+            let target = etf.translation.truncate();
+            let d2 = pos.distance_squared(target);
+            if d2 > sentry.range * sentry.range {
+                continue;
+            }
+            if best.map(|(bd, _)| d2 < bd).unwrap_or(true) {
+                best = Some((d2, target));
+            }
+        }
+
+        let Some((_, target)) = best else {
+            continue;
+        };
+
+        let dir = (target - pos).normalize_or_zero();
+        let angle = dir.y.atan2(dir.x);
+
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            Team::Player,
+            Projectile {
+                damage: sentry.projectile_damage,
+                life: Timer::from_seconds(0.9, TimerMode::Once),
+                radius: 4.0,
+                knockback: 24.0,
+                explosive: false,
+                source: None,
+            },
+            Velocity(dir * sentry.projectile_speed),
+            Sprite {
+                color: Color::srgb(0.95, 0.9, 0.7),
+                custom_size: Some(Vec2::new(8.0, 3.0)),
+                ..default()
+            },
+            Transform::from_translation(pos.extend(14.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
+        ));
+    }
+}
+
+fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
+    let ab = b - a;
+    let denom = ab.length_squared();
+    if denom <= 1e-6 {
+        return p.distance(a);
+    }
+    let t = ((p - a).dot(ab) / denom).clamp(0.0, 1.0);
+    let closest = a + ab * t;
+    p.distance(closest)
+}
+
 pub fn move_projectiles(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut q: Query<
         (
             Entity,
@@ -42,8 +247,13 @@ pub fn move_projectiles(
             &mut Velocity,
             &mut Transform,
             Option<&mut BouncesLeft>,
+            Option<&mut Sticky>,
             Option<&SpawnHazardOnDeath>,
             Option<&SplitOnDeath>,
+            Option<&CustomExplosion>,
+            Option<&DeploysSentry>,
+            Option<&SpawnsWeaponPickup>,
+            Option<&PlasmaBurst>,
         ),
         Without<Prop>,
     >,
@@ -53,8 +263,50 @@ pub fn move_projectiles(
 ) {
     let dt = time.delta_secs();
 
-    for (e, team, mut p, mut vel, mut tf, bounces, hazard, split) in &mut q {
+    for (
+        e,
+        team,
+        mut p,
+        mut vel,
+        mut tf,
+        bounces,
+        mut sticky,
+        hazard,
+        split,
+        custom_explosion,
+        deploys_sentry,
+        spawn_pickup_spec,
+        plasma_burst,
+    ) in &mut q
+    {
         p.life.tick(time.delta());
+
+        // Armed sticky grenades hold position until their fuse (Projectile
+        // life) expires, then run the normal terminal path.
+        if sticky.as_ref().is_some_and(|s| s.armed) {
+            if p.life.just_finished() {
+                on_projectile_removed(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    tf.translation.truncate(),
+                    *team,
+                    p.source,
+                    hazard.copied(),
+                    split.copied(),
+                    vel.0,
+                    p.explosive,
+                    p.damage,
+                    custom_explosion.copied(),
+                    deploys_sentry.copied(),
+                    spawn_pickup_spec.copied(),
+                    plasma_burst.copied(),
+                );
+                commands.entity(e).despawn();
+            }
+            continue;
+        }
+
         tf.translation += (vel.0 * dt).extend(0.0);
         let pos = tf.translation.truncate();
         let out = pos.x.abs() > ARENA_W / 2.0 + 80.0 || pos.y.abs() > ARENA_H / 2.0 + 80.0;
@@ -65,6 +317,8 @@ pub fn move_projectiles(
         if p.life.just_finished() || out {
             on_projectile_removed(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 pos,
                 *team,
                 p.source,
@@ -73,12 +327,25 @@ pub fn move_projectiles(
                 vel.0,
                 p.explosive,
                 p.damage,
+                custom_explosion.copied(),
+                deploys_sentry.copied(),
+                spawn_pickup_spec.copied(),
+                plasma_burst.copied(),
             );
             commands.entity(e).despawn();
             continue;
         }
 
         if wall_hit {
+            // Sticky grenades attach to walls instead of dying.
+            if let Some(mut sticky) = sticky {
+                sticky.armed = true;
+                sticky.stuck_to = None;
+                sticky.offset = Vec2::ZERO;
+                vel.0 = Vec2::ZERO;
+                continue;
+            }
+
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
             {
@@ -106,6 +373,8 @@ pub fn move_projectiles(
             }
             on_projectile_removed(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 pos,
                 *team,
                 p.source,
@@ -114,12 +383,39 @@ pub fn move_projectiles(
                 vel.0,
                 p.explosive,
                 p.damage,
+                custom_explosion.copied(),
+                deploys_sentry.copied(),
+                spawn_pickup_spec.copied(),
+                plasma_burst.copied(),
             );
             commands.entity(e).despawn();
             continue;
         }
 
         if prop_hit {
+            // Sticky grenades stick to the first overlapping prop.
+            if sticky.is_some() {
+                for (prop_e, prop, prop_tf) in &mut props {
+                    let center = prop_tf.translation.truncate();
+                    let half = prop.size / 2.0;
+                    let closest = Vec2::new(
+                        pos.x.clamp(center.x - half.x, center.x + half.x),
+                        pos.y.clamp(center.y - half.y, center.y + half.y),
+                    );
+                    if pos.distance(closest) > p.radius {
+                        continue;
+                    }
+                    if let Some(ref mut sticky) = sticky {
+                        sticky.armed = true;
+                        sticky.stuck_to = Some(prop_e);
+                        sticky.offset = pos - center;
+                    }
+                    vel.0 = Vec2::ZERO;
+                    break;
+                }
+                continue;
+            }
+
             let mut dead_prop = None;
             for (prop_e, mut prop, prop_tf) in &mut props {
                 let center = prop_tf.translation.truncate();
@@ -160,6 +456,8 @@ pub fn move_projectiles(
 
             on_projectile_removed(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 pos,
                 *team,
                 p.source,
@@ -168,6 +466,10 @@ pub fn move_projectiles(
                 vel.0,
                 p.explosive,
                 p.damage,
+                custom_explosion.copied(),
+                deploys_sentry.copied(),
+                spawn_pickup_spec.copied(),
+                plasma_burst.copied(),
             );
             commands.entity(e).despawn();
         }
@@ -175,7 +477,7 @@ pub fn move_projectiles(
 }
 
 fn spawn_explosion(commands: &mut Commands, pos: Vec2, damage: i32) {
-    spawn_explosion_with_source(commands, pos, damage, None);
+    spawn_explosion_with_source_radius(commands, pos, damage, None, 130.0, Team::Player, true);
 }
 
 fn spawn_explosion_with_source(
@@ -184,15 +486,28 @@ fn spawn_explosion_with_source(
     damage: i32,
     source: Option<DamageSource>,
 ) {
+    let team = source.map(|s| s.team).unwrap_or(Team::Player);
+    spawn_explosion_with_source_radius(commands, pos, damage, source, 130.0, team, true);
+}
+
+fn spawn_explosion_with_source_radius(
+    commands: &mut Commands,
+    pos: Vec2,
+    damage: i32,
+    source: Option<DamageSource>,
+    radius: f32,
+    team: Team,
+    hits_player: bool,
+) {
     commands.spawn((
         GameCleanup,
         LevelCleanup,
         Explosion {
             timer: Timer::from_seconds(0.05, TimerMode::Once),
-            radius: 130.0,
+            radius,
             damage,
-            team: Team::Player,
-            hits_player: true,
+            team,
+            hits_player,
             source,
         },
         Transform::from_translation(pos.extend(20.0)),
@@ -265,9 +580,102 @@ fn spawn_split_projectiles(
     }
 }
 
+/// Plasma secondary burst: an even ring of children around the impact point.
+fn spawn_plasma_children(
+    commands: &mut Commands,
+    pos: Vec2,
+    team: Team,
+    plasma: PlasmaBurst,
+    source: Option<DamageSource>,
+    base_dir: Vec2,
+) {
+    let base_angle = if base_dir.length_squared() > 0.0 {
+        base_dir.y.atan2(base_dir.x)
+    } else {
+        0.0
+    };
+
+    for i in 0..plasma.pellets.max(1) {
+        let t = i as f32 / plasma.pellets.max(1) as f32;
+        let angle = base_angle + t * std::f32::consts::TAU;
+        let dir = Vec2::new(angle.cos(), angle.sin());
+
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            team,
+            Projectile {
+                damage: plasma.damage,
+                life: Timer::from_seconds(plasma.lifetime, TimerMode::Once),
+                radius: plasma.radius,
+                knockback: plasma.knockback,
+                explosive: false,
+                source,
+            },
+            Velocity(dir * plasma.speed),
+            Sprite {
+                color: plasma.color,
+                custom_size: Some(plasma.size),
+                ..default()
+            },
+            Transform::from_translation(pos.extend(16.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
+        ));
+    }
+}
+
+fn spawn_sentry_turret(commands: &mut Commands, pos: Vec2, spec: DeploysSentry) {
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Team::Player,
+        SentryTurret {
+            life: Timer::from_seconds(spec.life, TimerMode::Once),
+            fire: Timer::from_seconds(spec.fire_interval, TimerMode::Repeating),
+            range: spec.range,
+            projectile_speed: spec.projectile_speed,
+            projectile_damage: spec.projectile_damage,
+        },
+        Team::Player,
+        Sprite {
+            color: Color::srgb(0.68, 0.74, 0.8),
+            custom_size: Some(Vec2::new(18.0, 14.0)),
+            ..default()
+        },
+        Transform::from_translation(pos.extend(12.0)),
+    ));
+}
+
+fn spawn_weapon_pickup_from_projectile(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    spec: SpawnsWeaponPickup,
+) {
+    // Do not spawn pickups outside the playfield.
+    if pos.x.abs() > ARENA_W / 2.0 + 32.0 || pos.y.abs() > ARENA_H / 2.0 + 32.0 {
+        return;
+    }
+
+    let weapon = spec
+        .weapon
+        .unwrap_or_else(|| random_weapon(&mut rand::rng()));
+    crate::game::pickups::spawn_pickup(
+        commands,
+        catalog,
+        asset_server,
+        PickupKind::Weapon(weapon),
+        pos,
+    );
+}
+
 /// Shared terminal path for timeout, wall, prop, and entity hits.
+#[allow(clippy::type_complexity)]
 fn on_projectile_removed(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     pos: Vec2,
     team: Team,
     source: Option<DamageSource>,
@@ -276,15 +684,34 @@ fn on_projectile_removed(
     base_dir: Vec2,
     explosive: bool,
     damage: i32,
+    custom_explosion: Option<CustomExplosion>,
+    deploys_sentry: Option<DeploysSentry>,
+    spawn_pickup_spec: Option<SpawnsWeaponPickup>,
+    plasma_burst: Option<PlasmaBurst>,
 ) {
-    if explosive {
-        spawn_explosion_with_source(commands, pos, damage, source);
+    if let Some(spec) = deploys_sentry {
+        spawn_sentry_turret(commands, pos, spec);
     }
+
+    if explosive {
+        let radius = custom_explosion.map(|c| c.radius).unwrap_or(130.0);
+        spawn_explosion_with_source_radius(commands, pos, damage, source, radius, team, true);
+    }
+
     if let Some(SpawnHazardOnDeath(spec)) = hazard {
         spawn_hazard_cloud(commands, pos, team, spec);
     }
+
     if let Some(SplitOnDeath(spec)) = split {
         spawn_split_projectiles(commands, pos, team, spec, source, base_dir);
+    }
+
+    if let Some(spec) = spawn_pickup_spec {
+        spawn_weapon_pickup_from_projectile(commands, catalog, asset_server, pos, spec);
+    }
+
+    if let Some(plasma) = plasma_burst {
+        spawn_plasma_children(commands, pos, team, plasma, source, base_dir);
     }
 }
 
@@ -456,8 +883,11 @@ fn spawn_prop_destroyed(
     let _ = audio;
 }
 
+#[allow(clippy::type_complexity)]
 pub fn projectile_hits(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut trauma: ResMut<Trauma>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
@@ -466,14 +896,20 @@ pub fn projectile_hits(
     mut projectiles: Query<
         (
             Entity,
-            &Transform,
+            &mut Transform,
             &Team,
             &Projectile,
-            &Velocity,
+            &mut Velocity,
             Option<&mut PiercesLeft>,
             Option<&mut ProjectileHitSet>,
+            Option<&mut Sticky>,
+            Option<&mut ChainLightning>,
             Option<&SpawnHazardOnDeath>,
             Option<&SplitOnDeath>,
+            Option<&CustomExplosion>,
+            Option<&DeploysSentry>,
+            Option<&SpawnsWeaponPickup>,
+            Option<&PlasmaBurst>,
         ),
         Without<Hitbox>,
     >,
@@ -490,40 +926,50 @@ pub fn projectile_hits(
         Without<Projectile>,
     >,
 ) {
-    let mut to_despawn: Vec<(
-        Entity,
-        Vec2,
-        Team,
-        Option<DamageSource>,
-        Option<SpawnHazardOnDeath>,
-        Option<SplitOnDeath>,
-        Vec2,
-        bool,
-        i32,
-    )> = Vec::new();
     let player = player_state.single().ok();
 
-    for (proj_e, proj_tf, proj_team, proj, proj_vel, pierce, hit_set, hazard, split) in
-        &mut projectiles
+    for (
+        proj_e,
+        mut proj_tf,
+        proj_team,
+        proj,
+        mut proj_vel,
+        pierce,
+        mut hit_set,
+        mut sticky,
+        chain,
+        hazard,
+        split,
+        custom_explosion,
+        deploys_sentry,
+        spawn_pickup_spec,
+        plasma_burst,
+    ) in projectiles.iter_mut()
     {
+        // Armed sticky grenades do not deal contact damage; they wait for the
+        // fuse handled in move_projectiles.
+        if sticky.as_ref().is_some_and(|s| s.armed) {
+            continue;
+        }
+
         let proj_pos = proj_tf.translation.truncate();
         let mut hit = false;
         let mut damaged = false;
         let mut hit_player = false;
         let mut hit_pos = proj_pos;
-        let mut hit_target: Option<Entity> = None;
+        let mut hit_target = None::<Entity>;
 
-        for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in &mut targets
+        for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in
+            targets.iter_mut()
         {
             if *target_team == *proj_team {
                 continue;
             }
 
-            // Already pierced this entity?
-            if let Some(set) = hit_set.as_ref() {
-                if set.0.contains(&target_e) {
-                    continue;
-                }
+            if let Some(set) = hit_set.as_ref()
+                && set.0.contains(&target_e)
+            {
+                continue;
             }
 
             let target_pos = target_tf.translation.truncate();
@@ -531,11 +977,21 @@ pub fn projectile_hits(
                 continue;
             }
 
+            // Sticky grenades attach instead of dealing immediate damage.
+            if let Some(ref mut sticky) = sticky
+                && !sticky.armed
+            {
+                sticky.armed = true;
+                sticky.stuck_to = Some(target_e);
+                sticky.offset = proj_pos - target_pos;
+                proj_vel.0 = Vec2::ZERO;
+                break;
+            }
+
             hit = true;
             hit_pos = target_pos;
             hit_target = Some(target_e);
 
-            // Shield absorbs — still counts as a "hit" for despawn of non-pierce.
             if *target_team == Team::Player
                 && let Some(shield) = shield
                 && !shield.timer.is_finished()
@@ -552,7 +1008,6 @@ pub fn projectile_hits(
             }
 
             if *target_team == Team::Player && !health.invuln.is_finished() {
-                // Invuln: treat as non-damaging contact; pierce should not burn.
                 break;
             }
 
@@ -569,8 +1024,11 @@ pub fn projectile_hits(
             }
 
             if let Some(mut vel) = vel_opt {
-                let dir = proj_vel.0.normalize_or_zero();
-                GameFeel::apply_knockback(&mut vel.0, dir, proj.knockback);
+                GameFeel::apply_knockback(
+                    &mut vel.0,
+                    proj_vel.0.normalize_or_zero(),
+                    proj.knockback,
+                );
             }
 
             HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.1);
@@ -588,22 +1046,20 @@ pub fn projectile_hits(
             break;
         }
 
-        if hit
-            && hit_player
+        if !hit {
+            continue;
+        }
+
+        if hit_player
             && let Some(p) = &player
             && p.sharp_teeth
         {
             retaliate_sharp_teeth(&mut commands, proj.damage, hit_pos, &mut targets);
         }
 
-        if !hit {
-            continue;
-        }
-
-        // Record pierce target only when damage landed.
         if damaged {
             if let Some(target_e) = hit_target {
-                if let Some(mut set) = hit_set {
+                if let Some(ref mut set) = hit_set {
                     crate::game::projectile_math::record_hit(&mut set.0, target_e);
                 } else {
                     commands
@@ -613,17 +1069,12 @@ pub fn projectile_hits(
             }
         }
 
-        let pierce_left_before = pierce.as_ref().map(|p| p.0);
-        let (despawn, pierce_left) =
-            crate::game::projectile_math::should_despawn_after_hit(damaged, pierce_left_before);
-        if let (Some(mut pierce), Some(left)) = (pierce, pierce_left) {
-            pierce.0 = left;
-        }
-
-        if despawn {
-            to_despawn.push((
-                proj_e,
-                proj_pos,
+        let terminal = |commands: &mut Commands| {
+            on_projectile_removed(
+                commands,
+                &catalog,
+                &asset_server,
+                hit_pos,
                 *proj_team,
                 proj.source,
                 hazard.copied(),
@@ -631,23 +1082,134 @@ pub fn projectile_hits(
                 proj_vel.0,
                 proj.explosive,
                 proj.damage,
-            ));
+                custom_explosion.copied(),
+                deploys_sentry.copied(),
+                spawn_pickup_spec.copied(),
+                plasma_burst.copied(),
+            );
+            commands.entity(proj_e).despawn();
+        };
+
+        // Lightning weapons jump between distinct targets instead of piercing.
+        if damaged && let Some(ref chain) = chain {
+            chain_to_nearby_targets(
+                &mut commands,
+                &mut targets,
+                *proj_team,
+                proj,
+                hit_target,
+                hit_pos,
+                chain.range,
+                chain.jumps_left,
+                chain.falloff,
+            );
+            terminal(&mut commands);
+            continue;
+        }
+
+        let pierce_left_before = pierce.as_ref().map(|p| p.0);
+        let (despawn, pierce_left) =
+            crate::game::projectile_math::should_despawn_after_hit(damaged, pierce_left_before);
+        if let (Some(mut p), Some(left)) = (pierce, pierce_left) {
+            p.0 = left;
+        }
+
+        if despawn {
+            terminal(&mut commands);
         }
     }
+}
 
-    for (e, pos, team, source, hazard, split, dir, explosive, damage) in to_despawn {
-        on_projectile_removed(
-            &mut commands,
-            pos,
-            team,
-            source,
-            hazard,
-            split,
-            dir,
-            explosive,
-            damage,
-        );
-        commands.entity(e).despawn();
+/// Chain lightning: hop from the just-hit target to the nearest unvisited
+/// enemy within range, applying falloff damage and zap VFX per jump.
+#[allow(clippy::type_complexity)]
+fn chain_to_nearby_targets(
+    commands: &mut Commands,
+    targets: &mut Query<
+        (
+            Entity,
+            &Transform,
+            &Team,
+            &Hitbox,
+            &mut Health,
+            Option<&mut Velocity>,
+            Option<&Shield>,
+        ),
+        Without<Projectile>,
+    >,
+    proj_team: Team,
+    proj: &Projectile,
+    first_target: Option<Entity>,
+    first_pos: Vec2,
+    range: f32,
+    jumps: u8,
+    falloff: f32,
+) {
+    let Some(first_e) = first_target else {
+        return;
+    };
+
+    let mut visited: Vec<Entity> = vec![first_e];
+    let mut current_pos = first_pos;
+    let mut damage = proj.damage.max(1);
+
+    for _ in 0..jumps {
+        // Find nearest unvisited enemy to current point.
+        let mut best: Option<(Entity, Vec2, f32)> = None;
+        let mut snapshot: Vec<(Entity, Vec2)> = Vec::new();
+        for (target_e, target_tf, target_team, ..) in targets.iter() {
+            if *target_team != Team::Enemy || visited.contains(&target_e) {
+                continue;
+            }
+            let pos = target_tf.translation.truncate();
+            let d2 = current_pos.distance_squared(pos);
+            if d2 > range * range {
+                continue;
+            }
+            snapshot.push((target_e, pos));
+            if best.map(|(_, _, bd)| d2 < bd).unwrap_or(true) {
+                best = Some((target_e, pos, d2));
+            }
+        }
+
+        let Some((next_e, next_pos, _)) = best else {
+            break;
+        };
+
+        damage = ((damage as f32) * falloff).round().max(1.0) as i32;
+
+        for (target_e, _tf, _team, _hb, mut health, vel_opt, _) in targets.iter_mut() {
+            if target_e != next_e {
+                continue;
+            }
+            health.hp -= damage;
+            if let Some(mut vel) = vel_opt {
+                GameFeel::apply_knockback(
+                    &mut vel.0,
+                    (next_pos - current_pos).normalize_or_zero(),
+                    proj.knockback * 0.5,
+                );
+            }
+            HitFlash::apply(commands, target_e, Color::srgb(0.7, 0.95, 1.0), 0.08);
+            VfxSpawner::spawn_damage_number(
+                commands,
+                damage,
+                next_pos,
+                Color::srgb(0.7, 0.95, 1.0),
+            );
+            VfxSpawner::spawn_burst(
+                commands,
+                (current_pos + next_pos) * 0.5,
+                6,
+                Color::srgb(0.75, 0.95, 1.0),
+                (30.0, 90.0),
+            );
+            break;
+        }
+
+        visited.push(next_e);
+        current_pos = next_pos;
+        let _ = snapshot;
     }
 }
 

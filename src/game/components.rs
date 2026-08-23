@@ -403,6 +403,106 @@ pub struct SpawnHazardOnDeath(pub HazardDef);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SplitOnDeath(pub SplitDef);
 
+// --- Projectile archetypes (see projectile_archetypes.rs) -------------------
+
+/// Smart / seeker projectiles steer toward the nearest enemy.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Homing {
+    pub turn_rate: f32,
+    pub acquire_range: f32,
+}
+
+/// Sticky grenade: freezes on first solid contact, explodes when life ends.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Sticky {
+    pub armed: bool,
+    pub stuck_to: Option<Entity>,
+    pub offset: Vec2,
+}
+
+impl Default for Sticky {
+    fn default() -> Self {
+        Self {
+            armed: false,
+            stuck_to: None,
+            offset: Vec2::ZERO,
+        }
+    }
+}
+
+/// Lightning jumps between distinct targets instead of piercing linearly.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ChainLightning {
+    pub jumps_left: u8,
+    pub range: f32,
+    pub falloff: f32,
+}
+
+/// Projectile payload that deploys an autonomous turret on death.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DeploysSentry {
+    pub life: f32,
+    pub fire_interval: f32,
+    pub range: f32,
+    pub projectile_speed: f32,
+    pub projectile_damage: i32,
+}
+
+/// Overrides the default explosion radius for this projectile's death.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct CustomExplosion {
+    pub radius: f32,
+}
+
+/// When the weapon's ammo pool is empty, firing spends HP instead.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BloodAmmo {
+    pub hp_cost: i32,
+}
+
+/// On projectile death, spawn a weapon pickup.
+/// `weapon = None` rolls a random weapon.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SpawnsWeaponPickup {
+    pub weapon: Option<WeaponId>,
+}
+
+/// Plasma secondary shrapnel ring emitted on death.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PlasmaBurst {
+    pub pellets: u8,
+    pub speed: f32,
+    pub damage: i32,
+    pub lifetime: f32,
+    pub radius: f32,
+    pub knockback: f32,
+    pub color: Color,
+    pub size: Vec2,
+}
+
+/// Persistent line-damage segment (Ion / Laser Cannon).
+#[derive(Component, Clone, Debug)]
+pub struct Beam {
+    pub team: Team,
+    pub dir: Vec2,
+    pub length: f32,
+    pub width: f32,
+    pub damage: i32,
+    pub knockback: f32,
+    pub timer: Timer,
+    pub tick: Timer,
+}
+
+/// Autonomous friendly turret deployed by the Sentry Gun pod.
+#[derive(Component, Clone, Debug)]
+pub struct SentryTurret {
+    pub life: Timer,
+    pub fire: Timer,
+    pub range: f32,
+    pub projectile_speed: f32,
+    pub projectile_damage: i32,
+}
+
 #[derive(Component, Clone, Copy)]
 pub struct Enemy {
     pub kind: EnemyKind,
