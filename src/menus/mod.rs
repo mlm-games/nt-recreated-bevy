@@ -970,26 +970,13 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child(ammo_views);
 
     let ability = nt_section(
-        Row(Modifier::new()
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::SPACE_BETWEEN))
-        .child((
+        Row(Modifier::new().align_items(AlignItems::CENTER)).child(
             RText(st.ability.to_ascii_uppercase())
                 .size(metrics.small_text)
-                .color(NT_TEXT)
+                .color(if st.ability_ready { NT_GREEN } else { NT_MUTED })
                 .single_line()
                 .overflow_ellipsize(),
-            nt_chip(
-                if st.ability_ready { "READY" } else { "WAIT" },
-                if st.ability_ready {
-                    RColor(72, 202, 96, 28)
-                } else {
-                    RColor(255, 255, 255, 8)
-                },
-                if st.ability_ready { NT_GREEN } else { NT_MUTED },
-                metrics.small_text,
-            ),
-        )),
+        ),
     );
 
     let player_panel = nt_panel(
@@ -1106,17 +1093,6 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         empty_view()
     };
 
-    let controls = if compact {
-        empty_view()
-    } else {
-        nt_chip(
-            "WASD MOVE  |  MOUSE AIM  |  LMB FIRE  |  1/2 SWAP  |  E ABILITY",
-            RColor(0, 0, 0, 130),
-            NT_MUTED,
-            10.0,
-        )
-    };
-
     let player_anchor = Column(
         Modifier::new()
             .fill_max_size()
@@ -1172,7 +1148,7 @@ fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::FLEX_END),
     )
-    .child((toast, controls));
+    .child(toast);
 
     ZStack(Modifier::new().fill_max_size()).child((
         player_anchor,

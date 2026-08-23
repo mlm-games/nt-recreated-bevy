@@ -17,6 +17,7 @@ use crate::game::environment::{
     SurfacePulse, SurfaceZone, sprite_from_candidates,
 };
 use crate::game::secret_areas::SecretTarget;
+use bevy::ecs::query::QueryFilter;
 
 pub const WALL_PX: f32 = 16.0;
 
@@ -1477,11 +1478,16 @@ pub fn clamp_to_arena(pos: &mut Vec3, radius: f32) {
     pos.y = pos.y.clamp(-ARENA_H / 2.0 + radius, ARENA_H / 2.0 - radius);
 }
 
-pub fn resolve_prop_collision(
+/// Generic over the caller's prop-query filter so systems that must be
+/// statically disjoint from an `&mut Transform` enemy/player query (boss AI,
+/// etc.) can pass extra `Without<T>` filters.
+pub fn resolve_prop_collision<F>(
     pos: &mut Vec3,
     radius: f32,
-    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
-) {
+    props: &Query<(Entity, &Prop, &Transform), F>,
+) where
+    F: QueryFilter,
+{
     for (_, prop, tf) in props.iter() {
         let center = tf.translation.truncate();
         let half = prop.size / 2.0;

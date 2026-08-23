@@ -34,7 +34,7 @@ pub fn boss_ai(
         ),
         With<Enemy>,
     >,
-    props: Query<(Entity, &Prop, &Transform), With<Prop>>,
+    props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     let Ok((player_tf, player_vel)) = player_q.single() else {
         return;
@@ -168,7 +168,7 @@ fn big_bandit_ai(
     player_pos: Vec2,
     dir: Vec2,
     dt: f32,
-    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     let looped = def.name.contains("Loop");
     let volley_count = if looped { 7 } else { 5 };
@@ -278,7 +278,7 @@ fn big_dog_ai(
     player_pos: Vec2,
     dir: Vec2,
     dt: f32,
-    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     // Big Dog is heavy: it drifts toward home and the player, but never chases.
     let looped = def.name.contains("Loop");
@@ -435,7 +435,7 @@ fn lil_hunter_ai(
     player_vel: Vec2,
     dir: Vec2,
     dt: f32,
-    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     let looped = def.name.contains("Loop");
 
