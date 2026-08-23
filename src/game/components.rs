@@ -218,6 +218,7 @@ pub struct Player {
     pub ability: AbilityKind,
     pub ability_cooldown: Timer,
     pub headless_ready: bool,
+    pub free_ammo: bool,
     pub mutations: Vec<MutationId>,
 }
 
@@ -344,6 +345,15 @@ pub struct BouncesLeft(pub u8);
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PiercesLeft(pub u8);
+
+/// Entities already damaged by this piercing projectile this lifetime.
+#[derive(Component, Default, Debug, Clone)]
+pub struct ProjectileHitSet(pub Vec<Entity>);
+
+/// Marks a hazard cloud as coming from a race ability (no Team component).
+/// Weapon clouds always carry `Team` instead.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct AbilityHazard;
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SpawnHazardOnDeath(pub HazardDef);

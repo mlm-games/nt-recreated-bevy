@@ -121,6 +121,7 @@ pub fn setup_run(
             ability: def.ability,
             ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
             headless_ready: def.passive == PassiveKind::Headless,
+            free_ammo: def.passive == PassiveKind::FreeAmmo,
             mutations: Vec::new(),
         },
         RaceState {

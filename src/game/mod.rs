@@ -14,6 +14,7 @@ pub mod input;
 pub mod pickups;
 pub mod player;
 pub mod progression;
+pub mod projectile_math;
 pub mod ui_art;
 pub mod weapon_runtime;
 pub mod weapons_data;

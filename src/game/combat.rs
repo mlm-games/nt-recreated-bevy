@@ -60,9 +60,6 @@ pub fn move_projectiles(
         let prop_hit = circle_hits_prop(pos, p.radius, &props);
 
         if p.life.just_finished() || out {
-            if p.explosive {
-                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
-            }
             on_projectile_removed(
                 &mut commands,
                 pos,
@@ -70,6 +67,9 @@ pub fn move_projectiles(
                 p.source,
                 hazard.copied(),
                 split.copied(),
+                vel.0,
+                p.explosive,
+                p.damage,
             );
             commands.entity(e).despawn();
             continue;
@@ -85,14 +85,14 @@ pub fn move_projectiles(
                 } else {
                     Vec2::new(0.0, pos.y.signum())
                 };
-                vel.0 = vel.0.reflect(normal);
+                vel.0 = crate::game::projectile_math::bounce_velocity(vel.0, normal);
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
+                // Nudge off the wall so we don't re-collide next frame.
+                tf.translation += (normal * -p.radius * 0.5).extend(0.0);
                 continue;
             }
 
-            if p.explosive {
-                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
-            } else {
+            if !p.explosive {
                 VfxSpawner::spawn_burst(
                     &mut commands,
                     pos,
@@ -101,7 +101,6 @@ pub fn move_projectiles(
                     (30.0, 90.0),
                 );
             }
-
             on_projectile_removed(
                 &mut commands,
                 pos,
@@ -109,6 +108,9 @@ pub fn move_projectiles(
                 p.source,
                 hazard.copied(),
                 split.copied(),
+                vel.0,
+                p.explosive,
+                p.damage,
             );
             commands.entity(e).despawn();
             continue;
@@ -126,17 +128,16 @@ pub fn move_projectiles(
                 if pos.distance(closest) > p.radius {
                     continue;
                 }
-                prop.hp -= 1;
-                if prop.hp <= 0 {
-                    dead_prop = Some((center, prop.explosive));
-                    commands.entity(prop_e).despawn();
+                if prop.destructible {
+                    prop.hp -= 1;
+                    if prop.hp <= 0 {
+                        dead_prop = Some((center, prop.explosive));
+                        commands.entity(prop_e).despawn();
+                    }
                 }
                 break;
             }
 
-            if p.explosive {
-                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
-            }
             if let Some((center, explosive)) = dead_prop {
                 VfxSpawner::spawn_burst(
                     &mut commands,
@@ -157,6 +158,9 @@ pub fn move_projectiles(
                 p.source,
                 hazard.copied(),
                 split.copied(),
+                vel.0,
+                p.explosive,
+                p.damage,
             );
             commands.entity(e).despawn();
         }
@@ -215,11 +219,20 @@ fn spawn_split_projectiles(
     team: Team,
     split: SplitDef,
     source: Option<DamageSource>,
+    base_dir: Vec2,
 ) {
     let mut rng = rand::rng();
-    for _ in 0..split.pellets {
-        let angle = rng.random_range(-split.spread..split.spread);
-        let dir = Vec2::new(angle.cos(), angle.sin()).normalize_or_zero();
+    let samples: Vec<f32> = (0..split.pellets)
+        .map(|_| rng.random_range(-1.0f32..1.0))
+        .collect();
+
+    for dir in crate::game::projectile_math::split_directions(
+        base_dir,
+        split.pellets,
+        split.spread,
+        &samples,
+    ) {
+        let angle = dir.y.atan2(dir.x);
 
         commands.spawn((
             GameCleanup,
@@ -245,6 +258,7 @@ fn spawn_split_projectiles(
     }
 }
 
+/// Shared terminal path for timeout, wall, prop, and entity hits.
 fn on_projectile_removed(
     commands: &mut Commands,
     pos: Vec2,
@@ -252,19 +266,27 @@ fn on_projectile_removed(
     source: Option<DamageSource>,
     hazard: Option<SpawnHazardOnDeath>,
     split: Option<SplitOnDeath>,
+    base_dir: Vec2,
+    explosive: bool,
+    damage: i32,
 ) {
+    if explosive {
+        spawn_explosion_with_source(commands, pos, damage, source);
+    }
     if let Some(SpawnHazardOnDeath(spec)) = hazard {
         spawn_hazard_cloud(commands, pos, team, spec);
     }
     if let Some(SplitOnDeath(spec)) = split {
-        spawn_split_projectiles(commands, pos, team, spec, source);
+        spawn_split_projectiles(commands, pos, team, spec, source, base_dir);
     }
 }
 
+/// Weapon / team-tagged hazard clouds only.
+/// Ability clouds are handled by `player::tick_hazard_clouds`.
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut clouds: Query<(Entity, &Team, &Transform, &mut HazardCloud)>,
+    mut clouds: Query<(Entity, &Team, &Transform, &mut HazardCloud), Without<AbilityHazard>>,
     mut targets: Query<
         (Entity, &Transform, &Team, &mut Health),
         (Without<HazardCloud>, Without<Projectile>),
@@ -278,7 +300,6 @@ pub fn tick_hazard_clouds(
             commands.entity(cloud_e).despawn();
             continue;
         }
-
         if !cloud.tick.just_finished() {
             continue;
         }
@@ -296,7 +317,6 @@ pub fn tick_hazard_clouds(
             }
 
             health.hp -= cloud.damage;
-
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             }
@@ -433,6 +453,9 @@ pub fn projectile_hits(
             &Projectile,
             &Velocity,
             Option<&mut PiercesLeft>,
+            Option<&mut ProjectileHitSet>,
+            Option<&SpawnHazardOnDeath>,
+            Option<&SplitOnDeath>,
         ),
         Without<Hitbox>,
     >,
@@ -449,19 +472,40 @@ pub fn projectile_hits(
         Without<Projectile>,
     >,
 ) {
-    let mut processed: Vec<Entity> = Vec::new();
+    let mut to_despawn: Vec<(
+        Entity,
+        Vec2,
+        Team,
+        Option<DamageSource>,
+        Option<SpawnHazardOnDeath>,
+        Option<SplitOnDeath>,
+        Vec2,
+        bool,
+        i32,
+    )> = Vec::new();
     let player = player_state.single().ok();
 
-    for (proj_e, proj_tf, proj_team, proj, proj_vel, pierce) in &mut projectiles {
+    for (proj_e, proj_tf, proj_team, proj, proj_vel, pierce, hit_set, hazard, split) in
+        &mut projectiles
+    {
         let proj_pos = proj_tf.translation.truncate();
         let mut hit = false;
+        let mut damaged = false;
         let mut hit_player = false;
         let mut hit_pos = proj_pos;
+        let mut hit_target: Option<Entity> = None;
 
         for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in &mut targets
         {
             if *target_team == *proj_team {
                 continue;
+            }
+
+            // Already pierced this entity?
+            if let Some(set) = hit_set.as_ref() {
+                if set.0.contains(&target_e) {
+                    continue;
+                }
             }
 
             let target_pos = target_tf.translation.truncate();
@@ -471,7 +515,9 @@ pub fn projectile_hits(
 
             hit = true;
             hit_pos = target_pos;
+            hit_target = Some(target_e);
 
+            // Shield absorbs — still counts as a "hit" for despawn of non-pierce.
             if *target_team == Team::Player
                 && let Some(shield) = shield
                 && !shield.timer.is_finished()
@@ -488,10 +534,12 @@ pub fn projectile_hits(
             }
 
             if *target_team == Team::Player && !health.invuln.is_finished() {
+                // Invuln: treat as non-damaging contact; pierce should not burn.
                 break;
             }
 
             health.hp -= proj.damage;
+            damaged = true;
 
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
@@ -529,22 +577,57 @@ pub fn projectile_hits(
             retaliate_sharp_teeth(&mut commands, proj.damage, hit_pos, &mut targets);
         }
 
-        if hit {
-            let mut despawn = true;
-            if let Some(mut pierce) = pierce
-                && pierce.0 > 0
-            {
-                pierce.0 -= 1;
-                despawn = false;
-            }
+        if !hit {
+            continue;
+        }
 
-            if despawn {
-                processed.push(proj_e);
+        // Record pierce target only when damage landed.
+        if damaged {
+            if let Some(target_e) = hit_target {
+                if let Some(mut set) = hit_set {
+                    crate::game::projectile_math::record_hit(&mut set.0, target_e);
+                } else {
+                    commands
+                        .entity(proj_e)
+                        .insert(ProjectileHitSet(vec![target_e]));
+                }
             }
+        }
+
+        let pierce_left_before = pierce.as_ref().map(|p| p.0);
+        let (despawn, pierce_left) =
+            crate::game::projectile_math::should_despawn_after_hit(damaged, pierce_left_before);
+        if let (Some(mut pierce), Some(left)) = (pierce, pierce_left) {
+            pierce.0 = left;
+        }
+
+        if despawn {
+            to_despawn.push((
+                proj_e,
+                proj_pos,
+                *proj_team,
+                proj.source,
+                hazard.copied(),
+                split.copied(),
+                proj_vel.0,
+                proj.explosive,
+                proj.damage,
+            ));
         }
     }
 
-    for e in processed {
+    for (e, pos, team, source, hazard, split, dir, explosive, damage) in to_despawn {
+        on_projectile_removed(
+            &mut commands,
+            pos,
+            team,
+            source,
+            hazard,
+            split,
+            dir,
+            explosive,
+            damage,
+        );
         commands.entity(e).despawn();
     }
 }

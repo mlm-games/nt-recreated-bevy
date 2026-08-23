@@ -477,8 +477,9 @@ pub fn player_ability(
             }
             commands.spawn((
                 LevelCleanup,
+                AbilityHazard,
                 HazardCloud {
-                    kind: HazardKind::Fire,
+                    kind: HazardKind::Toxic,
                     radius: 28.0,
                     damage: 1,
                     timer: Timer::from_seconds(0.8, TimerMode::Once),
@@ -583,6 +584,7 @@ pub fn player_ability(
             let spot = pos + aim.0.normalize_or_zero() * 48.0;
             commands.spawn((
                 LevelCleanup,
+                AbilityHazard,
                 HazardCloud {
                     kind: HazardKind::Toxic,
                     radius: 70.0,
@@ -1032,6 +1034,7 @@ pub fn spawn_player_projectile_with_source(
     }
     if pierce > 0 {
         ec.insert(PiercesLeft(pierce));
+        ec.insert(ProjectileHitSet::default());
     }
     if let Some(spec) = hazard {
         ec.insert(SpawnHazardOnDeath(spec));
@@ -1131,10 +1134,13 @@ pub fn tick_portal_strikes(
     }
 }
 
+/// Ability residual clouds (Frog puke, Horror beam residue).
+/// Must NOT touch weapon clouds (`With<Team>`, no AbilityHazard) — those are
+/// handled by `combat::tick_hazard_clouds`.
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut q: Query<(Entity, &Transform, &mut HazardCloud)>,
+    mut q: Query<(Entity, &Transform, &mut HazardCloud), (With<AbilityHazard>, Without<Team>)>,
     mut enemies: Query<(&Transform, &mut Health), With<Enemy>>,
 ) {
     for (e, tf, mut cloud) in &mut q {
@@ -1185,6 +1191,7 @@ pub fn ally_ai(
             tf.translation += (vel.0 * time.delta_secs()).extend(0.0);
             if ally.shoot.just_finished() {
                 commands.spawn((
+                    GameCleanup,
                     LevelCleanup,
                     Projectile {
                         damage: 2,

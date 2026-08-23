@@ -230,6 +230,19 @@ pub fn collect_pickups(
                 let slot = inv.ammo_mut(ammo);
                 let gained = (amount + fish_bonus).min(cap - *slot).max(0);
                 *slot += gained;
+
+                // Robot FreeAmmo: ammo pickups restore a little HP.
+                if player.free_ammo && gained > 0 {
+                    let heal = 1;
+                    health.hp = (health.hp + heal).min(health.max);
+                    VfxSpawner::spawn_damage_number(
+                        &mut commands,
+                        heal,
+                        player_pos,
+                        Color::srgb(0.55, 0.85, 0.95),
+                    );
+                }
+
                 VfxSpawner::spawn_damage_number(
                     &mut commands,
                     gained,
@@ -299,6 +312,10 @@ pub fn collect_pickups(
                                 *slot = (*slot + ammo_pickup_amount(ammo) * 3).min(cap);
                                 total += 1;
                             }
+                        }
+                        // Robot FreeAmmo: a lighter heal from ammo chests.
+                        if player.free_ammo && total > 0 {
+                            health.hp = (health.hp + 2).min(health.max);
                         }
                         toast.show(if total > 0 {
                             "Ammo refilled"

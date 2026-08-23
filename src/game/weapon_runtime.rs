@@ -528,3 +528,67 @@ mod tests {
         assert!(def.split.is_some());
     }
 }
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn disc_gun_has_bounces() {
+        let d = weapon_runtime_def(WeaponId(18));
+        assert!(d.bounces >= 6);
+        assert!(d.split.is_none());
+    }
+
+    #[test]
+    fn super_disc_has_more_bounces() {
+        let d = weapon_runtime_def(WeaponId(104));
+        assert!(d.bounces >= 12);
+    }
+
+    #[test]
+    fn lightning_rifle_pierces() {
+        let d = weapon_runtime_def(WeaponId(58));
+        assert!(d.pierce >= 2);
+    }
+
+    #[test]
+    fn flak_splits_on_death() {
+        let d = weapon_runtime_def(WeaponId(38));
+        assert!(d.split.is_some());
+        assert!(d.explosive);
+    }
+
+    #[test]
+    fn super_flak_splits_more() {
+        let d = weapon_runtime_def(WeaponId(60));
+        let s = d.split.expect("super flak split");
+        assert!(s.pellets >= 10);
+    }
+
+    #[test]
+    fn toxic_launcher_leaves_hazard() {
+        let d = weapon_runtime_def(WeaponId(72));
+        let h = d.hazard.expect("toxic hazard");
+        assert!(matches!(h.kind, HazardKind::Toxic));
+        assert!(h.duration > 1.0);
+    }
+
+    #[test]
+    fn flame_weapons_leave_fire() {
+        for id in [73u8, 74, 76, 77] {
+            let d = weapon_runtime_def(WeaponId(id));
+            let h = d
+                .hazard
+                .unwrap_or_else(|| panic!("id {id} missing fire hazard"));
+            assert!(matches!(h.kind, HazardKind::Fire), "id {id}");
+        }
+    }
+
+    #[test]
+    fn blood_cannon_splits() {
+        let d = weapon_runtime_def(WeaponId(107));
+        assert!(d.split.is_some());
+        assert!(d.explosive);
+    }
+}
