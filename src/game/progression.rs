@@ -54,6 +54,7 @@ pub fn setup_run(
     commands.remove_resource::<PendingMutation>();
     commands.remove_resource::<PendingUltra>();
     commands.insert_resource(LoopTransition::default());
+    commands.insert_resource(crate::game::ambience::AreaAudioState::default());
     commands.insert_resource(MutationChoice(None));
     commands.insert_resource(ScarierFace(false));
     commands.insert_resource(Euphoria(false));

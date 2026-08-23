@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Resource, Default, Clone)]
 pub struct AssetCatalog {
     pub images: HashSet<String>,
+    /// Audio files (music/ambience candidates), keyed by asset path.
+    pub audio: HashSet<String>,
     /// Strip metadata from assets/images/anims.json (name -> frames/w/h/fps).
     pub anims: HashMap<String, [f32; 4]>,
 }
@@ -40,6 +42,32 @@ impl AssetCatalog {
                  tools/gen_assets.py` to import original art."
             );
         }
+        // Index audio files (ogg/wav/mp3/flac) under top-level asset dirs,
+        // storing asset-relative paths like "audio/music/desert.ogg". Music is
+        // optional content: an empty set is fine and every cue stays silent.
+        let mut audio = HashSet::new();
+        const AUDIO_EXTS: [&str; 4] = ["ogg", "wav", "mp3", "flac"];
+        for entry in std::fs::read_dir("assets").into_iter().flatten() {
+            let Ok(dir) = entry else {
+                continue;
+            };
+            let sub = dir.file_name().to_string_lossy().to_string();
+            if !matches!(
+                sub.as_str(),
+                "audio" | "sounds" | "music" | "ambient" | "ambience"
+            ) {
+                continue;
+            }
+            for f in std::fs::read_dir(dir.path()).into_iter().flatten() {
+                let Ok(f) = f else { continue };
+                let name = f.file_name().to_string_lossy().to_string();
+                let ext = name.rsplit('.').next().unwrap_or("");
+                if AUDIO_EXTS.contains(&ext) {
+                    audio.insert(format!("{sub}/{name}"));
+                }
+            }
+        }
+
         let mut anims = HashMap::new();
         if let Ok(txt) = std::fs::read_to_string("assets/images/anims.json")
             && let Ok(raw) = serde_json::from_str::<HashMap<String, HashMap<String, f32>>>(&txt)
@@ -58,11 +86,21 @@ impl AssetCatalog {
             }
         }
         info!(
-            "AssetCatalog: {} sprites, {} anim strips",
+            "AssetCatalog: {} sprites, {} anim strips, {} audio files",
             images.len(),
-            anims.len()
+            anims.len(),
+            audio.len()
         );
-        Self { images, anims }
+        Self {
+            images,
+            audio,
+            anims,
+        }
+    }
+
+    /// Whether an audio file exists at this asset path.
+    pub fn has_audio(&self, path: &str) -> bool {
+        self.audio.contains(path)
     }
 
     /// Strip metadata for an animated sprite, if any.

@@ -1,6 +1,7 @@
 //! The Nuclear Throne-style game module. Built entirely on the template's
 //! ecosystem (game-utils / game-utils-bevy) with placeholder sprites and
 
+pub mod ambience;
 pub mod anim;
 pub mod areas;
 pub mod audio;
@@ -59,6 +60,7 @@ impl Plugin for GamePlugin {
             .init_resource::<secret_areas::SecretTriggers>()
             .init_resource::<idpd::IdpdRaidState>()
             .init_resource::<LoopTransition>()
+            .init_resource::<ambience::AreaAudioState>()
             .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
@@ -163,6 +165,14 @@ impl Plugin for GamePlugin {
                 )
                     .in_set(NtSimSet::Combat)
                     .run_if(gameplay_active),
+            )
+            .add_systems(
+                Update,
+                (
+                    ambience::sync_area_audio,
+                    ambience::tick_area_audio_fades,
+                    ambience::sync_area_audio_volumes.after(ambience::tick_area_audio_fades),
+                ),
             )
             .add_systems(Update, clear_input_when_inactive)
             .add_systems(OnExit(AppState::InGame), clear_input_pulses)
