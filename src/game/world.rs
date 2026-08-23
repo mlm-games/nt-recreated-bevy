@@ -481,43 +481,83 @@ fn populate(
                 }
             }
             2 => {
+                // Sewers: rats dominate, with maggots/freaks/bandits mixed in.
                 if rng.random::<f32>() * 9.0 < 1.0 {
                     let k = pick_kind(
                         &mut rng,
-                        &[EnemyKind::Freak, EnemyKind::Bandit, EnemyKind::Scorpion],
+                        &[
+                            EnemyKind::BigRat,
+                            EnemyKind::Freak,
+                            EnemyKind::Bandit,
+                            EnemyKind::Scorpion,
+                        ],
                     );
                     plan.enemies.push((k, center));
                 } else {
                     let k = pick_kind(
                         &mut rng,
                         &[
+                            EnemyKind::Rat,
+                            EnemyKind::Rat,
+                            EnemyKind::Rat,
                             EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Maggot,
-                            EnemyKind::Bandit,
-                        ],
-                    );
-                    plan.enemies.push((k, center));
-                }
-            }
-            _ => {
-                if rng.random::<f32>() * 4.0 < 3.0 {
-                    let k = pick_kind(
-                        &mut rng,
-                        &[
-                            EnemyKind::Bandit,
-                            EnemyKind::Assassin,
-                            EnemyKind::Scorpion,
                             EnemyKind::Freak,
+                            EnemyKind::Bandit,
                         ],
                     );
                     plan.enemies.push((k, center));
                 }
             }
+            3 => {
+                // Scrapyards: robot guards, turrets, assassins.
+                let k = pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::RobotGuard,
+                        EnemyKind::RobotGuard,
+                        EnemyKind::Assassin,
+                        EnemyKind::Turret,
+                        EnemyKind::Bandit,
+                    ],
+                );
+                plan.enemies.push((k, center));
+            }
+            4 => {
+                // Crystal Caves: reuse assassin/freak/scorpion until crystal
+                // sprites are wired into the catalog.
+                let k = pick_kind(
+                    &mut rng,
+                    &[EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion],
+                );
+                plan.enemies.push((k, center));
+            }
+            5 => {
+                // Frozen City: snow bandits and wolves.
+                let k = pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::SnowBandit,
+                        EnemyKind::SnowBandit,
+                        EnemyKind::Wolf,
+                        EnemyKind::Assassin,
+                    ],
+                );
+                plan.enemies.push((k, center));
+            }
+            6 | 7 => {
+                // Labs / Palace: mixed late-game garrisons.
+                let k = pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::RobotGuard,
+                        EnemyKind::Assassin,
+                        EnemyKind::Freak,
+                        EnemyKind::Turret,
+                    ],
+                );
+                plan.enemies.push((k, center));
+            }
+            _ => {}
         }
     }
 
@@ -831,10 +871,12 @@ pub fn is_boss_floor(floor: u32) -> bool {
 
 pub fn boss_for_floor(floor: u32) -> EnemyKind {
     let rf = ((floor.max(1) - 1) % 15) + 1;
-    if rf == 15 {
-        EnemyKind::Throne
-    } else {
-        EnemyKind::BigBandit
+    match rf {
+        3 => EnemyKind::BigBandit,
+        7 => EnemyKind::BigDog,
+        11 => EnemyKind::LilHunter,
+        15 => EnemyKind::Throne,
+        _ => EnemyKind::BigBandit,
     }
 }
 
@@ -941,6 +983,17 @@ mod tests {
             game_over: false,
             total_kills: 0,
         }
+    }
+
+    #[test]
+    fn bosses_map_to_area_ends() {
+        assert_eq!(boss_for_floor(3), EnemyKind::BigBandit);
+        assert_eq!(boss_for_floor(7), EnemyKind::BigDog);
+        assert_eq!(boss_for_floor(11), EnemyKind::LilHunter);
+        assert_eq!(boss_for_floor(15), EnemyKind::Throne);
+        // Loops repeat the same roster.
+        assert_eq!(boss_for_floor(18), EnemyKind::BigBandit);
+        assert_eq!(boss_for_floor(22), EnemyKind::BigDog);
     }
 
     #[test]

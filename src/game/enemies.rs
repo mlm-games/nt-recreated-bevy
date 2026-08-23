@@ -173,15 +173,21 @@ pub fn enemy_ai(
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
-        // Big Bandit charge: telegraph -> dash -> cooldown.
-        if enemy.kind == EnemyKind::BigBandit {
+        // Charge bosses: telegraph -> dash -> cooldown. Big Bandit / Big Dog
+        // dash long; Lil Hunter dashes shorter and more often.
+        let dash_cfg = match enemy.kind {
+            EnemyKind::BigBandit | EnemyKind::BigDog => Some((0.33_f32, 1.2_f32)),
+            EnemyKind::LilHunter => Some((0.2_f32, 0.9_f32)),
+            _ => None,
+        };
+        if let Some((dash_secs, cd_base)) = dash_cfg {
             if brain.dash > 0.0 {
                 brain.dash -= dt;
                 if brain.dash <= 0.0 {
                     brain.dash = 0.0;
                     brain.telegraph = 0.0;
                     brain.dash_cooldown = Timer::from_seconds(
-                        1.2 + rand::rng().random_range(0.0..0.6),
+                        cd_base + rand::rng().random_range(0.0..0.6),
                         TimerMode::Once,
                     );
                 }
@@ -189,7 +195,7 @@ pub fn enemy_ai(
                 brain.telegraph -= dt;
                 if brain.telegraph <= 0.0 {
                     brain.telegraph = 0.0;
-                    brain.dash = 0.33;
+                    brain.dash = dash_secs;
                     screen_effects::add_charge_trauma(&mut trauma);
                 }
             } else {
@@ -223,13 +229,18 @@ pub fn enemy_ai(
         }
 
         let target = (desired + strafe).normalize_or_zero();
-        vel.0 += target * brain.accel * dt;
+        // Stationary emplacements (Turret) never move but still fire below.
+        if brain.speed > 0.0 {
+            vel.0 += target * brain.accel * dt;
 
-        if vel.0.length() > speed {
-            vel.0 = vel.0.normalize() * speed;
+            if vel.0.length() > speed {
+                vel.0 = vel.0.normalize() * speed;
+            }
+            vel.0 *= 0.90_f32.powf(dt * 60.0);
+            tf.translation += (vel.0 * dt).extend(0.0);
+        } else {
+            vel.0 = Vec2::ZERO;
         }
-        vel.0 *= 0.90_f32.powf(dt * 60.0);
-        tf.translation += (vel.0 * dt).extend(0.0);
 
         resolve_prop_collision(&mut tf.translation, def.radius, &props);
         clamp_to_arena(&mut tf.translation, def.radius);
