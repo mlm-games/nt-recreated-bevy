@@ -1221,61 +1221,61 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::BigBandit => EnemyDef {
             name: "Big Bandit",
-            hp: 100,
-            speed: 24.0,
-            accel: 800.0,
+            hp: 85,
+            speed: 80.0,
+            accel: 1000.0,
             radius: 26.0,
-            size: 56.0,
-            color: Color::srgb(0.55, 0.1, 0.1),
+            size: 52.0,
+            color: Color::srgb(0.95, 0.25, 0.12),
             sprite: "images/sprBanditBossIdle.png",
-            score: 100,
-            touch_damage: 0,
-            rad_drop: 30,
-            drop_chance: 200,
-            weapon_chance: 0,
-            preferred_range: 180.0,
-            shoot_range: 240.0,
-            attack_cooldown: 1.1,
-            bullets_per_shot: 10,
-            burst: true,
-            burst_interval: 0.067,
-            fan_spread: 0.0,
-            projectile_speed: 240.0,
-            projectile_spread: 0.131,
+            score: 500,
+            touch_damage: 5,
+            rad_drop: 25,
+            drop_chance: 60,
+            weapon_chance: 8,
+            preferred_range: 170.0,
+            shoot_range: 560.0,
+            attack_cooldown: 1.15,
+            bullets_per_shot: 5,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.16,
+            projectile_speed: 165.0,
+            projectile_spread: 0.06,
             projectile_damage: 3,
-            projectile_radius: 5.0,
-            projectile_lifetime: 2.5,
-            projectile_color: Color::srgb(1.0, 0.5, 0.1),
-            projectile_size: 10.0,
+            projectile_radius: 4.5,
+            projectile_lifetime: 3.2,
+            projectile_color: Color::srgb(1.0, 0.28, 0.08),
+            projectile_size: 8.0,
             boss: true,
         },
         EnemyKind::Throne => EnemyDef {
-            name: "Throne",
-            hp: 900,
-            speed: 40.0,
-            accel: 220.0,
-            radius: 34.0,
-            size: 72.0,
-            color: Color::srgb(0.15, 0.25, 0.45),
+            name: "The Throne",
+            hp: 320,
+            speed: 0.0,
+            accel: 650.0,
+            radius: 44.0,
+            size: 88.0,
+            color: Color::srgb(1.0, 0.78, 0.25),
             sprite: "images/sprThroneStatue.png",
-            score: 200,
-            touch_damage: 5,
-            rad_drop: 40,
-            drop_chance: 200,
-            weapon_chance: 0,
-            preferred_range: 260.0,
-            shoot_range: 460.0,
-            attack_cooldown: 2.1,
-            bullets_per_shot: 12,
+            score: 5000,
+            touch_damage: 10,
+            rad_drop: 100,
+            drop_chance: 100,
+            weapon_chance: 25,
+            preferred_range: 0.0,
+            shoot_range: 999.0,
+            attack_cooldown: 0.7,
+            bullets_per_shot: 7,
             burst: false,
             burst_interval: 0.0,
-            fan_spread: std::f32::consts::TAU,
-            projectile_speed: 105.0,
-            projectile_spread: 0.175,
-            projectile_damage: 2,
-            projectile_radius: 6.0,
-            projectile_lifetime: 3.5,
-            projectile_color: Color::srgb(0.5, 0.7, 1.0),
+            fan_spread: 0.1,
+            projectile_speed: 210.0,
+            projectile_spread: 0.0,
+            projectile_damage: 3,
+            projectile_radius: 5.5,
+            projectile_lifetime: 3.0,
+            projectile_color: Color::srgb(1.0, 0.75, 0.25),
             projectile_size: 9.0,
             boss: true,
         },
@@ -1461,62 +1461,62 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::BigDog => EnemyDef {
             name: "Big Dog",
-            hp: 160,
-            speed: 60.0,
-            accel: 1200.0,
-            radius: 24.0,
-            size: 52.0,
-            color: Color::srgb(0.5, 0.3, 0.2),
+            hp: 180,
+            speed: 40.0,
+            accel: 700.0,
+            radius: 36.0,
+            size: 72.0,
+            color: Color::srgb(0.65, 0.65, 0.7),
             sprite: "images/sprDogGuardianWalk.png",
-            score: 100,
-            touch_damage: 0,
-            rad_drop: 30,
-            drop_chance: 200,
-            weapon_chance: 0,
-            preferred_range: 140.0,
-            shoot_range: 380.0,
-            attack_cooldown: 1.25,
+            score: 1200,
+            touch_damage: 6,
+            rad_drop: 45,
+            drop_chance: 80,
+            weapon_chance: 15,
+            preferred_range: 240.0,
+            shoot_range: 999.0,
+            attack_cooldown: 0.8,
             bullets_per_shot: 5,
             burst: false,
             burst_interval: 0.0,
-            fan_spread: 0.15,
-            projectile_speed: 230.0,
-            projectile_spread: 0.06,
+            fan_spread: 0.12,
+            projectile_speed: 190.0,
+            projectile_spread: 0.03,
             projectile_damage: 3,
-            projectile_radius: 5.0,
+            projectile_radius: 6.0,
             projectile_lifetime: 2.6,
-            projectile_color: Color::srgb(1.0, 0.55, 0.15),
-            projectile_size: 10.0,
+            projectile_color: Color::srgb(1.0, 0.42, 0.12),
+            projectile_size: 9.0,
             boss: true,
         },
         EnemyKind::LilHunter => EnemyDef {
             name: "Lil Hunter",
-            hp: 150,
-            speed: 70.0,
-            accel: 1000.0,
-            radius: 16.0,
-            size: 34.0,
-            color: Color::srgb(0.85, 0.9, 1.0),
+            hp: 140,
+            speed: 130.0,
+            accel: 1100.0,
+            radius: 20.0,
+            size: 40.0,
+            color: Color::srgb(0.55, 0.85, 1.0),
             sprite: "images/sprLilHunter.png",
-            score: 100,
-            touch_damage: 0,
-            rad_drop: 24,
-            drop_chance: 200,
-            weapon_chance: 0,
-            preferred_range: 170.0,
-            shoot_range: 430.0,
-            attack_cooldown: 1.0,
+            score: 1500,
+            touch_damage: 5,
+            rad_drop: 40,
+            drop_chance: 85,
+            weapon_chance: 20,
+            preferred_range: 190.0,
+            shoot_range: 640.0,
+            attack_cooldown: 0.55,
             bullets_per_shot: 2,
             burst: true,
             burst_interval: 0.12,
             fan_spread: 0.0,
-            projectile_speed: 240.0,
-            projectile_spread: 0.1,
-            projectile_damage: 4,
-            projectile_radius: 5.0,
-            projectile_lifetime: 2.8,
-            projectile_color: Color::srgb(0.6, 0.85, 1.0),
-            projectile_size: 9.0,
+            projectile_speed: 245.0,
+            projectile_spread: 0.04,
+            projectile_damage: 3,
+            projectile_radius: 4.0,
+            projectile_lifetime: 2.3,
+            projectile_color: Color::srgb(0.6, 0.95, 1.0),
+            projectile_size: 7.0,
             boss: true,
         },
     }
@@ -2106,5 +2106,52 @@ mod mutation_pool_tests {
         let choices = ultra_choices_for(RaceId::Random);
         assert_eq!(choices[0], UltraMutationId::FishGunWarrant);
         assert_eq!(choices[1], UltraMutationId::FishConfiscate);
+    }
+}
+
+#[cfg(test)]
+mod boss_def_tests {
+    use super::*;
+
+    #[test]
+    fn known_bosses_are_marked_boss() {
+        for kind in [
+            EnemyKind::BigBandit,
+            EnemyKind::BigDog,
+            EnemyKind::LilHunter,
+            EnemyKind::Throne,
+        ] {
+            assert!(enemy_def(kind).boss, "{kind:?} should be boss");
+        }
+    }
+
+    #[test]
+    fn throne_is_stationary_shooter() {
+        let def = enemy_def(EnemyKind::Throne);
+        assert!(def.shoot_range >= 900.0);
+        assert!(def.hp >= 300);
+    }
+
+    #[test]
+    fn big_dog_has_fan_attack_data() {
+        let def = enemy_def(EnemyKind::BigDog);
+        assert!(def.bullets_per_shot >= 5);
+        assert!(def.fan_spread > 0.0);
+        assert!(def.hp >= 150);
+    }
+
+    #[test]
+    fn lil_hunter_is_mobile_burst_boss() {
+        let def = enemy_def(EnemyKind::LilHunter);
+        assert!(def.speed >= 100.0);
+        assert!(def.burst);
+        assert!(def.attack_cooldown <= 0.75);
+    }
+
+    #[test]
+    fn big_bandit_charge_boss_has_contact_damage() {
+        let def = enemy_def(EnemyKind::BigBandit);
+        assert!(def.touch_damage >= 5);
+        assert!(def.shoot_range >= 500.0);
     }
 }

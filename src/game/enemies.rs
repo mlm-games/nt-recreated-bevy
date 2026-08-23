@@ -89,12 +89,7 @@ pub fn spawn_enemy(
             ),
             burst_left: 0,
             burst_timer: ready_timer(),
-            telegraph: 0.0,
             dash: 0.0,
-            dash_cooldown: Timer::from_seconds(
-                1.2 + rand::rng().random_range(0.0..0.6),
-                TimerMode::Once,
-            ),
             strafe_dir: if rand::rng().random_bool(0.5) {
                 1.0
             } else {
@@ -119,6 +114,10 @@ pub fn spawn_enemy(
     }
     let e = ec.id();
 
+    if def.boss {
+        commands.entity(e).insert(BossBrain::new(kind, pos));
+    }
+
     Juice::pop_in(commands, e, 0.18);
 }
 
@@ -131,7 +130,7 @@ fn ready_timer() -> Timer {
 pub fn enemy_ai(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
+    mut _trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
     mask: Res<FloorMask>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
@@ -142,6 +141,7 @@ pub fn enemy_ai(
             &mut Velocity,
             &mut Transform,
             &mut Sprite,
+            Option<&BossBrain>,
         ),
         (With<Enemy>, Without<Prop>),
     >,
@@ -160,10 +160,10 @@ pub fn enemy_ai(
     // Pairwise separation to avoid enemy stacking.
     let positions: Vec<Vec2> = enemies
         .iter()
-        .map(|(_, _, _, tf, _)| tf.translation.truncate())
+        .map(|(_, _, _, tf, _, _)| tf.translation.truncate())
         .collect();
 
-    for (enemy, mut brain, mut vel, mut tf, mut sprite) in &mut enemies {
+    for (enemy, mut brain, mut vel, mut tf, mut sprite, boss) in &mut enemies {
         let pos = tf.translation.truncate();
         let to_player = player_pos - pos;
         let dist = to_player.length();
@@ -171,41 +171,14 @@ pub fn enemy_ai(
 
         let def = enemy_def(enemy.kind);
 
+        // Bosses are handled by `boss_ai`; keeping them in the generic
+        // ranged/chase loop double-fires and fights their bespoke phases.
+        if boss.is_some() {
+            continue;
+        }
+
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
-
-        // Charge bosses: telegraph -> dash -> cooldown. Big Bandit / Big Dog
-        // dash long; Lil Hunter dashes shorter and more often.
-        let dash_cfg = match enemy.kind {
-            EnemyKind::BigBandit | EnemyKind::BigDog => Some((0.33_f32, 1.2_f32)),
-            EnemyKind::LilHunter => Some((0.2_f32, 0.9_f32)),
-            _ => None,
-        };
-        if let Some((dash_secs, cd_base)) = dash_cfg {
-            if brain.dash > 0.0 {
-                brain.dash -= dt;
-                if brain.dash <= 0.0 {
-                    brain.dash = 0.0;
-                    brain.telegraph = 0.0;
-                    brain.dash_cooldown = Timer::from_seconds(
-                        cd_base + rand::rng().random_range(0.0..0.6),
-                        TimerMode::Once,
-                    );
-                }
-            } else if brain.telegraph > 0.0 {
-                brain.telegraph -= dt;
-                if brain.telegraph <= 0.0 {
-                    brain.telegraph = 0.0;
-                    brain.dash = dash_secs;
-                    screen_effects::add_charge_trauma(&mut trauma);
-                }
-            } else {
-                brain.dash_cooldown.tick(time.delta());
-                if brain.dash_cooldown.just_finished() && dist < def.shoot_range {
-                    brain.telegraph = 0.25;
-                }
-            }
-        }
 
         let dashing = brain.dash > 0.0;
         let speed = if dashing { 600.0 } else { brain.speed };
@@ -288,13 +261,6 @@ pub fn enemy_ai(
                 }
             }
         }
-    }
-}
-
-mod screen_effects {
-    use super::*;
-    pub fn add_charge_trauma(trauma: &mut ResMut<game_utils_bevy::screen_effects::Trauma>) {
-        game_utils_bevy::screen_effects::ScreenEffects::add_trauma(trauma, 0.12);
     }
 }
 

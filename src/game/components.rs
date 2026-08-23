@@ -596,12 +596,66 @@ pub struct EnemyBrain {
     pub attack: Timer,
     pub burst_left: usize,
     pub burst_timer: Timer,
-    pub telegraph: f32,
     pub dash: f32,
-    pub dash_cooldown: Timer,
     pub strafe_dir: f32,
     pub strafe_timer: Timer,
     pub melee: Timer,
+}
+
+// --- Boss AI (see boss_ai.rs) -----------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BossPhase {
+    Idle,
+    Telegraph,
+    Charging,
+    Cooldown,
+    Jumping,
+    Landing,
+    Radial,
+    Beam,
+}
+
+/// Phase state machine driving the bespoke boss behaviors in `boss_ai`.
+#[derive(Component)]
+pub struct BossBrain {
+    pub phase: BossPhase,
+    pub phase_timer: Timer,
+    pub attack_timer: Timer,
+    pub special_timer: Timer,
+    pub pattern_index: usize,
+    pub home: Vec2,
+    pub target: Vec2,
+    pub enraged: bool,
+}
+
+impl BossBrain {
+    pub fn new(kind: EnemyKind, spawn: Vec2) -> Self {
+        let (attack, special) = match kind {
+            EnemyKind::BigBandit => (1.15, 2.8),
+            EnemyKind::BigDog => (0.8, 2.2),
+            EnemyKind::LilHunter => (0.55, 1.7),
+            EnemyKind::Throne => (0.7, 2.5),
+            _ => (1.2, 3.0),
+        };
+
+        Self {
+            phase: BossPhase::Idle,
+            phase_timer: Timer::from_seconds(0.1, TimerMode::Once),
+            attack_timer: Timer::from_seconds(attack, TimerMode::Repeating),
+            special_timer: Timer::from_seconds(special, TimerMode::Repeating),
+            pattern_index: 0,
+            home: spawn,
+            target: spawn,
+            enraged: false,
+        }
+    }
+
+    pub fn set_phase(&mut self, phase: BossPhase, seconds: f32) {
+        self.phase = phase;
+        self.phase_timer = Timer::from_seconds(seconds.max(0.01), TimerMode::Once);
+        self.phase_timer.reset();
+    }
 }
 
 #[derive(Component)]

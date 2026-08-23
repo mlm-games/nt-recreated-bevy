@@ -4,6 +4,8 @@
 pub mod anim;
 pub mod areas;
 pub mod audio;
+pub mod boss_ai;
+pub mod boss_patterns;
 pub mod combat;
 pub mod components;
 pub mod content;
@@ -97,6 +99,7 @@ impl Plugin for GamePlugin {
                         player_sys::tick_hazard_clouds,
                         player_sys::ally_ai,
                         enemies::enemy_ai,
+                        boss_ai::boss_ai,
                         combat::tick_homing_projectiles,
                         combat::tick_sticky_projectiles,
                         combat::tick_beams,
