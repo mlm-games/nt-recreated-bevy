@@ -47,7 +47,10 @@ impl AmmoType {
 }
 
 /// Complete weapon descriptor. Field names preserve original GML `wep_*` naming.
+/// Generated registry: several fields exist for reference parity and future
+/// consumers (pickup sprites/sounds, ultra rad gating) and are not all read yet.
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub struct WeaponData {
     pub id: u8, // GML index 0..128
     pub wep_name: &'static str,

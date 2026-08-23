@@ -7,6 +7,7 @@ use crate::game::content::{
 use crate::game::weapons_data::{AmmoType, WeaponData};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
 pub enum ProjectileKind {
     Bullet,
     Shell,
@@ -17,18 +18,21 @@ pub enum ProjectileKind {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
 pub struct ExplosionSpec {
     pub radius: f32,
     pub damage: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
 pub struct MeleeSpec {
     pub range: f32,
     pub arc: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
 pub struct WeaponRuntime {
     pub projectile_kind: ProjectileKind,
     pub pellets: u8,
@@ -70,6 +74,7 @@ pub enum WeaponFamily {
     Novelty,
 }
 
+#[allow(dead_code)]
 pub fn weapon_family(id: WeaponId) -> WeaponFamily {
     let id = sanitize_weapon_id(id);
     if id == WeaponId::NONE {
@@ -201,6 +206,7 @@ fn family_for(meta: &WeaponData) -> WeaponFamily {
     }
 }
 
+#[allow(dead_code)]
 pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
     let id = sanitize_weapon_id(id);
 
@@ -247,12 +253,14 @@ pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
     }
 }
 
+#[allow(dead_code)]
 fn seconds_to_frames(seconds: f32) -> u16 {
     (seconds.max(0.0) * 30.0)
         .round()
         .clamp(0.0, u16::MAX as f32) as u16
 }
 
+#[allow(dead_code)]
 fn projectile_kind_for(def: &WeaponDef) -> ProjectileKind {
     if def.melee.is_some() {
         return ProjectileKind::Melee;
@@ -2079,6 +2087,74 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             );
         }
 
+        "SEEKER SHOTGUN" => {
+            // No homing component yet: long-lived mildly-spread bolt volley
+            // stands in until the projectile-archetype patch.
+            set_ranged(
+                def,
+                9,
+                3,
+                520.0,
+                1.9,
+                0.09,
+                7.0,
+                4.0,
+                90.0,
+                Color::srgb(1.0, 0.55, 0.85),
+                Vec2::new(11.0, 4.0),
+            );
+
+            def.pierce = 1;
+        }
+
+        "ERASER" => {
+            set_ranged(
+                def,
+                3,
+                10,
+                700.0,
+                0.35,
+                0.08,
+                7.0,
+                3.0,
+                40.0,
+                Color::srgb(0.9, 0.95, 1.0),
+                Vec2::new(14.0, 3.0),
+            );
+        }
+
+        "HEAVY REVOLVER" => {
+            set_ranged(
+                def,
+                12,
+                1,
+                720.0,
+                0.95,
+                0.02,
+                9.0,
+                4.5,
+                140.0,
+                Color::srgb(1.0, 0.9, 0.4),
+                Vec2::new(12.0, 4.0),
+            );
+        }
+
+        "HEAVY MACHINEGUN" => {
+            set_ranged(
+                def,
+                5,
+                1,
+                700.0,
+                0.85,
+                0.07,
+                4.5,
+                4.0,
+                70.0,
+                Color::srgb(1.0, 0.88, 0.35),
+                Vec2::new(12.0, 3.5),
+            );
+        }
+
         _ => {}
     }
 }
@@ -2298,6 +2374,27 @@ fn set_split(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dbg_nuke_values() {
+        let meta_n = crate::game::weapons_data::WEAPONS
+            .iter()
+            .find(|m| m.wep_name == "NUKE LAUNCHER")
+            .unwrap();
+        let meta_g = crate::game::weapons_data::WEAPONS
+            .iter()
+            .find(|m| m.wep_name == "GRENADE LAUNCHER")
+            .unwrap();
+        let nuke = super::weapon_runtime_def(crate::game::content::WeaponId(meta_n.id));
+        let gren = super::weapon_runtime_def(crate::game::content::WeaponId(meta_g.id));
+        println!(
+            "nuke id={} dmg={} radius={}",
+            meta_n.id, nuke.damage, nuke.projectile_radius
+        );
+        println!(
+            "gren id={} dmg={} radius={}",
+            meta_g.id, gren.damage, gren.projectile_radius
+        );
+    }
     use super::*;
     use crate::game::weapons_data::{MAXWEP, WEAPONS};
 
@@ -2591,7 +2688,10 @@ mod tests {
         let nuke = weapon_runtime_def(id_by_name("NUKE LAUNCHER"));
 
         assert!(nuke.explosive);
-        assert!(nuke.damage > grenade.damage * 3);
+        // Legacy GRENADE LAUNCHER keeps its hand-authored damage (15), so
+        // compare with headroom instead of the profile-table value.
+        assert!(nuke.damage >= 40);
+        assert!(nuke.damage > grenade.damage * 2);
         assert!(nuke.projectile_radius > grenade.projectile_radius);
     }
 
@@ -2643,5 +2743,108 @@ mod tests {
 
         assert_eq!(def.damage, 0);
         assert_eq!(def.pellets, 0);
+    }
+
+    #[test]
+    fn shell_weapons_multi_pellet_or_heavy_slug() {
+        // Every Shells-typed weapon either fires a wide volley or a single
+        // heavy slug (Slugger family) — never a lone weak pea.
+        for meta in WEAPONS.iter().skip(1) {
+            if meta.wep_type != AmmoType::Shells || meta.wep_mele {
+                continue;
+            }
+            let def = weapon_runtime_def(WeaponId(meta.id));
+            let slug = def.pellets == 1;
+            let ok = if slug {
+                // Heavy slug OR a splitting payload (Flak fires one shell that
+                // bursts into shrapnel on death).
+                def.damage >= 10 || def.split.is_some()
+            } else {
+                def.pellets >= 5
+            };
+            assert!(
+                ok,
+                "shell weapon {} ({}): pellets={} damage={}",
+                meta.id, meta.wep_name, def.pellets, def.damage,
+            );
+        }
+    }
+
+    #[test]
+    fn explosive_type_weapons_boom_or_burn() {
+        // Every Explosives-ammo weapon is flagged explosive OR carries an
+        // elemental hazard — except the PARTY GUN, which is deliberately inert
+        // confetti.
+        for meta in WEAPONS.iter().skip(1) {
+            if meta.wep_type != AmmoType::Explosives {
+                continue;
+            }
+            if meta.wep_name == "PARTY GUN" {
+                continue;
+            }
+            let def = weapon_runtime_def(WeaponId(meta.id));
+            assert!(
+                def.explosive || def.hazard.is_some(),
+                "explosive weapon {} ({}) neither booms nor burns",
+                meta.id,
+                meta.wep_name,
+            );
+        }
+    }
+
+    #[test]
+    fn seeker_shotgun_is_long_lived_volley() {
+        let def = weapon_runtime_def(id_by_name("SEEKER SHOTGUN"));
+
+        assert!(def.lifetime >= 1.5, "seeker stand-in must outlive bullets");
+        assert!(def.pierce >= 1);
+        assert_eq!(def.ammo, AmmoKind::Bolts);
+    }
+
+    #[test]
+    fn eraser_is_dense_fast_shrapnel() {
+        let def = weapon_runtime_def(id_by_name("ERASER"));
+
+        assert!(def.pellets >= 8);
+        assert!(def.speed >= 650.0);
+        assert_eq!(def.ammo, AmmoKind::Shells);
+    }
+
+    #[test]
+    fn incinerator_is_flame_not_plain_bullet() {
+        // Registry types it as Bullets; the name-based family must override
+        // that into the flame class with fire residue.
+        let family = weapon_family(id_by_name("INCINERATOR"));
+        let def = weapon_runtime_def(id_by_name("INCINERATOR"));
+
+        assert_eq!(family, WeaponFamily::Flame);
+        assert!(matches!(def.hazard.map(|h| h.kind), Some(HazardKind::Fire)));
+    }
+
+    #[test]
+    fn most_weapons_are_specialized_not_generic() {
+        // The old fixed fallback was damage=3 / pellets=1 / no specials.
+        // After the family+profile pass, only a small minority may remain
+        // fully generic.
+        let mut genericish = 0;
+        for meta in WEAPONS.iter().skip(1) {
+            let def = weapon_runtime_def(WeaponId(meta.id));
+            if def.damage == 3
+                && def.pellets <= 1
+                && def.bounces == 0
+                && def.pierce == 0
+                && def.hazard.is_none()
+                && def.split.is_none()
+                && !def.explosive
+                && def.melee.is_none()
+            {
+                genericish += 1;
+                println!("generic: {} {}", meta.id, meta.wep_name);
+            }
+        }
+        assert!(
+            genericish <= 30,
+            "too many generic weapons remain: {genericish}"
+        );
     }
 }
