@@ -25,6 +25,25 @@ fn is_raid_suppressed_area(area: AreaId) -> bool {
     )
 }
 
+/// True for every enemy managed by the IDPD raid director.
+///
+/// Keep this centralized so the campfire gate, raid director, death effects,
+/// and future HQ logic cannot disagree about which units must be cleared.
+pub fn is_idpd_kind(kind: EnemyKind) -> bool {
+    matches!(
+        kind,
+        EnemyKind::IdpdGrunt | EnemyKind::IdpdShield | EnemyKind::IdpdElite | EnemyKind::IdpdVan
+    )
+}
+
+/// Whether the raid director may enqueue a brand-new warning/wave.
+///
+/// Existing pending waves are handled separately; this only answers whether
+/// the trigger condition may create another one.
+pub fn may_queue_new_raid(transition: &LoopTransition) -> bool {
+    !transition.blocks_new_idpd_raids()
+}
+
 pub fn should_trigger_idpd(
     run: &Run,
     enemies_alive: usize,
@@ -108,6 +127,7 @@ pub fn tick_idpd_raids(
     mut trauma: ResMut<Trauma>,
     mut raid: ResMut<IdpdRaidState>,
     run: Res<Run>,
+    transition: Res<LoopTransition>,
     player_q: Query<&Transform, With<Player>>,
     enemies_q: Query<(), With<Enemy>>,
     mut toast: ResMut<Toast>,
@@ -121,12 +141,25 @@ pub fn tick_idpd_raids(
     let enemies_alive = enemies_q.iter().count();
     let kills_since_checkpoint = run.total_kills.saturating_sub(raid.kills_checkpoint);
 
-    if should_trigger_idpd(
-        &run,
-        enemies_alive,
-        kills_since_checkpoint,
-        raid.pending_wave.is_some(),
-    ) && raid.cooldown.just_finished()
+    // Once Throne II has spawned — or after it dies while the loop portal is
+    // waiting — there must be no late warning left in the director. A pending
+    // warning during the campfire itself is intentionally retained: it was
+    // queued before the Throne died and is the alternate IDPD-clear path.
+    if transition.throne_ii_alive || transition.loop_ready {
+        raid.pending_wave = None;
+        return;
+    }
+
+    let may_queue = may_queue_new_raid(&transition);
+
+    if may_queue
+        && should_trigger_idpd(
+            &run,
+            enemies_alive,
+            kills_since_checkpoint,
+            raid.pending_wave.is_some(),
+        )
+        && raid.cooldown.just_finished()
     {
         let roll = ((run.gen_seed ^ run.total_kills as u64 ^ run.floor as u64) & 0xFF) as u8;
         let wave = choose_wave(run.loop_count, run.floor, roll);
@@ -134,6 +167,12 @@ pub fn tick_idpd_raids(
         raid.warning = Timer::from_seconds(1.25, TimerMode::Once);
         toast.show("IDPD INCOMING");
         ScreenEffects::add_trauma(&mut trauma, 0.12);
+        return;
+    }
+
+    // No new warning may begin during the campfire, but an already-pending
+    // warning is allowed to finish below (alternate IDPD-clear path).
+    if transition.campfire_active && raid.pending_wave.is_none() {
         return;
     }
 
@@ -480,6 +519,75 @@ mod tests {
         let player = Vec2::new(ARENA_W * 0.5 - 60.0, 0.0);
         let pts = edge_spawn_points_away_from(player);
         assert!(pts[0].distance_squared(player) >= pts[3].distance_squared(player));
+    }
+
+    #[test]
+    fn all_raid_units_are_classified_as_idpd() {
+        for kind in [
+            EnemyKind::IdpdGrunt,
+            EnemyKind::IdpdShield,
+            EnemyKind::IdpdElite,
+            EnemyKind::IdpdVan,
+        ] {
+            assert!(is_idpd_kind(kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn ordinary_enemies_are_not_classified_as_idpd() {
+        for kind in [
+            EnemyKind::Maggot,
+            EnemyKind::Bandit,
+            EnemyKind::BigBandit,
+            EnemyKind::BigDog,
+            EnemyKind::LilHunter,
+            EnemyKind::Throne,
+            EnemyKind::ThroneII,
+            EnemyKind::Hyper,
+        ] {
+            assert!(!is_idpd_kind(kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn normal_gameplay_allows_new_raids() {
+        let transition = LoopTransition::default();
+        assert!(may_queue_new_raid(&transition));
+    }
+
+    #[test]
+    fn campfire_blocks_new_raid_queueing() {
+        let mut transition = LoopTransition::default();
+        transition.begin_campfire();
+        assert!(!may_queue_new_raid(&transition));
+    }
+
+    #[test]
+    fn throne_ii_fight_blocks_new_raid_queueing() {
+        let mut transition = LoopTransition::default();
+        transition.begin_campfire();
+        transition.throne_ii_spawned();
+        assert!(!may_queue_new_raid(&transition));
+    }
+
+    #[test]
+    fn loop_ready_portal_wait_blocks_new_raid_queueing() {
+        let mut transition = LoopTransition::default();
+        transition.throne_ii_spawned();
+        transition.throne_ii_defeated();
+
+        assert!(transition.loop_ready);
+        assert!(!may_queue_new_raid(&transition));
+    }
+
+    #[test]
+    fn consuming_loop_ready_allows_future_raids() {
+        let mut transition = LoopTransition::default();
+        transition.throne_ii_spawned();
+        transition.throne_ii_defeated();
+
+        assert!(transition.consume_loop_ready());
+        assert!(may_queue_new_raid(&transition));
     }
 
     #[test]

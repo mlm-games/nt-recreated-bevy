@@ -622,15 +622,39 @@ pub enum RaidWave {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CampfirePhase {
+    /// Normal quiet campfire delay.
     Sitting,
+
+    /// An IDPD wave was already active or pending when the Throne died.
+    ///
+    /// The campfire remains active, portal opening stays blocked, and the
+    /// sequence only continues after every IDPD unit is gone.
+    WaitingForIdpd,
+
+    /// The fire is transforming into the Throne II spawn.
     Rising,
+
+    /// Short final delay before emitting PendingEnemySpawn.
     SpawnThroneII,
 }
 
 #[derive(Component)]
 pub struct CampfireState {
     pub phase: CampfirePhase,
+
+    /// Timer for the ordinary sitting/rising/spawn sequence.
     pub timer: Timer,
+
+    /// Short confirmation timer after the last IDPD disappears.
+    ///
+    /// This avoids advancing on the same fixed tick that a death was queued
+    /// through Commands but has not yet been fully observed by every system.
+    pub idpd_clear_confirm: Timer,
+
+    /// Records whether this interlude used the alternate IDPD-clear path.
+    /// It also prevents repeating the gate toast.
+    pub idpd_gate_armed: bool,
+
     pub spawned_throne_ii: bool,
 }
 
@@ -639,6 +663,8 @@ impl CampfireState {
         Self {
             phase: CampfirePhase::Sitting,
             timer: Timer::from_seconds(3.5, TimerMode::Once),
+            idpd_clear_confirm: Timer::from_seconds(0.35, TimerMode::Once),
+            idpd_gate_armed: false,
             spawned_throne_ii: false,
         }
     }
@@ -647,6 +673,16 @@ impl CampfireState {
         self.phase = phase;
         self.timer = Timer::from_seconds(seconds.max(0.01), TimerMode::Once);
         self.timer.reset();
+    }
+
+    pub fn arm_idpd_gate(&mut self) {
+        self.phase = CampfirePhase::WaitingForIdpd;
+        self.idpd_gate_armed = true;
+        self.idpd_clear_confirm.reset();
+    }
+
+    pub fn reset_idpd_clear_confirmation(&mut self) {
+        self.idpd_clear_confirm.reset();
     }
 }
 
@@ -665,6 +701,16 @@ pub struct LoopTransition {
 impl LoopTransition {
     pub fn blocks_portal(&self) -> bool {
         self.campfire_active || self.throne_ii_alive
+    }
+
+    /// Blocks creation of new IDPD raids during the post-Throne sequence.
+    ///
+    /// `loop_ready` is included because the portal is open at that point, but
+    /// starting another raid before the player enters it would make the loop
+    /// transition inconsistent. A wave already pending before the Throne died
+    /// is allowed to finish its warning and spawn.
+    pub fn blocks_new_idpd_raids(&self) -> bool {
+        self.campfire_active || self.throne_ii_alive || self.loop_ready
     }
 
     pub fn begin_campfire(&mut self) {

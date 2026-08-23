@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use crate::game::areas::{area_for_floor, route_coordinates};
 use crate::game::components::*;
 use crate::game::content::EnemyKind;
+use crate::game::idpd::is_idpd_kind;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
@@ -54,39 +55,128 @@ pub fn mark_throne_ii_defeated(toast: &mut Toast, trauma: &mut Trauma) {
     ScreenEffects::add_trauma(trauma, 0.35);
 }
 
-/// Campfire interlude: rest -> something stirs -> Throne II rises.
+/// The alternate campfire path is active while IDPD are alive or an already
+/// queued raid warning has not spawned yet.
+pub fn campfire_needs_idpd_clear(idpd_alive: usize, raid_pending: bool) -> bool {
+    idpd_alive > 0 || raid_pending
+}
+
+fn emit_campfire_embers(commands: &mut Commands, pos: Vec2, count: usize) {
+    VfxSpawner::spawn_burst(
+        commands,
+        pos,
+        count,
+        Color::srgb(1.0, 0.7, 0.35),
+        (20.0, 58.0),
+    );
+}
+
+fn start_campfire_rising(campfire: &mut CampfireState, toast: &mut Toast, trauma: &mut Trauma) {
+    campfire.set_phase(CampfirePhase::Rising, 1.15);
+    toast.show("SOMETHING STIRS...");
+    ScreenEffects::add_trauma(trauma, 0.18);
+}
+
+/// Campfire interlude:
+///
+/// - ordinary path: rest timer -> something stirs -> Throne II
+/// - alternate path: pending/living IDPD -> clear all IDPD -> Throne II
+///
+/// A short confirmation timer after the final IDPD disappears protects the
+/// transition from deferred-despawn ordering across fixed-update systems.
 pub fn tick_campfire(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut transition: ResMut<LoopTransition>,
+    raid: Res<IdpdRaidState>,
     mut trauma: ResMut<Trauma>,
     mut toast: ResMut<Toast>,
+    enemies: Query<&Enemy>,
     mut campfires: Query<(Entity, &Transform, &mut CampfireState), With<CampfireProp>>,
 ) {
-    for (entity, tf, mut campfire) in campfires.iter_mut() {
-        campfire.timer.tick(time.delta());
+    let idpd_alive = enemies
+        .iter()
+        .filter(|enemy| is_idpd_kind(enemy.kind))
+        .count();
+
+    let raid_pending = raid.pending_wave.is_some();
+    let needs_idpd_clear = campfire_needs_idpd_clear(idpd_alive, raid_pending);
+
+    for (_entity, tf, mut campfire) in campfires.iter_mut() {
+        let campfire_pos = tf.translation.truncate();
 
         match campfire.phase {
             CampfirePhase::Sitting => {
+                // A warning that started just before the Throne died — or IDPD
+                // that survived the fight — switches the interlude to the
+                // alternate clear-gated route.
+                if needs_idpd_clear {
+                    if !campfire.idpd_gate_armed {
+                        campfire.arm_idpd_gate();
+
+                        if idpd_alive > 0 {
+                            toast.show("CLEAR THE IDPD");
+                        }
+
+                        ScreenEffects::add_trauma(&mut trauma, 0.10);
+                    }
+
+                    emit_campfire_embers(&mut commands, campfire_pos, 2);
+                    continue;
+                }
+
+                campfire.timer.tick(time.delta());
+
                 if campfire.timer.elapsed_secs() % 0.35 < time.delta_secs() {
-                    VfxSpawner::spawn_burst(
-                        &mut commands,
-                        tf.translation.truncate(),
-                        2,
-                        Color::srgb(1.0, 0.7, 0.35),
-                        (20.0, 58.0),
-                    );
+                    emit_campfire_embers(&mut commands, campfire_pos, 2);
                 }
 
                 if campfire.timer.just_finished() {
-                    campfire.set_phase(CampfirePhase::Rising, 1.15);
-                    toast.show("SOMETHING STIRS...");
-                    ScreenEffects::add_trauma(&mut trauma, 0.18);
+                    start_campfire_rising(&mut campfire, &mut toast, &mut trauma);
+                }
+            }
+
+            CampfirePhase::WaitingForIdpd => {
+                // Deterministic ember pulse; the phase timer stays paused here.
+                if rand::random::<f32>() < time.delta_secs() * 5.0 {
+                    emit_campfire_embers(&mut commands, campfire_pos, 3);
+                }
+
+                if needs_idpd_clear {
+                    // Any newly observed IDPD — or a warning that has not yet
+                    // spawned — restarts the confirmation interval.
+                    campfire.reset_idpd_clear_confirmation();
+                    continue;
+                }
+
+                campfire.idpd_clear_confirm.tick(time.delta());
+
+                if campfire.idpd_clear_confirm.just_finished() {
+                    VfxSpawner::spawn_burst(
+                        &mut commands,
+                        campfire_pos,
+                        12,
+                        Color::srgb(0.55, 0.75, 1.0),
+                        (70.0, 190.0),
+                    );
+
+                    start_campfire_rising(&mut campfire, &mut toast, &mut trauma);
                 }
             }
 
             CampfirePhase::Rising => {
+                campfire.timer.tick(time.delta());
                 ScreenEffects::add_trauma(&mut trauma, 0.02);
+
+                if campfire.timer.elapsed_secs() % 0.12 < time.delta_secs() {
+                    VfxSpawner::spawn_burst(
+                        &mut commands,
+                        campfire_pos,
+                        4,
+                        Color::srgb(0.82, 0.45, 1.0),
+                        (60.0, 170.0),
+                    );
+                }
 
                 if campfire.timer.just_finished() {
                     campfire.set_phase(CampfirePhase::SpawnThroneII, 0.35);
@@ -94,6 +184,8 @@ pub fn tick_campfire(
             }
 
             CampfirePhase::SpawnThroneII => {
+                campfire.timer.tick(time.delta());
+
                 if !campfire.timer.just_finished() || campfire.spawned_throne_ii {
                     continue;
                 }
@@ -120,10 +212,11 @@ pub fn tick_campfire(
                     Color::srgb(0.82, 0.45, 1.0),
                     (150.0, 480.0),
                 );
+
                 ScreenEffects::add_trauma(&mut trauma, 0.45);
                 toast.show("THE THRONE RISES");
 
-                commands.entity(entity).despawn();
+                commands.entity(_entity).despawn();
             }
         }
     }
@@ -250,10 +343,52 @@ mod tests {
     }
 
     #[test]
-    fn campfire_state_starts_sitting() {
+    fn campfire_state_starts_on_timed_path() {
         let c = CampfireState::new();
         assert_eq!(c.phase, CampfirePhase::Sitting);
         assert!(!c.spawned_throne_ii);
+        assert!(!c.idpd_gate_armed);
         assert!(c.timer.duration().as_secs_f32() >= 3.0);
+        assert!(c.idpd_clear_confirm.duration().as_secs_f32() >= 0.3);
+    }
+
+    #[test]
+    fn campfire_gate_is_not_needed_when_room_is_clear() {
+        assert!(!campfire_needs_idpd_clear(0, false));
+    }
+
+    #[test]
+    fn campfire_gate_detects_living_idpd() {
+        assert!(campfire_needs_idpd_clear(1, false));
+        assert!(campfire_needs_idpd_clear(4, false));
+    }
+
+    #[test]
+    fn campfire_gate_detects_pending_warning() {
+        assert!(campfire_needs_idpd_clear(0, true));
+    }
+
+    #[test]
+    fn campfire_state_can_arm_idpd_gate() {
+        let mut c = CampfireState::new();
+        c.arm_idpd_gate();
+
+        assert_eq!(c.phase, CampfirePhase::WaitingForIdpd);
+        assert!(c.idpd_gate_armed);
+        assert!(!c.idpd_clear_confirm.is_finished());
+    }
+
+    #[test]
+    fn idpd_clear_confirmation_can_be_restarted() {
+        let mut c = CampfireState::new();
+        c.arm_idpd_gate();
+        c.idpd_clear_confirm.tick(std::time::Duration::from_secs(1));
+
+        assert!(c.idpd_clear_confirm.is_finished());
+
+        c.reset_idpd_clear_confirmation();
+
+        assert!(!c.idpd_clear_confirm.is_finished());
+        assert_eq!(c.idpd_clear_confirm.elapsed(), std::time::Duration::ZERO);
     }
 }

@@ -83,7 +83,9 @@ impl Plugin for GamePlugin {
                         crown::tick_crown_love,
                         crown::tick_crown_curses,
                         crown::crown_floor_start_bonus,
-                        loop_transition::tick_campfire,
+                        loop_transition::tick_campfire
+                            .after(idpd::tick_idpd_raids)
+                            .after(idpd::tick_idpd_vans),
                         enemies::flush_pending_enemy_spawns,
                     )
                         .in_set(NtSimSet::Always),
