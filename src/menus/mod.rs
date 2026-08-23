@@ -599,264 +599,710 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     .child(inner)
 }
 
-fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let tr = &st.translations;
+static NT_PANEL: RColor = RColor(7, 8, 11, 218);
+static NT_PANEL_INNER: RColor = RColor(14, 15, 19, 236);
+static NT_TRACK: RColor = RColor(0, 0, 0, 210);
+static NT_BORDER: RColor = RColor(255, 255, 255, 34);
+static NT_TEXT: RColor = RColor(238, 239, 225, 255);
+static NT_MUTED: RColor = RColor(148, 151, 155, 255);
+static NT_GOLD: RColor = RColor(245, 210, 92, 255);
+static NT_RED: RColor = RColor(221, 56, 45, 255);
+static NT_GREEN: RColor = RColor(72, 202, 96, 255);
+static NT_PURPLE: RColor = RColor(181, 86, 229, 255);
+#[allow(dead_code)] // palette completeness
+static NT_BLUE: RColor = RColor(77, 151, 230, 255);
 
-    // Weapon slots row — active slot highlighted, ammo count beside each.
-    let mut weapon_chips: Vec<View> = Vec::new();
-    for (i, name) in st.weapons.iter().enumerate() {
-        let active = i == st.current_weapon;
-        weapon_chips.push(reward_chip(
-            format!("{} {}", if active { "▶" } else { " " }, name),
-            if active {
-                RColor::from_rgba(255, 210, 120, 60)
-            } else {
-                RColor::from_rgba(255, 255, 255, 18)
-            },
-            if active {
-                col(255, 220, 150)
-            } else {
-                col(170, 175, 190)
-            },
-        ));
+#[derive(Clone, Copy, Debug)]
+struct HudMetrics {
+    margin: f32,
+    player_width: f32,
+    run_width: f32,
+    boss_width: f32,
+    panel_padding: f32,
+    normal_text: f32,
+    small_text: f32,
+    hp_bar_width: f32,
+    mutation_panel_width: f32,
+    mutation_card_width: f32,
+    mutation_card_height: f32,
+    mutation_gap: f32,
+}
+
+fn hud_metrics(compact: bool) -> HudMetrics {
+    if compact {
+        HudMetrics {
+            margin: 8.0,
+            player_width: 238.0,
+            run_width: 142.0,
+            boss_width: 300.0,
+            panel_padding: 8.0,
+            normal_text: 13.0,
+            small_text: 9.0,
+            hp_bar_width: 142.0,
+            mutation_panel_width: 344.0,
+            mutation_card_width: 150.0,
+            mutation_card_height: 98.0,
+            mutation_gap: 8.0,
+        }
+    } else {
+        HudMetrics {
+            margin: 18.0,
+            player_width: 306.0,
+            run_width: 194.0,
+            boss_width: 438.0,
+            panel_padding: 11.0,
+            normal_text: 15.0,
+            small_text: 11.0,
+            hp_bar_width: 198.0,
+            mutation_panel_width: 594.0,
+            mutation_card_width: 262.0,
+            mutation_card_height: 96.0,
+            mutation_gap: 12.0,
+        }
     }
-    let weapons_row =
-        Row(Modifier::new().gap(6.0).align_items(AlignItems::CENTER)).child(weapon_chips);
+}
 
-    // Ammo type counters (upstream icon row: bullets/shells/bolts/explo/energy).
-    const AMMO_LABELS: [&str; 5] = ["B", "S", "B", "E", "N"];
-    let mut ammo_chips: Vec<View> = Vec::new();
-    for (i, label) in AMMO_LABELS.iter().enumerate() {
-        let count = st.ammo[i + 1];
-        let tint = match i {
-            0 => col(230, 200, 90),
-            1 => col(220, 120, 60),
-            2 => col(150, 200, 230),
-            3 => col(210, 210, 100),
-            _ => col(140, 220, 250),
-        };
-        ammo_chips.push(reward_chip(
-            format!("{label} {}", count.max(0)),
-            RColor::from_rgba(255, 255, 255, 14),
-            tint,
-        ));
-    }
-    let ammo_row = Row(Modifier::new().gap(5.0)).child(ammo_chips);
+pub(crate) fn is_compact_viewport(width: f32, height: f32) -> bool {
+    width < 760.0 || height < 560.0
+}
 
-    // Ability status chip.
-    let ability_chip = reward_chip(
-        format!(
-            "{} {}",
-            st.ability,
-            if st.ability_ready { "READY" } else { "..." }
-        ),
-        if st.ability_ready {
-            RColor::from_rgba(120, 220, 130, 40)
-        } else {
-            RColor::from_rgba(255, 255, 255, 14)
-        },
-        if st.ability_ready {
-            col(120, 220, 130)
-        } else {
-            col(150, 155, 168)
-        },
-    );
+fn empty_view() -> View {
+    Column(Modifier::new().width(0.001).height(0.001))
+}
 
-    // Player panel (top-left): HP, weapons, ammo, ability.
-    let player_panel = Column(
+fn nt_panel(width: f32, accent: RColor, padding: f32, child: View) -> View {
+    Column(
         Modifier::new()
-            .width(300.0)
-            .margin(36.0)
-            .padding(12.0)
-            .gap(8.0)
-            .background(RColor::from_rgba(10, 12, 18, 215))
-            .border(1.5, RColor::from_rgba(255, 210, 120, 50), 14.0)
-            .clip_rounded(14.0)
+            .width(width)
+            .padding(padding)
+            .background(NT_PANEL)
+            .border(2.0, accent, 3.0)
+            .clip_rounded(3.0)
             .align_items(AlignItems::STRETCH),
     )
-    .child((
-        Row(Modifier::new()
-            .justify_content(JustifyContent::SPACE_BETWEEN)
-            .align_items(AlignItems::CENTER))
-        .child((
-            reward_chip(
-                &st.character,
-                RColor::from_rgba(120, 170, 255, 40),
-                col(150, 190, 255),
-            ),
-            ability_chip,
-        )),
-        weapons_row,
-        ammo_row,
-    ));
+    .child(child)
+}
 
-    // Run info panel (top-right): floor/world/loop, rads, score.
-    let run_panel = Column(
-        Modifier::new()
-            .width(190.0)
-            .padding(12.0)
-            .gap(6.0)
-            .background(RColor::from_rgba(10, 12, 18, 215))
-            .border(1.5, RColor::from_rgba(120, 170, 255, 45), 14.0)
-            .clip_rounded(14.0)
-            .align_items(AlignItems::FLEX_END),
-    )
-    .child((
-        RText(format!("FLOOR {}-{}", st.world, st.floor_in_world))
-            .size(20.0)
-            .color(RColor::WHITE),
-        reward_chip(
-            format!("{} {}", t(tr, "score", "Score"), st.score),
-            RColor::from_rgba(255, 255, 255, 14),
-            col(190, 195, 210),
-        ),
-        reward_chip(
-            format!("{} {}", t(tr, "best", "Best"), st.high_score),
-            RColor::from_rgba(255, 255, 255, 10),
-            col(150, 155, 168),
-        ),
-    ));
-
-    // Boss bar (top-center) when a boss is alive.
-    let boss_view = if st.boss_max > 0 {
-        let pct = (st.boss_hp as f32 / st.boss_max as f32).clamp(0.0, 1.0);
-        Column(
-            Modifier::new()
-                .width(420.0)
-                .padding(8.0)
-                .gap(4.0)
-                .background(RColor::from_rgba(14, 10, 16, 210))
-                .border(1.5, RColor::from_rgba(200, 120, 255, 55), 12.0)
-                .clip_rounded(12.0),
-        )
-        .child((
-            RText("BOSS").size(10.0).color(col(200, 160, 230)),
-            hud_stat_bar(404.0, 10.0, pct, col(200, 110, 255)),
-        ))
-    } else {
-        Column(Modifier::new().width(0.0).height(0.0))
-    };
-
-    // Bottom-center hint + toast.
-    let hint = Column(
+fn nt_section(child: View) -> View {
+    Column(
         Modifier::new()
             .padding_values(PaddingValues {
-                left: 14.0,
-                right: 14.0,
-                top: 6.0,
-                bottom: 6.0,
+                left: 6.0,
+                right: 6.0,
+                top: 5.0,
+                bottom: 5.0,
             })
-            .background(RColor::from_rgba(8, 8, 12, 150))
-            .clip_rounded(999.0),
+            .background(NT_PANEL_INNER)
+            .border(1.0, NT_BORDER, 2.0)
+            .clip_rounded(2.0),
+    )
+    .child(child)
+}
+
+fn nt_chip(label: impl Into<String>, bg: RColor, fg: RColor, size: f32) -> View {
+    Column(
+        Modifier::new()
+            .padding_values(PaddingValues {
+                left: 6.0,
+                right: 6.0,
+                top: 3.0,
+                bottom: 3.0,
+            })
+            .background(bg)
+            .border(1.0, RColor::from_rgba(255, 255, 255, 22), 2.0)
+            .clip_rounded(2.0)
+            .justify_content(JustifyContent::CENTER)
+            .align_items(AlignItems::CENTER),
     )
     .child(
-        RText(t(
-            tr,
-            "controls-hint",
-            "WASD move | Mouse aim | LMB shoot | 1/2 swap | E ability | Esc pause",
-        ))
-        .size(12.0)
-        .color(col(150, 155, 168)),
-    );
+        RText(label.into())
+            .size(size)
+            .color(fg)
+            .single_line()
+            .overflow_ellipsize(),
+    )
+}
 
-    let toast_view = if st.toast_timer > 0.0 && !st.toast.is_empty() {
-        let a = ((st.toast_timer.clamp(0.0, 1.0)) * 255.0) as u8;
-        Column(
-            Modifier::new()
-                .padding_values(PaddingValues {
-                    left: 16.0,
-                    right: 16.0,
-                    top: 8.0,
-                    bottom: 8.0,
-                })
-                .background(RColor::from_rgba(18, 18, 28, a))
-                .clip_rounded(10.0),
-        )
-        .child(
-            RText(&st.toast)
-                .size(18.0)
-                .color(RColor::from_rgba(255, 230, 150, a)),
-        )
+fn nt_bar_inner_width(width: f32, fraction: f32) -> f32 {
+    let usable = (width - 4.0).max(0.001);
+    let fraction = fraction.clamp(0.0, 1.0);
+
+    if fraction <= 0.0 {
+        0.001
     } else {
-        Column(Modifier::new().width(0.0).height(0.0))
+        (usable * fraction).max(1.0)
+    }
+}
+
+fn nt_bar(width: f32, height: f32, fraction: f32, fill: RColor) -> View {
+    let inner_width = nt_bar_inner_width(width, fraction);
+
+    Column(
+        Modifier::new()
+            .width(width)
+            .height(height)
+            .padding(2.0)
+            .background(NT_TRACK)
+            .border(1.0, NT_BORDER, 2.0)
+            .clip_rounded(2.0)
+            .align_items(AlignItems::FLEX_START),
+    )
+    .child(Column(
+        Modifier::new()
+            .width(inner_width)
+            .height((height - 4.0).max(1.0))
+            .background(fill),
+    ))
+}
+
+fn hp_fill_color(hp: i32, max_hp: i32) -> RColor {
+    if max_hp <= 0 {
+        return NT_RED;
+    }
+
+    let fraction = hp.max(0) as f32 / max_hp as f32;
+
+    if fraction <= 0.25 {
+        col(255, 50, 42)
+    } else if fraction <= 0.50 {
+        col(239, 124, 42)
+    } else {
+        NT_RED
+    }
+}
+
+fn boss_display_name(name: &str) -> String {
+    if name.trim().is_empty() {
+        "BOSS".to_string()
+    } else {
+        name.to_ascii_uppercase()
+    }
+}
+
+fn mutation_choice_parts(choice: &str) -> (bool, String, String) {
+    let trimmed = choice.trim();
+    let (is_ultra, trimmed) = if let Some(rest) = trimmed.strip_prefix("ULTRA:") {
+        (true, rest.trim())
+    } else {
+        (false, trimmed)
     };
 
-    ZStack(Modifier::new().fill_max_size()).child((
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding(14.0)
-                .align_items(AlignItems::FLEX_START)
-                .justify_content(JustifyContent::FLEX_START),
+    if let Some((name, description)) = trimmed.split_once(" \u{2014} ") {
+        (
+            is_ultra,
+            name.trim().to_string(),
+            description.trim().to_string(),
         )
-        .child(player_panel),
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding(14.0)
-                .align_items(AlignItems::FLEX_END)
-                .justify_content(JustifyContent::FLEX_START),
+    } else if let Some((name, description)) = trimmed.split_once(" - ") {
+        (
+            is_ultra,
+            name.trim().to_string(),
+            description.trim().to_string(),
         )
-        .child(run_panel),
+    } else {
+        (is_ultra, trimmed.to_string(), String::new())
+    }
+}
+
+fn weapon_slot_view(index: usize, name: &str, active: bool, metrics: HudMetrics) -> View {
+    let marker = if active { ">" } else { " " };
+    let fg = if active { NT_GOLD } else { NT_MUTED };
+    let bg = if active {
+        RColor::from_rgba(245, 210, 92, 34)
+    } else {
+        RColor::from_rgba(255, 255, 255, 8)
+    };
+
+    Row(Modifier::new()
+        .height(if metrics.small_text < 10.0 {
+            20.0
+        } else {
+            23.0
+        })
+        .padding_values(PaddingValues {
+            left: 5.0,
+            right: 5.0,
+            top: 2.0,
+            bottom: 2.0,
+        })
+        .background(bg)
+        .border(
+            1.0,
+            if active {
+                RColor::from_rgba(245, 210, 92, 88)
+            } else {
+                RColor::from_rgba(255, 255, 255, 12)
+            },
+            2.0,
+        )
+        .align_items(AlignItems::CENTER)
+        .justify_content(JustifyContent::SPACE_BETWEEN))
+    .child((
+        RText(format!("{marker} {}", index + 1))
+            .size(metrics.small_text)
+            .color(fg)
+            .single_line(),
+        RText(name.to_ascii_uppercase())
+            .size(metrics.small_text)
+            .color(fg)
+            .single_line()
+            .overflow_ellipsize(),
+    ))
+}
+
+fn ammo_cell(label: &str, amount: i32, tint: RColor, compact: bool) -> View {
+    Column(
+        Modifier::new()
+            .width(if compact { 40.0 } else { 50.0 })
+            .height(if compact { 31.0 } else { 35.0 })
+            .padding(3.0)
+            .background(RColor::from_rgba(255, 255, 255, 8))
+            .border(1.0, RColor::from_rgba(255, 255, 255, 18), 2.0)
+            .clip_rounded(2.0)
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::CENTER),
+    )
+    .child((
+        RText(label)
+            .size(if compact { 7.0 } else { 8.0 })
+            .color(NT_MUTED)
+            .single_line(),
+        RText(amount.max(0).to_string())
+            .size(if compact { 11.0 } else { 13.0 })
+            .color(tint)
+            .single_line(),
+    ))
+}
+
+fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let metrics = hud_metrics(st.hud_compact);
+    let compact = st.hud_compact;
+
+    let hp_fraction = if st.max_hp <= 0 {
+        0.0
+    } else {
+        st.hp.max(0) as f32 / st.max_hp as f32
+    };
+
+    let rad_fraction = if st.max_rads == 0 {
+        0.0
+    } else {
+        st.rads as f32 / st.max_rads as f32
+    };
+
+    let weapon_views = st
+        .weapons
+        .iter()
+        .enumerate()
+        .map(|(index, name)| weapon_slot_view(index, name, index == st.current_weapon, metrics))
+        .collect::<Vec<_>>();
+
+    const AMMO: [(&str, usize, RColor); 5] = [
+        ("BUL", 1, RColor(238, 205, 82, 255)),
+        ("SHL", 2, RColor(224, 121, 54, 255)),
+        ("BLT", 3, RColor(130, 196, 225, 255)),
+        ("EXP", 4, RColor(218, 204, 82, 255)),
+        ("NRG", 5, RColor(102, 219, 238, 255)),
+    ];
+
+    let ammo_views = AMMO
+        .iter()
+        .map(|(label, slot, tint)| {
+            ammo_cell(
+                label,
+                st.ammo.get(*slot).copied().unwrap_or_default(),
+                *tint,
+                compact,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let header = Row(Modifier::new()
+        .align_items(AlignItems::CENTER)
+        .justify_content(JustifyContent::SPACE_BETWEEN))
+    .child((
+        RText(st.character.to_ascii_uppercase())
+            .size(metrics.normal_text)
+            .color(NT_TEXT)
+            .single_line()
+            .overflow_ellipsize(),
+        if st.crown != "NONE" && !st.crown.is_empty() {
+            nt_chip(
+                format!("CROWN {}", st.crown),
+                RColor(245, 210, 92, 24),
+                NT_GOLD,
+                metrics.small_text,
+            )
+        } else {
+            empty_view()
+        },
+    ));
+
+    let health = nt_section(
+        Column(Modifier::new().gap(4.0)).child((
+            Row(Modifier::new()
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::SPACE_BETWEEN))
+            .child((
+                RText("HP")
+                    .size(metrics.small_text)
+                    .color(NT_MUTED)
+                    .single_line(),
+                RText(format!("{}/{}", st.hp.max(0), st.max_hp.max(0)))
+                    .size(metrics.normal_text)
+                    .color(hp_fill_color(st.hp, st.max_hp))
+                    .single_line(),
+            )),
+            nt_bar(
+                metrics.hp_bar_width,
+                if compact { 10.0 } else { 12.0 },
+                hp_fraction,
+                hp_fill_color(st.hp, st.max_hp),
+            ),
+        )),
+    );
+
+    let weapons = nt_section(Column(Modifier::new().gap(3.0)).child(weapon_views));
+
+    let ammo = Row(Modifier::new()
+        .gap(if compact { 3.0 } else { 5.0 })
+        .align_items(AlignItems::CENTER))
+    .child(ammo_views);
+
+    let ability = nt_section(
+        Row(Modifier::new()
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::SPACE_BETWEEN))
+        .child((
+            RText(st.ability.to_ascii_uppercase())
+                .size(metrics.small_text)
+                .color(NT_TEXT)
+                .single_line()
+                .overflow_ellipsize(),
+            nt_chip(
+                if st.ability_ready { "READY" } else { "WAIT" },
+                if st.ability_ready {
+                    RColor(72, 202, 96, 28)
+                } else {
+                    RColor(255, 255, 255, 8)
+                },
+                if st.ability_ready { NT_GREEN } else { NT_MUTED },
+                metrics.small_text,
+            ),
+        )),
+    );
+
+    let player_panel = nt_panel(
+        metrics.player_width,
+        RColor(245, 210, 92, 100),
+        metrics.panel_padding,
+        Column(Modifier::new().gap(6.0)).child((header, health, weapons, ammo, ability)),
+    );
+
+    let floor_title = if st.loop_count > 0 {
+        format!("{}-{}  LOOP {}", st.world, st.floor_in_world, st.loop_count)
+    } else {
+        format!("{}-{}", st.world, st.floor_in_world)
+    };
+
+    let run_panel = nt_panel(
+        metrics.run_width,
+        RColor(77, 151, 230, 95),
+        metrics.panel_padding,
+        Column(Modifier::new().gap(6.0).align_items(AlignItems::STRETCH)).child((
+            RText(floor_title)
+                .size(metrics.normal_text + 1.0)
+                .color(NT_TEXT)
+                .single_line(),
+            nt_section(
+                Column(Modifier::new().gap(3.0)).child((
+                    Row(Modifier::new()
+                        .justify_content(JustifyContent::SPACE_BETWEEN)
+                        .align_items(AlignItems::CENTER))
+                    .child((
+                        RText(format!("LEVEL {}", st.level))
+                            .size(metrics.small_text)
+                            .color(NT_GREEN)
+                            .single_line(),
+                        RText(format!("{}/{}", st.rads, st.max_rads))
+                            .size(metrics.small_text)
+                            .color(NT_MUTED)
+                            .single_line(),
+                    )),
+                    nt_bar(
+                        (metrics.run_width - metrics.panel_padding * 2.0 - 14.0).max(1.0),
+                        8.0,
+                        rad_fraction,
+                        NT_GREEN,
+                    ),
+                )),
+            ),
+            Row(Modifier::new().justify_content(JustifyContent::SPACE_BETWEEN)).child((
+                RText("SCORE").size(metrics.small_text).color(NT_MUTED),
+                RText(st.score.to_string())
+                    .size(metrics.normal_text)
+                    .color(NT_GOLD),
+            )),
+        )),
+    );
+
+    let boss_view = if st.boss_max > 0 {
+        let fraction = st.boss_hp as f32 / st.boss_max.max(1) as f32;
+
+        nt_panel(
+            metrics.boss_width,
+            RColor(181, 86, 229, 120),
+            if compact { 7.0 } else { 9.0 },
+            Column(Modifier::new().gap(4.0)).child((
+                Row(Modifier::new()
+                    .align_items(AlignItems::CENTER)
+                    .justify_content(JustifyContent::SPACE_BETWEEN))
+                .child((
+                    RText(boss_display_name(&st.boss_name))
+                        .size(if compact { 11.0 } else { 13.0 })
+                        .color(NT_TEXT)
+                        .single_line()
+                        .overflow_ellipsize(),
+                    RText(format!("{}/{}", st.boss_hp, st.boss_max))
+                        .size(if compact { 9.0 } else { 11.0 })
+                        .color(NT_PURPLE)
+                        .single_line(),
+                )),
+                nt_bar(
+                    (metrics.boss_width - if compact { 28.0 } else { 36.0 }).max(1.0),
+                    if compact { 9.0 } else { 11.0 },
+                    fraction,
+                    NT_PURPLE,
+                ),
+            )),
+        )
+    } else {
+        empty_view()
+    };
+
+    let toast = if st.toast_timer > 0.0 && !st.toast.is_empty() {
+        let alpha = (st.toast_timer.clamp(0.0, 1.0) * 255.0) as u8;
+
         Column(
             Modifier::new()
-                .fill_max_size()
                 .padding_values(PaddingValues {
                     left: 14.0,
                     right: 14.0,
-                    top: 14.0,
-                    bottom: 0.0,
+                    top: 7.0,
+                    bottom: 7.0,
                 })
-                .align_items(AlignItems::CENTER),
+                .background(RColor(7, 8, 11, alpha))
+                .border(1.0, RColor(245, 210, 92, alpha / 2), 3.0)
+                .clip_rounded(3.0),
         )
-        .child(boss_view),
+        .child(
+            RText(st.toast.to_ascii_uppercase())
+                .size(if compact { 13.0 } else { 17.0 })
+                .color(RColor(255, 227, 135, alpha))
+                .single_line()
+                .overflow_ellipsize(),
+        )
+    } else {
+        empty_view()
+    };
+
+    let controls = if compact {
+        empty_view()
+    } else {
+        nt_chip(
+            "WASD MOVE  |  MOUSE AIM  |  LMB FIRE  |  1/2 SWAP  |  E ABILITY",
+            RColor(0, 0, 0, 130),
+            NT_MUTED,
+            10.0,
+        )
+    };
+
+    let player_anchor = Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding(metrics.margin)
+            .align_items(AlignItems::FLEX_START)
+            .justify_content(JustifyContent::FLEX_START),
+    )
+    .child(player_panel);
+
+    let run_anchor = Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding(metrics.margin)
+            .align_items(AlignItems::FLEX_END)
+            .justify_content(if compact {
+                JustifyContent::FLEX_END
+            } else {
+                JustifyContent::FLEX_START
+            }),
+    )
+    .child(run_panel);
+
+    let boss_anchor = if compact {
         Column(
             Modifier::new()
                 .fill_max_size()
-                .padding(12.0)
+                .padding_values(PaddingValues {
+                    left: metrics.margin,
+                    right: metrics.margin,
+                    top: 0.0,
+                    bottom: 92.0,
+                })
                 .align_items(AlignItems::CENTER)
-                .justify_content(JustifyContent::FLEX_END)
-                .gap(8.0),
+                .justify_content(JustifyContent::FLEX_END),
         )
-        .child((toast_view, hint)),
+        .child(boss_view)
+    } else {
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding(metrics.margin)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::FLEX_START),
+        )
+        .child(boss_view)
+    };
+
+    let feedback_anchor = Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding(metrics.margin)
+            .gap(7.0)
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::FLEX_END),
+    )
+    .child((toast, controls));
+
+    ZStack(Modifier::new().fill_max_size()).child((
+        player_anchor,
+        run_anchor,
+        boss_anchor,
+        feedback_anchor,
+    ))
+}
+
+fn mutation_choice_card(
+    index: usize,
+    choice: &str,
+    actions: Arc<Mutex<Vec<UiAction>>>,
+    metrics: HudMetrics,
+) -> View {
+    let (is_ultra, name, description) = mutation_choice_parts(choice);
+
+    let accent = if is_ultra { NT_GOLD } else { NT_GREEN };
+    let background = if is_ultra {
+        RColor(245, 210, 92, 18)
+    } else {
+        RColor(72, 202, 96, 14)
+    };
+
+    Column(
+        Modifier::new()
+            .width(metrics.mutation_card_width)
+            .height(metrics.mutation_card_height)
+            .padding(9.0)
+            .gap(5.0)
+            .background(background)
+            .border(2.0, accent, 3.0)
+            .clip_rounded(3.0)
+            .clickable()
+            .on_click(move || {
+                push(&actions, UiAction::PickMutation(index));
+            }),
+    )
+    .child((
+        Row(Modifier::new()
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::SPACE_BETWEEN))
+        .child((
+            nt_chip(
+                (index + 1).to_string(),
+                RColor(0, 0, 0, 150),
+                accent,
+                metrics.small_text,
+            ),
+            if is_ultra {
+                nt_chip(
+                    "ULTRA",
+                    RColor(245, 210, 92, 28),
+                    NT_GOLD,
+                    metrics.small_text,
+                )
+            } else {
+                empty_view()
+            },
+        )),
+        RText(name.to_ascii_uppercase())
+            .size(metrics.normal_text)
+            .color(NT_TEXT)
+            .single_line()
+            .overflow_ellipsize(),
+        RText(description).size(metrics.small_text).color(NT_MUTED),
     ))
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let mut rows: Vec<View> = vec![
-        RText("CHOOSE A MUTATION").size(30.0).color(RColor::WHITE),
-        spacer(6.0),
-        RText("(or press 1 / 2 / 3 / 4)")
-            .size(14.0)
-            .color(col(170, 170, 170)),
-        spacer(12.0),
-    ];
-    for (i, choice) in st.mutation_choices.iter().enumerate() {
-        let a = actions.clone();
-        let text = choice.clone();
-        rows.push(mk_button_colored(
-            &format!("{}  —  {}", i + 1, text),
-            col(70, 120, 90),
-            move || push(&a, UiAction::PickMutation(i)),
-        ));
-    }
+    let metrics = hud_metrics(st.hud_compact);
+
+    let is_ultra = st
+        .mutation_choices
+        .iter()
+        .any(|choice| choice.trim().starts_with("ULTRA:"));
+
+    let cards = st
+        .mutation_choices
+        .iter()
+        .enumerate()
+        .map(|(index, choice)| mutation_choice_card(index, choice, actions.clone(), metrics))
+        .collect::<Vec<_>>();
+
+    let rows = cards
+        .chunks(2)
+        .map(|chunk| {
+            Row(Modifier::new()
+                .gap(metrics.mutation_gap)
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER))
+            .children(chunk.to_vec())
+        })
+        .collect::<Vec<_>>();
+
+    let accent = if is_ultra { NT_GOLD } else { NT_GREEN };
 
     let panel = Column(
         Modifier::new()
-            .width(520.0)
-            .padding(24.0)
-            .background(col(18, 18, 26))
-            .clip_rounded(14.0)
+            .width(metrics.mutation_panel_width)
+            .padding(if st.hud_compact { 14.0 } else { 20.0 })
+            .gap(10.0)
+            .background(RColor(6, 7, 10, 244))
+            .border(2.0, accent, 4.0)
+            .clip_rounded(4.0)
             .align_items(AlignItems::CENTER),
     )
-    .child(rows);
+    .child((
+        RText(if is_ultra {
+            "CHOOSE ULTRA MUTATION"
+        } else {
+            "CHOOSE MUTATION"
+        })
+        .size(if st.hud_compact { 20.0 } else { 27.0 })
+        .color(accent)
+        .single_line(),
+        RText("PRESS 1 / 2 / 3 / 4 OR SELECT A CARD")
+            .size(metrics.small_text)
+            .color(NT_MUTED)
+            .single_line(),
+        Column(Modifier::new().gap(metrics.mutation_gap)).children(rows),
+    ));
 
     Column(
         Modifier::new()
             .fill_max_size()
+            .padding(if st.hud_compact { 6.0 } else { 20.0 })
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 160)),
+            .background(RColor(0, 0, 0, 188)),
     )
     .child(panel)
 }
@@ -918,6 +1364,7 @@ fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {
     )
 }
 
+#[allow(dead_code)] // retained for menu submodules / future panels
 fn mk_button_colored(label: &str, bg: RColor, on_click: impl Fn() + 'static) -> View {
     FilledTonalButton(
         Modifier::new()
@@ -945,6 +1392,7 @@ fn col(r: u8, g: u8, b: u8) -> RColor {
 }
 
 /// Pill chip label (Floppy-Warriors reward_chip style).
+#[allow(dead_code)] // retained for title/settings/game-over panels
 pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> View {
     Column(
         Modifier::new()
@@ -969,6 +1417,7 @@ pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> V
 }
 
 /// Pill stat bar (Floppy-Warriors hud_stat_bar style).
+#[allow(dead_code)] // retained for title/settings/game-over panels
 pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> View {
     let f = frac.clamp(0.0, 1.0);
     let inner_w = if f <= 0.0 {
@@ -999,5 +1448,117 @@ pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> 
 fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {
     if let Ok(mut q) = actions.lock() {
         q.push(a);
+    }
+}
+
+#[cfg(test)]
+mod nt_ui_tests {
+    use super::*;
+
+    #[test]
+    fn desktop_viewport_is_not_compact() {
+        assert!(!is_compact_viewport(1280.0, 720.0));
+        assert!(!is_compact_viewport(1920.0, 1080.0));
+    }
+
+    #[test]
+    fn mobile_and_small_windows_are_compact() {
+        assert!(is_compact_viewport(360.0, 800.0));
+        assert!(is_compact_viewport(720.0, 540.0));
+        assert!(is_compact_viewport(640.0, 720.0));
+    }
+
+    #[test]
+    fn bar_width_clamps_low() {
+        assert_eq!(nt_bar_inner_width(100.0, -4.0), 0.001);
+        assert_eq!(nt_bar_inner_width(100.0, 0.0), 0.001);
+    }
+
+    #[test]
+    fn bar_width_clamps_high() {
+        let full = nt_bar_inner_width(100.0, 1.0);
+        let over = nt_bar_inner_width(100.0, 8.0);
+
+        assert!((full - 96.0).abs() < 0.001);
+        assert!((over - 96.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn bar_width_half_uses_half_inner_track() {
+        let width = nt_bar_inner_width(100.0, 0.5);
+        assert!((width - 48.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn mutation_choice_splits_normal() {
+        let (ultra, name, desc) = mutation_choice_parts("RHINO SKIN \u{2014} +4 max HP");
+
+        assert!(!ultra);
+        assert_eq!(name, "RHINO SKIN");
+        assert_eq!(desc, "+4 max HP");
+    }
+
+    #[test]
+    fn mutation_choice_splits_ultra() {
+        let (ultra, name, desc) =
+            mutation_choice_parts("ULTRA: CONFISCATE \u{2014} Better weapon drops");
+
+        assert!(ultra);
+        assert_eq!(name, "CONFISCATE");
+        assert_eq!(desc, "Better weapon drops");
+    }
+
+    #[test]
+    fn mutation_choice_accepts_ascii_dash() {
+        let (_, name, desc) = mutation_choice_parts("LASER BRAIN - Stronger energy weapons");
+
+        assert_eq!(name, "LASER BRAIN");
+        assert_eq!(desc, "Stronger energy weapons");
+    }
+
+    #[test]
+    fn mutation_choice_without_description_is_safe() {
+        let (ultra, name, desc) = mutation_choice_parts("STRONG SPIRIT");
+
+        assert!(!ultra);
+        assert_eq!(name, "STRONG SPIRIT");
+        assert!(desc.is_empty());
+    }
+
+    #[test]
+    fn empty_boss_name_has_fallback() {
+        assert_eq!(boss_display_name(""), "BOSS");
+        assert_eq!(boss_display_name("   "), "BOSS");
+    }
+
+    #[test]
+    fn boss_name_is_uppercase() {
+        assert_eq!(boss_display_name("Lil Hunter"), "LIL HUNTER");
+    }
+
+    #[test]
+    fn low_health_uses_danger_color_path() {
+        let danger = hp_fill_color(1, 10);
+        let healthy = hp_fill_color(10, 10);
+
+        assert_ne!(danger, healthy);
+    }
+
+    #[test]
+    fn compact_metrics_fit_mutation_panel_on_phone() {
+        let metrics = hud_metrics(true);
+
+        assert!(metrics.mutation_panel_width <= 360.0);
+        assert!(
+            metrics.mutation_card_width * 2.0 + metrics.mutation_gap < metrics.mutation_panel_width
+        );
+    }
+
+    #[test]
+    fn desktop_metrics_leave_screen_margin() {
+        let metrics = hud_metrics(false);
+
+        assert!(metrics.player_width + metrics.run_width + metrics.margin * 2.0 < 1280.0);
+        assert!(metrics.boss_width < 1280.0);
     }
 }

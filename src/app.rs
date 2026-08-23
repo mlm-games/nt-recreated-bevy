@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use repose_bevy::{ReposePlugin, ReposePluginSettings};
 use repose_core::{prelude::Modifier, remember};
 use repose_ui::overlay::OverlayHandle;
@@ -101,6 +102,7 @@ pub struct SharedUi {
     pub floor: u32,
     pub world: u32,
     pub floor_in_world: u32,
+    pub loop_count: u32,
     pub level: u32,
     pub rads: u32,
     pub max_rads: u32,
@@ -111,6 +113,7 @@ pub struct SharedUi {
     pub ability_ready: bool,
     pub boss_hp: u32,
     pub boss_max: u32,
+    pub boss_name: String,
     pub toast: String,
     pub toast_timer: f32,
     pub mutation_choices: Vec<String>,
@@ -124,6 +127,11 @@ pub struct SharedUi {
     pub stored_weapon_name: String,
     pub crown: String,
     pub selected_skin: u8,
+
+    /// Viewport data used to pick HUD layout without adaptive APIs.
+    pub viewport_width: f32,
+    pub viewport_height: f32,
+    pub hud_compact: bool,
 }
 
 impl Default for SharedUi {
@@ -149,6 +157,7 @@ impl Default for SharedUi {
             floor: 1,
             world: 1,
             floor_in_world: 1,
+            loop_count: 0,
             level: 1,
             rads: 0,
             max_rads: 60,
@@ -159,6 +168,7 @@ impl Default for SharedUi {
             ability_ready: true,
             boss_hp: 0,
             boss_max: 0,
+            boss_name: String::new(),
             toast: String::new(),
             toast_timer: 0.0,
             mutation_choices: Vec::new(),
@@ -172,6 +182,9 @@ impl Default for SharedUi {
             stored_weapon_name: "None".to_string(),
             crown: "NONE".to_string(),
             selected_skin: 0,
+            viewport_width: 1280.0,
+            viewport_height: 720.0,
+            hud_compact: false,
         }
     }
 }
@@ -254,6 +267,7 @@ impl Plugin for AppPlugin {
                 (
                     apply_saved_settings,
                     sync_shared_ui,
+                    sync_ui_viewport,
                     sync_post_process_settings::<AppState>,
                     process_ui_actions,
                     handle_pause_input,
@@ -263,6 +277,20 @@ impl Plugin for AppPlugin {
                     .chain(),
             );
     }
+}
+
+fn sync_ui_viewport(windows: Query<&Window, With<PrimaryWindow>>, bridge: Res<UiBridge>) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    let Ok(mut ui) = bridge.shared.lock() else {
+        return;
+    };
+
+    ui.viewport_width = window.width();
+    ui.viewport_height = window.height();
+    ui.hud_compact = crate::menus::is_compact_viewport(ui.viewport_width, ui.viewport_height);
 }
 
 fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>) {

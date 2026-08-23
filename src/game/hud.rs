@@ -19,7 +19,7 @@ pub fn sync_hud(
     pending_ultra: Option<Res<PendingUltra>>,
     character: Option<Res<SelectedCharacter>>,
     player_q: Query<(&Player, &Health, &Inventory), With<Player>>,
-    boss_q: Query<(&Enemy, &Health), With<Enemy>>,
+    boss_q: Query<(&Enemy, &Health), With<BossBrain>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -28,6 +28,12 @@ pub fn sync_hud(
     let Some(run) = run else {
         ui.game_over = false;
         ui.mutation_choices.clear();
+        ui.boss_hp = 0;
+        ui.boss_max = 0;
+        ui.boss_name.clear();
+        ui.loop_count = 0;
+        ui.toast.clear();
+        ui.toast_timer = 0.0;
         return;
     };
 
@@ -44,9 +50,12 @@ pub fn sync_hud(
 
     ui.boss_hp = 0;
     ui.boss_max = 0;
-    if let Some((hp, max)) = progression::boss_info(&boss_q) {
-        ui.boss_hp = hp;
-        ui.boss_max = max;
+    ui.boss_name.clear();
+
+    if let Some((enemy, health)) = boss_q.iter().max_by_key(|(_, health)| health.max) {
+        ui.boss_hp = health.hp.max(0) as u32;
+        ui.boss_max = health.max.max(1) as u32;
+        ui.boss_name = enemy_def(enemy.kind).name.to_string();
     }
 
     if let Some(character) = character {
@@ -76,6 +85,7 @@ pub fn sync_hud(
     ui.floor = run.floor;
     ui.world = run.world;
     ui.floor_in_world = world::floor_in_world(run.floor);
+    ui.loop_count = run.loop_count;
 
     if let Some(score) = score {
         ui.score = score.0;
@@ -120,5 +130,7 @@ pub fn reset_hud_flags(bridge: Res<UiBridge>) {
         ui.toast_timer = 0.0;
         ui.boss_hp = 0;
         ui.boss_max = 0;
+        ui.boss_name.clear();
+        ui.loop_count = 0;
     }
 }
