@@ -985,16 +985,6 @@ pub fn weapon_id_name(id: WeaponId) -> &'static str {
     weapon_meta(id).wep_name
 }
 
-pub fn weapon_id_color(id: WeaponId) -> Color {
-    // Map WeaponId via legacy WeaponKind color when known, else fallback
-    let kind: WeaponKind = id.into();
-    if kind != WeaponKind::None {
-        weapon_color(kind)
-    } else {
-        Color::srgb(0.85, 0.6, 0.2)
-    }
-}
-
 /// Ammo capacity per kind (reference: bullets 255, others 55, energy 55). Back Muscle adds
 /// +300 / +44 respectively.
 pub fn ammo_max(kind: AmmoKind) -> i32 {
@@ -1024,6 +1014,7 @@ pub enum EnemyKind {
     Assassin,
     Freak,
     BigBandit,
+    BigBanditLoop,
     Throne,
     ThroneII,
     Hyper,
@@ -1034,14 +1025,19 @@ pub enum EnemyKind {
     SnowBandit,
     Wolf,
     BigDog,
+    BigDogLoop,
     LilHunter,
+    LilHunterLoop,
     IdpdGrunt,
     IdpdShield,
     IdpdElite,
     IdpdVan,
 }
 
+/// `size`/`color` are presentation-parity fields retained from the reference
+/// registry; runtime visuals come from sprite strips.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct EnemyDef {
     pub name: &'static str,
     pub hp: i32,
@@ -1253,6 +1249,36 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_lifetime: 3.2,
             projectile_color: Color::srgb(1.0, 0.28, 0.08),
             projectile_size: 8.0,
+            boss: true,
+        },
+        EnemyKind::BigBanditLoop => EnemyDef {
+            name: "Loop Big Bandit",
+            hp: 130,
+            speed: 95.0,
+            accel: 1200.0,
+            radius: 28.0,
+            size: 56.0,
+            color: Color::srgb(1.0, 0.42, 0.18),
+            sprite: enemy_def(EnemyKind::BigBandit).sprite,
+            score: 850,
+            touch_damage: 7,
+            rad_drop: 35,
+            drop_chance: 70,
+            weapon_chance: 12,
+            preferred_range: 190.0,
+            shoot_range: 620.0,
+            attack_cooldown: 0.95,
+            bullets_per_shot: 7,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.14,
+            projectile_speed: 215.0,
+            projectile_spread: 0.05,
+            projectile_damage: 4,
+            projectile_radius: 4.5,
+            projectile_lifetime: 3.2,
+            projectile_color: Color::srgb(1.0, 0.45, 0.12),
+            projectile_size: 8.5,
             boss: true,
         },
         EnemyKind::Throne => EnemyDef {
@@ -1555,6 +1581,36 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_size: 9.0,
             boss: true,
         },
+        EnemyKind::BigDogLoop => EnemyDef {
+            name: "Loop Big Dog",
+            hp: 260,
+            speed: 55.0,
+            accel: 850.0,
+            radius: 38.0,
+            size: 76.0,
+            color: Color::srgb(0.85, 0.72, 0.65),
+            sprite: enemy_def(EnemyKind::BigDog).sprite,
+            score: 1800,
+            touch_damage: 8,
+            rad_drop: 65,
+            drop_chance: 90,
+            weapon_chance: 20,
+            preferred_range: 260.0,
+            shoot_range: 999.0,
+            attack_cooldown: 0.65,
+            bullets_per_shot: 7,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.10,
+            projectile_speed: 230.0,
+            projectile_spread: 0.03,
+            projectile_damage: 4,
+            projectile_radius: 6.0,
+            projectile_lifetime: 2.8,
+            projectile_color: Color::srgb(1.0, 0.52, 0.16),
+            projectile_size: 9.5,
+            boss: true,
+        },
         EnemyKind::LilHunter => EnemyDef {
             name: "Lil Hunter",
             hp: 140,
@@ -1583,6 +1639,36 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_lifetime: 2.3,
             projectile_color: Color::srgb(0.6, 0.95, 1.0),
             projectile_size: 7.0,
+            boss: true,
+        },
+        EnemyKind::LilHunterLoop => EnemyDef {
+            name: "Loop Lil Hunter",
+            hp: 210,
+            speed: 155.0,
+            accel: 1300.0,
+            radius: 21.0,
+            size: 42.0,
+            color: Color::srgb(0.75, 1.0, 1.0),
+            sprite: enemy_def(EnemyKind::LilHunter).sprite,
+            score: 2200,
+            touch_damage: 7,
+            rad_drop: 60,
+            drop_chance: 95,
+            weapon_chance: 25,
+            preferred_range: 210.0,
+            shoot_range: 720.0,
+            attack_cooldown: 0.42,
+            bullets_per_shot: 5,
+            burst: true,
+            burst_interval: 0.055,
+            fan_spread: 0.11,
+            projectile_speed: 310.0,
+            projectile_spread: 0.03,
+            projectile_damage: 4,
+            projectile_radius: 4.5,
+            projectile_lifetime: 2.5,
+            projectile_color: Color::srgb(0.75, 1.0, 1.0),
+            projectile_size: 7.5,
             boss: true,
         },
         EnemyKind::IdpdGrunt => EnemyDef {
@@ -2410,5 +2496,48 @@ mod loop_boss_def_tests {
         assert_eq!(h.bullets_per_shot, 0);
         assert!(h.hp >= 400);
         assert_eq!(h.speed, 35.0);
+    }
+}
+
+#[cfg(test)]
+mod loop_variant_def_tests {
+    use super::*;
+
+    #[test]
+    fn loop_bosses_are_bosses() {
+        for kind in [
+            EnemyKind::BigBanditLoop,
+            EnemyKind::BigDogLoop,
+            EnemyKind::LilHunterLoop,
+        ] {
+            assert!(enemy_def(kind).boss, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn loop_big_bandit_is_stronger_than_base() {
+        let base = enemy_def(EnemyKind::BigBandit);
+        let looped = enemy_def(EnemyKind::BigBanditLoop);
+        assert!(looped.hp > base.hp);
+        assert!(looped.touch_damage >= base.touch_damage);
+        assert!(looped.bullets_per_shot >= base.bullets_per_shot);
+    }
+
+    #[test]
+    fn loop_big_dog_is_stronger_than_base() {
+        let base = enemy_def(EnemyKind::BigDog);
+        let looped = enemy_def(EnemyKind::BigDogLoop);
+        assert!(looped.hp > base.hp);
+        assert!(looped.projectile_speed >= base.projectile_speed);
+        assert!(looped.bullets_per_shot >= base.bullets_per_shot);
+    }
+
+    #[test]
+    fn loop_lil_hunter_is_faster_than_base() {
+        let base = enemy_def(EnemyKind::LilHunter);
+        let looped = enemy_def(EnemyKind::LilHunterLoop);
+        assert!(looped.hp > base.hp);
+        assert!(looped.speed > base.speed);
+        assert!(looped.attack_cooldown < base.attack_cooldown);
     }
 }

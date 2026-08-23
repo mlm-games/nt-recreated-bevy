@@ -64,7 +64,7 @@ pub fn boss_ai(
         brain.melee.tick(time.delta());
 
         match enemy.kind {
-            EnemyKind::BigBandit => big_bandit_ai(
+            EnemyKind::BigBandit | EnemyKind::BigBanditLoop => big_bandit_ai(
                 &mut commands,
                 &mut trauma,
                 entity,
@@ -78,7 +78,7 @@ pub fn boss_ai(
                 dt,
                 &props,
             ),
-            EnemyKind::BigDog => big_dog_ai(
+            EnemyKind::BigDog | EnemyKind::BigDogLoop => big_dog_ai(
                 &mut commands,
                 &mut trauma,
                 entity,
@@ -92,7 +92,7 @@ pub fn boss_ai(
                 dt,
                 &props,
             ),
-            EnemyKind::LilHunter => lil_hunter_ai(
+            EnemyKind::LilHunter | EnemyKind::LilHunterLoop => lil_hunter_ai(
                 &mut commands,
                 &mut trauma,
                 entity,
@@ -170,6 +170,12 @@ fn big_bandit_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
+    let looped = def.name.contains("Loop");
+    let volley_count = if looped { 7 } else { 5 };
+    let volley_spread = if looped { 0.13 } else { 0.16 };
+    let charge_speed = if looped { 780.0 } else { 680.0 };
+    let recovery_ring = if looped { 14 } else { 10 };
+
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
             // Slow drift toward mid-range.
@@ -179,7 +185,7 @@ fn big_bandit_ai(
                 dir
             };
             vel.0 += desired * def.accel * 0.55 * dt;
-            limit_velocity(vel, 135.0);
+            limit_velocity(vel, if looped { 160.0 } else { 135.0 });
             tf.translation += (vel.0 * dt).extend(0.0);
             resolve_prop_collision(&mut tf.translation, def.radius, props);
 
@@ -190,10 +196,10 @@ fn big_bandit_ai(
                     pos,
                     dir,
                     Team::Enemy,
-                    5,
-                    0.16,
-                    165.0,
-                    3,
+                    volley_count,
+                    volley_spread,
+                    if looped { 220.0 } else { 165.0 },
+                    if looped { 4 } else { 3 },
                     3.2,
                     4.5,
                     Color::srgb(1.0, 0.28, 0.08),
@@ -217,7 +223,7 @@ fn big_bandit_ai(
             if boss.phase_timer.just_finished() {
                 boss.set_phase(BossPhase::Charging, 0.42);
                 let charge_dir = (boss.target - pos).normalize_or_zero();
-                vel.0 = charge_dir * 680.0;
+                vel.0 = charge_dir * charge_speed;
                 ScreenEffects::add_trauma(trauma, 0.18);
             }
         }
@@ -239,10 +245,10 @@ fn big_bandit_ai(
                     owner,
                     tf.translation.truncate(),
                     Team::Enemy,
-                    10,
+                    recovery_ring,
                     boss.pattern_index as f32 * 0.13,
-                    135.0,
-                    2,
+                    if looped { 180.0 } else { 135.0 },
+                    if looped { 3 } else { 2 },
                     1.9,
                     3.5,
                     Color::srgb(1.0, 0.35, 0.1),
@@ -275,6 +281,7 @@ fn big_dog_ai(
     props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
     // Big Dog is heavy: it drifts toward home and the player, but never chases.
+    let looped = def.name.contains("Loop");
     let desired_home = (boss.home - pos).normalize_or_zero() * 0.35;
     let desired_player = dir * 0.25;
     vel.0 += (desired_home + desired_player).normalize_or_zero() * def.accel * 0.18 * dt;
@@ -284,7 +291,13 @@ fn big_dog_ai(
 
     if boss.attack_timer.just_finished() {
         let base = (player_pos - pos).to_angle();
-        let count = if boss.enraged { 7 } else { 5 };
+        let count = if boss.enraged {
+            if looped { 9 } else { 7 }
+        } else if looped {
+            7
+        } else {
+            5
+        };
         for angle in fan_angles(base, count, 0.12) {
             let shot_dir = dir_from_angle(angle);
             fire_projectile(
@@ -307,9 +320,16 @@ fn big_dog_ai(
     if boss.special_timer.just_finished() {
         boss.pattern_index += 1;
         if boss.pattern_index % 3 == 0 {
-            big_dog_stomp(commands, trauma, owner, pos, boss.enraged);
+            big_dog_stomp(commands, trauma, owner, pos, boss.enraged, looped);
         } else {
-            big_dog_rotating_salvo(commands, owner, pos, boss.pattern_index, boss.enraged);
+            big_dog_rotating_salvo(
+                commands,
+                owner,
+                pos,
+                boss.pattern_index,
+                boss.enraged,
+                looped,
+            );
         }
     }
 }
@@ -320,8 +340,15 @@ fn big_dog_rotating_salvo(
     pos: Vec2,
     pattern_index: usize,
     enraged: bool,
+    looped: bool,
 ) {
-    let count = if enraged { 18 } else { 14 };
+    let count = if enraged {
+        if looped { 24 } else { 18 }
+    } else if looped {
+        18
+    } else {
+        14
+    };
     let phase = pattern_index as f32 * 0.23;
 
     for angle in ring_angles(count, phase) {
@@ -349,8 +376,9 @@ fn big_dog_stomp(
     owner: Entity,
     pos: Vec2,
     enraged: bool,
+    looped: bool,
 ) {
-    ScreenEffects::add_trauma(trauma, if enraged { 0.35 } else { 0.24 });
+    ScreenEffects::add_trauma(trauma, if enraged || looped { 0.35 } else { 0.24 });
 
     commands.spawn((
         GameCleanup,
@@ -375,7 +403,13 @@ fn big_dog_stomp(
         owner,
         pos,
         Team::Enemy,
-        if enraged { 20 } else { 14 },
+        if looped {
+            22
+        } else if enraged {
+            20
+        } else {
+            14
+        },
         0.0,
         if enraged { 230.0 } else { 180.0 },
         2,
@@ -403,6 +437,8 @@ fn lil_hunter_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
+    let looped = def.name.contains("Loop");
+
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
             // Keep a skirmish range.
@@ -413,17 +449,34 @@ fn lil_hunter_ai(
             };
 
             vel.0 += desired * def.accel * 0.7 * dt;
-            limit_velocity(vel, if boss.enraged { 185.0 } else { 145.0 });
+            limit_velocity(
+                vel,
+                if boss.enraged {
+                    if looped { 210.0 } else { 185.0 }
+                } else if looped {
+                    165.0
+                } else {
+                    145.0
+                },
+            );
             tf.translation += (vel.0 * dt).extend(0.0);
             resolve_prop_collision(&mut tf.translation, def.radius, props);
 
             if boss.attack_timer.just_finished() {
-                lil_hunter_burst(commands, owner, pos, player_pos, player_vel, boss.enraged);
+                lil_hunter_burst(
+                    commands,
+                    owner,
+                    pos,
+                    player_pos,
+                    player_vel,
+                    boss.enraged,
+                    looped,
+                );
             }
 
             if boss.special_timer.just_finished() {
                 boss.target = player_pos + player_vel * 0.35;
-                boss.set_phase(BossPhase::Telegraph, 0.25);
+                boss.set_phase(BossPhase::Telegraph, if looped { 0.18 } else { 0.25 });
                 vel.0 *= 0.2;
             }
         }
@@ -434,7 +487,16 @@ fn lil_hunter_ai(
             vel.0 *= 0.70_f32.powf(dt * 60.0);
 
             if boss.phase_timer.just_finished() {
-                boss.set_phase(BossPhase::Jumping, if boss.enraged { 0.36 } else { 0.44 });
+                boss.set_phase(
+                    BossPhase::Jumping,
+                    if boss.enraged {
+                        if looped { 0.30 } else { 0.36 }
+                    } else if looped {
+                        0.36
+                    } else {
+                        0.44
+                    },
+                );
                 let jump_dir = (boss.target - pos).normalize_or_zero();
                 vel.0 = jump_dir * if boss.enraged { 620.0 } else { 520.0 };
                 health.invuln = Timer::from_seconds(0.18, TimerMode::Once);
@@ -501,6 +563,7 @@ fn lil_hunter_ai(
                     player_pos,
                     player_vel,
                     true,
+                    def.name.contains("Loop"),
                 );
             }
         }
@@ -520,12 +583,19 @@ fn lil_hunter_burst(
     player_pos: Vec2,
     player_vel: Vec2,
     enraged: bool,
+    looped: bool,
 ) {
     let aim = lead_target(pos, player_pos, player_vel, 260.0);
     let base = aim.to_angle();
-    let count = if enraged { 5 } else { 3 };
+    let count = if enraged {
+        if looped { 7 } else { 5 }
+    } else if looped {
+        5
+    } else {
+        3
+    };
 
-    for angle in fan_angles(base, count, 0.13) {
+    for angle in fan_angles(base, count, 0.11) {
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
@@ -533,7 +603,13 @@ fn lil_hunter_burst(
             pos + dir * 20.0,
             dir,
             Team::Enemy,
-            if enraged { 280.0 } else { 245.0 },
+            if enraged {
+                if looped { 340.0 } else { 280.0 }
+            } else if looped {
+                300.0
+            } else {
+                245.0
+            },
             3,
             2.3,
             4.0,

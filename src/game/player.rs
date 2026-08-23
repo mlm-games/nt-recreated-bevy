@@ -9,6 +9,7 @@ use rand::RngExt;
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
 use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
 use crate::game::secret_areas::SecretTriggers;
@@ -1386,12 +1387,12 @@ pub fn hammerhead_chew(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut cooldown: Local<f32>,
-    player_q: Query<&Transform, With<Player>>,
-    mut props: Query<(Entity, &mut Prop, &Transform)>,
+    player_q: Query<(Entity, &Transform), With<Player>>,
+    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>)>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
-    let Ok(player_tf) = player_q.single() else {
+    let Ok((player_entity, player_tf)) = player_q.single() else {
         return;
     };
 
@@ -1401,7 +1402,7 @@ pub fn hammerhead_chew(
     }
 
     let pos = player_tf.translation.truncate();
-    for (prop_e, mut prop, prop_tf) in &mut props {
+    for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
         if !prop.destructible {
             continue;
         }
@@ -1418,17 +1419,24 @@ pub fn hammerhead_chew(
         *cooldown = 0.25;
         prop.hp -= 1;
         if prop.hp <= 0 {
+            // Shared terminal payload: cars/barrels/mines react like they do
+            // to bullets.
+            spawn_prop_death_effect(
+                &mut commands,
+                center,
+                death_effect.copied(),
+                prop.explosive,
+                Some(DamageSource {
+                    owner: player_entity,
+                    team: Team::Player,
+                    hit_id: HitId::Other(301),
+                }),
+            );
+
             // Hammerhead can also open secret entrances.
             if let Ok(entrance) = entrances.get(prop_e) {
                 secrets.queue(entrance.target);
             }
-            VfxSpawner::spawn_burst(
-                &mut commands,
-                center,
-                8,
-                Color::srgb(0.8, 0.65, 0.4),
-                (50.0, 140.0),
-            );
             commands.entity(prop_e).despawn();
         }
         return;

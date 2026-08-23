@@ -198,3 +198,29 @@ mod loop_pattern_tests {
         assert_eq!(crate::game::areas::route_coordinates(floor), (1, 1));
     }
 }
+
+#[cfg(test)]
+mod loop_density_tests {
+    use super::*;
+
+    #[test]
+    fn loop_big_bandit_fan_is_denser() {
+        let base = fan_angles(0.0, 5, 0.16);
+        let looped = fan_angles(0.0, 7, 0.13);
+        assert!(looped.len() > base.len());
+    }
+
+    #[test]
+    fn loop_big_dog_ring_is_denser() {
+        let base = ring_angles(14, 0.0);
+        let looped = ring_angles(18, 0.0);
+        assert!(looped.len() > base.len());
+    }
+
+    #[test]
+    fn loop_lil_hunter_burst_is_wider_by_count() {
+        let base = fan_angles(0.0, 3, 0.13);
+        let looped = fan_angles(0.0, 5, 0.11);
+        assert!(looped.len() > base.len());
+    }
+}

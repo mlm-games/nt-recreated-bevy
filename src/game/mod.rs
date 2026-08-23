@@ -11,6 +11,7 @@ pub mod components;
 pub mod content;
 pub mod crown;
 pub mod enemies;
+pub mod environment;
 pub mod generated;
 pub mod hud;
 pub mod idpd;
@@ -149,6 +150,19 @@ impl Plugin for GamePlugin {
                         .in_set(NtSimSet::Cleanup)
                         .run_if(in_state(AppState::InGame)),
                 ),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
+                    environment::apply_surface_effects
+                        .after(player_sys::player_move)
+                        .after(enemies::enemy_ai),
+                    environment::tick_proximity_mines.before(combat::apply_explosions),
+                    environment::tick_environment_hazards.after(combat::apply_explosions),
+                    environment::animate_environment,
+                )
+                    .in_set(NtSimSet::Combat)
+                    .run_if(gameplay_active),
             )
             .add_systems(Update, clear_input_when_inactive)
             .add_systems(OnExit(AppState::InGame), clear_input_pulses)

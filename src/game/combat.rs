@@ -9,6 +9,7 @@ use crate::app::{AppState, Paused};
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
 use crate::game::secret_areas::SecretTriggers;
 use crate::game::world::*;
 use crate::save::SaveData;
@@ -257,7 +258,7 @@ pub fn move_projectiles(
         ),
         Without<Prop>,
     >,
-    mut props: Query<(Entity, &mut Prop, &Transform), With<Prop>>,
+    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
@@ -395,7 +396,7 @@ pub fn move_projectiles(
         if prop_hit {
             // Sticky grenades stick to the first overlapping prop.
             if sticky.is_some() {
-                for (prop_e, prop, prop_tf) in &mut props {
+                for (prop_e, prop, prop_tf, _death) in &mut props {
                     let center = prop_tf.translation.truncate();
                     let half = prop.size / 2.0;
                     let closest = Vec2::new(
@@ -417,7 +418,7 @@ pub fn move_projectiles(
             }
 
             let mut dead_prop = None;
-            for (prop_e, mut prop, prop_tf) in &mut props {
+            for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
                 let center = prop_tf.translation.truncate();
                 let half = prop.size / 2.0;
                 let closest = Vec2::new(
@@ -430,27 +431,27 @@ pub fn move_projectiles(
                 if prop.destructible {
                     prop.hp -= 1;
                     if prop.hp <= 0 {
-                        dead_prop = Some((center, prop.explosive));
-                        // Destroying a secret entrance queues that secret.
-                        if let Ok(entrance) = entrances.get(prop_e) {
-                            secrets.queue(entrance.target);
-                        }
+                        dead_prop = Some((center, prop.explosive, death_effect.copied(), prop_e));
                         commands.entity(prop_e).despawn();
                     }
                 }
                 break;
             }
 
-            if let Some((center, explosive)) = dead_prop {
-                VfxSpawner::spawn_burst(
+            if let Some((center, legacy_explosive, death_effect, prop_e)) = dead_prop {
+                // Shared terminal path: bespoke payloads for cars/toxic
+                // barrels/mines, legacy barrel boom, or plain debris burst.
+                spawn_prop_death_effect(
                     &mut commands,
                     center,
-                    10,
-                    Color::srgb(0.8, 0.65, 0.4),
-                    (60.0, 180.0),
+                    death_effect,
+                    legacy_explosive,
+                    p.source,
                 );
-                if explosive {
-                    spawn_explosion(&mut commands, center, 6);
+
+                // Destroying a secret entrance queues that secret.
+                if let Ok(entrance) = entrances.get(prop_e) {
+                    secrets.queue(entrance.target);
                 }
             }
 
@@ -474,10 +475,6 @@ pub fn move_projectiles(
             commands.entity(e).despawn();
         }
     }
-}
-
-fn spawn_explosion(commands: &mut Commands, pos: Vec2, damage: i32) {
-    spawn_explosion_with_source_radius(commands, pos, damage, None, 130.0, Team::Player, true);
 }
 
 fn spawn_explosion_with_source_radius(
@@ -766,7 +763,10 @@ pub fn apply_explosions(
     >,
     mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
     mut player_q: Query<(Entity, &Transform, &mut Health, &Player), (With<Player>, Without<Enemy>)>,
-    mut props: Query<(Entity, &mut Prop, &Transform), (With<Prop>, Without<Player>)>,
+    mut props: Query<
+        (Entity, &mut Prop, &Transform, Option<&PropDeathEffect>),
+        (With<Prop>, Without<Player>),
+    >,
 ) {
     for (e, mut boom, tf) in &mut q {
         boom.timer.tick(time.delta());
@@ -807,25 +807,47 @@ pub fn apply_explosions(
                     );
                 }
             }
-            // Explosions destroy props too.
-            for (prop_e, mut prop, prop_tf) in &mut props {
+            // Explosions destroy props and can chain their payloads.
+            let mut destroyed_props = Vec::new();
+            for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
+                if !prop.destructible {
+                    continue;
+                }
+
                 let center = prop_tf.translation.truncate();
                 let half = prop.size / 2.0;
                 let closest = Vec2::new(
                     pos.x.clamp(center.x - half.x, center.x + half.x),
                     pos.y.clamp(center.y - half.y, center.y + half.y),
                 );
-                if pos.distance(closest) < boom.radius && prop.destructible {
-                    prop.hp -= 1;
+                if pos.distance(closest) < boom.radius {
+                    prop.hp -= boom.damage.max(1);
                     if prop.hp <= 0 {
-                        // Explosions can also open secret entrances.
-                        if let Ok(entrance) = entrances.get(prop_e) {
-                            secrets.queue(entrance.target);
-                        }
-                        commands.entity(prop_e).despawn();
-                        spawn_prop_destroyed(&mut commands, &mut trauma, &audio, pos);
+                        destroyed_props.push((
+                            prop_e,
+                            center,
+                            prop.explosive,
+                            death_effect.copied(),
+                        ));
                     }
                 }
+            }
+
+            for (prop_e, center, legacy_explosive, death_effect) in destroyed_props {
+                spawn_prop_death_effect(
+                    &mut commands,
+                    center,
+                    death_effect,
+                    legacy_explosive,
+                    boom.source,
+                );
+
+                // Explosions can also open secret entrances.
+                if let Ok(entrance) = entrances.get(prop_e) {
+                    secrets.queue(entrance.target);
+                }
+
+                commands.entity(prop_e).despawn();
             }
         }
 
@@ -854,23 +876,6 @@ pub fn apply_explosions(
 
         commands.entity(e).despawn();
     }
-}
-
-fn spawn_prop_destroyed(
-    commands: &mut Commands,
-    trauma: &mut Trauma,
-    audio: &GameAudio,
-    pos: Vec2,
-) {
-    ScreenEffects::add_trauma(trauma, 0.15);
-    VfxSpawner::spawn_burst(
-        commands,
-        pos,
-        10,
-        Color::srgb(0.8, 0.65, 0.4),
-        (60.0, 180.0),
-    );
-    let _ = audio;
 }
 
 #[allow(clippy::type_complexity)]

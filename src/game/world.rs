@@ -12,6 +12,10 @@ use rand::rngs::StdRng;
 use crate::game::areas::AreaId;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::environment::{
+    EnvironmentHazard, EnvironmentHazardSpec, PropDeathEffect, ProximityMine, SurfaceKind,
+    SurfacePulse, SurfaceZone, sprite_from_candidates,
+};
 use crate::game::secret_areas::SecretTarget;
 
 pub const WALL_PX: f32 = 16.0;
@@ -31,14 +35,28 @@ pub struct LevelPlan {
     pub boss: Option<EnemyKind>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PropKind {
+    // Existing
     Cactus,
     BigSkull,
     GroundDecal,
     Barrel,
     Pipe,
     Tires,
+
+    // Solid environmental props
+    ToxicBarrel,
+    Car,
+    Cocoon,
+    Snowman,
+    Torch,
+
+    // Functional floor / hazard entities
+    Cobweb,
+    IcePatch,
+    FireTrap,
+    Mine,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -386,6 +404,7 @@ fn populate(
         let (px, py) = cell_center_i(cx, cy);
 
         let kind = match area {
+            // Desert
             1 => {
                 if rng.random::<f32>() * 60.0 < 1.0 {
                     PropKind::BigSkull
@@ -395,33 +414,99 @@ fn populate(
                     PropKind::GroundDecal
                 }
             }
+
+            // Sewers
             2 => {
-                if rng.random::<f32>() * 7.0 < 2.0 {
-                    PropKind::Barrel
-                } else if rng.random::<f32>() * 7.0 < 1.0 {
-                    PropKind::GroundDecal
-                } else {
-                    PropKind::Pipe
+                let roll = rng.random_range(0..12);
+                match roll {
+                    0 => PropKind::ToxicBarrel,
+                    1..=3 => PropKind::Barrel,
+                    4 => PropKind::GroundDecal,
+                    _ => PropKind::Pipe,
                 }
             }
+
+            // Scrapyards
             3 => {
-                if rng.random::<f32>() * 2.0 < 1.0 {
-                    PropKind::Tires
-                } else if rng.random::<f32>() * 35.0 < 1.0 {
-                    PropKind::GroundDecal
-                } else {
-                    PropKind::Pipe
+                let roll = rng.random_range(0..20);
+                match roll {
+                    0 => PropKind::Car,
+                    1 => PropKind::Mine,
+                    2..=10 => PropKind::Tires,
+                    11 => PropKind::GroundDecal,
+                    _ => PropKind::Pipe,
                 }
             }
-            _ => PropKind::Cactus,
+
+            // Crystal Caves
+            4 => {
+                let roll = rng.random_range(0..10);
+                match roll {
+                    0..=4 => PropKind::Cobweb,
+                    5..=7 => PropKind::Cocoon,
+                    _ => PropKind::GroundDecal,
+                }
+            }
+
+            // Frozen City
+            5 => {
+                let roll = rng.random_range(0..14);
+                match roll {
+                    0..=7 => PropKind::IcePatch,
+                    8..=10 => PropKind::Snowman,
+                    11 => PropKind::Car,
+                    _ => PropKind::GroundDecal,
+                }
+            }
+
+            // Labs
+            6 => {
+                let roll = rng.random_range(0..12);
+                match roll {
+                    0..=3 => PropKind::ToxicBarrel,
+                    4 => PropKind::FireTrap,
+                    5 => PropKind::Mine,
+                    6..=9 => PropKind::Pipe,
+                    _ => PropKind::GroundDecal,
+                }
+            }
+
+            // Palace
+            7 => {
+                let roll = rng.random_range(0..12);
+                match roll {
+                    0 => PropKind::Mine,
+                    1..=2 => PropKind::FireTrap,
+                    3..=5 => PropKind::Torch,
+                    6 => PropKind::BigSkull,
+                    _ => PropKind::GroundDecal,
+                }
+            }
+
+            _ => PropKind::GroundDecal,
         };
 
-        // Upstream gate: random(unlikeliness) > 1 exits (~10% proceed).
-        if rng.random::<f32>() * 10.0 > 1.0 {
+        // Functional floor patches occur more frequently than solid props;
+        // they do not block enemy/chest placement because they never claim
+        // `prop_tiles`.
+        let threshold = match kind {
+            PropKind::Cobweb | PropKind::IcePatch => 2.6,
+            PropKind::FireTrap => 1.35,
+            PropKind::Mine => 0.85,
+            _ => 1.0,
+        };
+
+        // Upstream gate: random(unlikeliness) > threshold exits.
+        if rng.random::<f32>() * 10.0 > threshold {
             continue;
         }
-        // Ground decals are decorative overlays; solid props claim the tile.
-        if kind != PropKind::GroundDecal {
+
+        let claims_tile = !matches!(
+            kind,
+            PropKind::GroundDecal | PropKind::Cobweb | PropKind::IcePatch | PropKind::FireTrap
+        );
+
+        if claims_tile {
             prop_tiles.insert((cx, cy));
         }
         plan.props.push((kind, Vec2::new(px, py)));
@@ -448,6 +533,7 @@ fn populate(
 
         let center = Vec2::new(px, py);
         let pick_kind = |rng: &mut StdRng, w: &[EnemyKind]| w[rng.random_range(0..w.len())];
+        let loop_extras = loop_elite_candidates(area, run.loop_count);
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
@@ -466,19 +552,18 @@ fn populate(
                         ));
                     }
                 } else {
-                    let k = pick_kind(
-                        &mut rng,
-                        &[
-                            EnemyKind::Bandit,
-                            EnemyKind::Bandit,
-                            EnemyKind::Bandit,
-                            EnemyKind::Bandit,
-                            EnemyKind::Bandit,
-                            EnemyKind::Bandit,
-                            EnemyKind::Maggot,
-                            EnemyKind::Scorpion,
-                        ],
-                    );
+                    let mut cands = vec![
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Maggot,
+                        EnemyKind::Scorpion,
+                    ];
+                    cands.extend(loop_extras.iter().copied());
+                    let k = pick_kind(&mut rng, &cands);
                     plan.enemies.push((k, center));
                 }
             }
@@ -496,41 +581,38 @@ fn populate(
                     );
                     plan.enemies.push((k, center));
                 } else {
-                    let k = pick_kind(
-                        &mut rng,
-                        &[
-                            EnemyKind::Rat,
-                            EnemyKind::Rat,
-                            EnemyKind::Rat,
-                            EnemyKind::Maggot,
-                            EnemyKind::Freak,
-                            EnemyKind::Bandit,
-                        ],
-                    );
+                    let mut cands = vec![
+                        EnemyKind::Rat,
+                        EnemyKind::Rat,
+                        EnemyKind::Rat,
+                        EnemyKind::Maggot,
+                        EnemyKind::Freak,
+                        EnemyKind::Bandit,
+                    ];
+                    cands.extend(loop_extras.iter().copied());
+                    let k = pick_kind(&mut rng, &cands);
                     plan.enemies.push((k, center));
                 }
             }
             3 => {
                 // Scrapyards: robot guards, turrets, assassins.
-                let k = pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::RobotGuard,
-                        EnemyKind::RobotGuard,
-                        EnemyKind::Assassin,
-                        EnemyKind::Turret,
-                        EnemyKind::Bandit,
-                    ],
-                );
+                let mut cands = vec![
+                    EnemyKind::RobotGuard,
+                    EnemyKind::RobotGuard,
+                    EnemyKind::Assassin,
+                    EnemyKind::Turret,
+                    EnemyKind::Bandit,
+                ];
+                cands.extend(loop_extras.iter().copied());
+                let k = pick_kind(&mut rng, &cands);
                 plan.enemies.push((k, center));
             }
             4 => {
                 // Crystal Caves: reuse assassin/freak/scorpion until crystal
                 // sprites are wired into the catalog.
-                let k = pick_kind(
-                    &mut rng,
-                    &[EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion],
-                );
+                let mut cands = vec![EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion];
+                cands.extend(loop_extras.iter().copied());
+                let k = pick_kind(&mut rng, &cands);
                 plan.enemies.push((k, center));
             }
             5 => {
@@ -547,6 +629,7 @@ fn populate(
                         (run.loop_count.min(3) * 2) as usize,
                     ));
                 }
+                frozen.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &frozen);
                 plan.enemies.push((k, center));
             }
@@ -570,6 +653,7 @@ fn populate(
                 if run.loop_count >= 2 {
                     late.push(EnemyKind::IdpdElite);
                 }
+                late.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &late);
                 plan.enemies.push((k, center));
             }
@@ -580,13 +664,87 @@ fn populate(
     // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
     // quiet single-floor stop.
     if boss_sub {
-        plan.boss = Some(boss_for_floor(run.floor));
+        plan.boss = Some(boss_for_floor_and_loop(run.floor, run.loop_count));
     } else if gml_area(run.floor) == 4 && run.loop_count >= 1 {
         plan.boss = Some(EnemyKind::Hyper);
     }
 
     // Chest trimming (scrPopChests): keep the furthest of each kind.
     trim_chests(&mut plan.chests);
+}
+
+/// Loop-only elite substitutions appended to an area's spawn table.
+///
+/// Weighted entries (`kind, weight`) are expanded into repeated pick
+/// candidates by the enemy pass.
+fn apply_loop_elite_substitutions(
+    table: &mut Vec<(EnemyKind, usize)>,
+    area: AreaId,
+    loop_count: u32,
+) {
+    if loop_count == 0 {
+        return;
+    }
+
+    let l = loop_count.min(4) as usize;
+
+    match area {
+        AreaId::Desert => {
+            table.push((EnemyKind::SnowBandit, 4 + l * 2));
+            table.push((EnemyKind::IdpdGrunt, 3 + l));
+        }
+        AreaId::Sewers => {
+            table.push((EnemyKind::BigRat, 5 + l * 2));
+            table.push((EnemyKind::IdpdShield, 2 + l));
+        }
+        AreaId::Scrapyards => {
+            table.push((EnemyKind::RobotGuard, 5 + l * 2));
+            table.push((EnemyKind::Turret, 3 + l));
+            table.push((EnemyKind::IdpdGrunt, 4 + l));
+        }
+        AreaId::CrystalCaves => {
+            table.push((EnemyKind::Freak, 5 + l * 2));
+            table.push((EnemyKind::Assassin, 4 + l));
+            if loop_count >= 2 {
+                table.push((EnemyKind::IdpdElite, 3 + l));
+            }
+        }
+        AreaId::FrozenCity => {
+            table.push((EnemyKind::Wolf, 4 + l * 2));
+            table.push((EnemyKind::IdpdShield, 4 + l));
+        }
+        AreaId::Labs | AreaId::Palace => {
+            if loop_count >= 2 {
+                table.push((EnemyKind::IdpdElite, 5 + l));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Expanded pick candidates for the current floor's route area.
+fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
+    let area = match area_num {
+        1 => AreaId::Desert,
+        2 => AreaId::Sewers,
+        3 => AreaId::Scrapyards,
+        4 => AreaId::CrystalCaves,
+        5 => AreaId::FrozenCity,
+        6 => AreaId::Labs,
+        7 => AreaId::Palace,
+        _ => return Vec::new(),
+    };
+
+    let mut table = Vec::new();
+    apply_loop_elite_substitutions(&mut table, area, loop_count);
+
+    let mut out = Vec::new();
+    for (kind, weight) in table {
+        for _ in 0..weight.min(8) {
+            out.push(kind);
+        }
+    }
+    out
 }
 
 fn walls_cover_tile_with_smalls(plan: &LevelPlan, cx: i32, cy: i32) -> bool {
@@ -925,6 +1083,7 @@ fn spawn_secret_entrances(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_prop(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -933,49 +1092,348 @@ fn spawn_prop(
     pos: Vec2,
     decal_png: &'static str,
 ) {
-    let (png, size, hp, destructible, explosive, z, solid) = match kind {
-        PropKind::Cactus => ("images/sprCactus.png", 24.0, 4, true, false, -10.0, true),
-        PropKind::BigSkull => ("images/sprBigSkull.png", 32.0, 8, true, false, -10.0, true),
-        PropKind::Barrel => ("images/sprBarrel.png", 24.0, 1, true, true, -10.0, true),
-        PropKind::Pipe => ("images/sprPipe.png", 24.0, 6, true, false, -10.0, true),
-        PropKind::Tires => ("images/sprTires.png", 28.0, 6, true, false, -10.0, true),
-        PropKind::GroundDecal => (decal_png, 32.0, 9999, false, false, -42.0, false),
+    // --- Functional floor / hazard entities (no solid Prop component) ---
+    match kind {
+        PropKind::Cobweb => {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                SurfaceZone {
+                    kind: SurfaceKind::Cobweb,
+                    half_size: Vec2::splat(18.0),
+                },
+                SurfacePulse::subtle(pos.x * 0.017),
+                sprite_from_candidates(
+                    catalog,
+                    asset_server,
+                    &[
+                        "images/sprCobweb.png",
+                        "images/sprSpiderWeb.png",
+                        "images/sprWeb.png",
+                    ],
+                    Color::srgba(0.78, 0.78, 0.72, 0.62),
+                    Vec2::splat(36.0),
+                ),
+                Transform::from_translation(pos.extend(-41.0)),
+            ));
+            return;
+        }
+
+        PropKind::IcePatch => {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                SurfaceZone {
+                    kind: SurfaceKind::Ice,
+                    half_size: Vec2::splat(20.0),
+                },
+                SurfacePulse::subtle(pos.y * 0.014),
+                sprite_from_candidates(
+                    catalog,
+                    asset_server,
+                    &["images/sprIceDecal.png", "images/sprIcePatch.png"],
+                    Color::srgba(0.62, 0.86, 1.0, 0.58),
+                    Vec2::splat(40.0),
+                ),
+                Transform::from_translation(pos.extend(-41.0)),
+            ));
+            return;
+        }
+
+        PropKind::FireTrap => {
+            let spec = EnvironmentHazardSpec::fire_trap();
+
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                EnvironmentHazard::new(spec),
+                SurfacePulse::hazard(pos.x * 0.011),
+                sprite_from_candidates(
+                    catalog,
+                    asset_server,
+                    &[
+                        "images/sprFireTrap.png",
+                        "images/sprFireTrapIdle.png",
+                        "images/sprTorchFire.png",
+                    ],
+                    spec.kind.color(),
+                    Vec2::splat(32.0),
+                ),
+                Transform::from_translation(pos.extend(5.0)),
+            ));
+            return;
+        }
+
+        PropKind::Mine => {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                Prop {
+                    size: Vec2::splat(18.0),
+                    hp: 2,
+                    destructible: true,
+                    explosive: false,
+                },
+                ProximityMine::default(),
+                PropDeathEffect::mine(),
+                SurfacePulse::hazard(pos.y * 0.019),
+                sprite_from_candidates(
+                    catalog,
+                    asset_server,
+                    &["images/sprMine.png", "images/sprMineIdle.png"],
+                    Color::srgb(0.86, 0.25, 0.18),
+                    Vec2::splat(18.0),
+                ),
+                Transform::from_translation(pos.extend(-8.0)),
+            ));
+            return;
+        }
+
+        _ => {}
+    }
+
+    // --- Ordinary solid props / decals ---
+    let (
+        candidates,
+        fallback_color,
+        fallback_size,
+        collision_size,
+        hp,
+        destructible,
+        legacy_explosive,
+        death_effect,
+        z,
+        solid,
+    ): (
+        &[&str],
+        Color,
+        Vec2,
+        f32,
+        i32,
+        bool,
+        bool,
+        Option<PropDeathEffect>,
+        f32,
+        bool,
+    ) = match kind {
+        PropKind::Cactus => (
+            &["images/sprCactus.png"],
+            Color::srgb(0.38, 0.72, 0.28),
+            Vec2::splat(24.0),
+            24.0,
+            4,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::BigSkull => (
+            &["images/sprBigSkull.png"],
+            Color::srgb(0.82, 0.78, 0.62),
+            Vec2::splat(32.0),
+            32.0,
+            8,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::Barrel => (
+            &["images/sprBarrel.png"],
+            Color::srgb(0.72, 0.28, 0.18),
+            Vec2::splat(24.0),
+            24.0,
+            1,
+            true,
+            true,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::ToxicBarrel => (
+            &[
+                "images/sprToxicBarrel.png",
+                "images/sprToxicBarrelHurt.png",
+                "images/sprBarrel.png",
+            ],
+            Color::srgb(0.35, 0.86, 0.30),
+            Vec2::splat(24.0),
+            24.0,
+            3,
+            true,
+            false,
+            Some(PropDeathEffect::toxic_barrel()),
+            -10.0,
+            true,
+        ),
+
+        PropKind::Car => (
+            &[
+                "images/sprCarIdle.png",
+                "images/sprCarHurt.png",
+                "images/sprIcyCar.png",
+            ],
+            Color::srgb(0.62, 0.28, 0.22),
+            Vec2::new(48.0, 28.0),
+            38.0,
+            10,
+            true,
+            false,
+            Some(PropDeathEffect::car()),
+            -10.0,
+            true,
+        ),
+
+        PropKind::Pipe => (
+            &["images/sprPipe.png"],
+            Color::srgb(0.42, 0.46, 0.45),
+            Vec2::splat(24.0),
+            24.0,
+            6,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::Tires => (
+            &["images/sprTires.png"],
+            Color::srgb(0.20, 0.20, 0.22),
+            Vec2::splat(28.0),
+            28.0,
+            6,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::Cocoon => (
+            &["images/sprCocoon.png", "images/sprCocoonHurt.png"],
+            Color::srgb(0.70, 0.58, 0.72),
+            Vec2::new(26.0, 32.0),
+            24.0,
+            7,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::Snowman => (
+            &[
+                "images/sprSnowManIdle.png",
+                "images/sprSnowManHurt.png",
+                "images/sprSnowMan.png",
+            ],
+            Color::srgb(0.90, 0.94, 1.0),
+            Vec2::new(24.0, 32.0),
+            24.0,
+            5,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::Torch => (
+            &["images/sprTorch.png", "images/sprTorchHurt.png"],
+            Color::srgb(1.0, 0.62, 0.18),
+            Vec2::new(12.0, 28.0),
+            12.0,
+            4,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+
+        PropKind::GroundDecal => (
+            &[decal_png],
+            Color::srgba(0.5, 0.5, 0.5, 0.5),
+            Vec2::splat(32.0),
+            0.0,
+            9_999,
+            false,
+            false,
+            None,
+            -42.0,
+            false,
+        ),
+
+        PropKind::Cobweb | PropKind::IcePatch | PropKind::FireTrap | PropKind::Mine => {
+            unreachable!("functional props returned before ordinary prop tuple")
+        }
     };
 
-    let sprite = sprite_exact(catalog, asset_server, png);
-    let mut e = commands.spawn((
+    let sprite = sprite_from_candidates(
+        catalog,
+        asset_server,
+        candidates,
+        fallback_color,
+        fallback_size,
+    );
+
+    let mut entity = commands.spawn((
         GameCleanup,
         LevelCleanup,
         sprite,
         Transform::from_translation(pos.extend(z)),
     ));
+
     if solid {
-        e.insert(Prop {
-            size: Vec2::splat(size),
+        entity.insert(Prop {
+            size: Vec2::splat(collision_size),
             hp,
             destructible,
-            explosive,
+            explosive: legacy_explosive,
         });
     }
-}
 
-// ---------------------------------------------------------------------------
-// Shared helpers (floor math, bosses, collisions)
-// ---------------------------------------------------------------------------
+    if let Some(effect) = death_effect {
+        entity.insert(effect);
+    }
+
+    if kind == PropKind::Torch {
+        entity.insert(SurfacePulse::hazard(pos.x * 0.01 + pos.y * 0.02));
+    }
+}
 
 pub fn is_boss_floor(floor: u32) -> bool {
     is_boss_subarea(floor)
 }
 
-pub fn boss_for_floor(floor: u32) -> EnemyKind {
+/// Loop-aware boss selection: floors 3/7/11 use stronger variants from
+/// loop 1 onward; 15 stays Throne because the campfire/Throne II path owns
+/// the loop gate.
+pub fn boss_for_floor_and_loop(floor: u32, loop_count: u32) -> EnemyKind {
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
+        3 if loop_count > 0 => EnemyKind::BigBanditLoop,
         3 => EnemyKind::BigBandit,
+        7 if loop_count > 0 => EnemyKind::BigDogLoop,
         7 => EnemyKind::BigDog,
+        11 if loop_count > 0 => EnemyKind::LilHunterLoop,
         11 => EnemyKind::LilHunter,
         15 => EnemyKind::Throne,
         _ => EnemyKind::BigBandit,
     }
+}
+
+/// Floor-only convenience wrapper (loop derived from global floor).
+#[allow(dead_code)]
+pub fn boss_for_floor(floor: u32) -> EnemyKind {
+    boss_for_floor_and_loop(floor, (floor.max(1) - 1) / 15)
 }
 
 pub fn floor_in_world(floor: u32) -> u32 {
@@ -1045,9 +1503,9 @@ pub fn resolve_prop_collision(
 pub fn circle_hits_prop(
     pos: Vec2,
     radius: f32,
-    props: &Query<(Entity, &mut Prop, &Transform), With<Prop>>,
+    props: &Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
 ) -> bool {
-    for (_, prop, tf) in props.iter() {
+    for (_, prop, tf, _) in props.iter() {
         if !prop.destructible && prop.hp >= 9999 {
             // Indestructible decor still blocks bullets.
         }
@@ -1096,13 +1554,33 @@ mod tests {
 
     #[test]
     fn bosses_map_to_area_ends() {
+        // First cycle uses base bosses.
+        assert_eq!(boss_for_floor_and_loop(3, 0), EnemyKind::BigBandit);
+        assert_eq!(boss_for_floor_and_loop(7, 0), EnemyKind::BigDog);
+        assert_eq!(boss_for_floor_and_loop(11, 0), EnemyKind::LilHunter);
+        assert_eq!(boss_for_floor_and_loop(15, 0), EnemyKind::Throne);
+    }
+
+    #[test]
+    fn loop_cycle_bosses_use_loop_variants() {
+        assert_eq!(boss_for_floor_and_loop(18, 1), EnemyKind::BigBanditLoop);
+        assert_eq!(boss_for_floor_and_loop(22, 1), EnemyKind::BigDogLoop);
+        assert_eq!(boss_for_floor_and_loop(26, 1), EnemyKind::LilHunterLoop);
+        assert_eq!(boss_for_floor_and_loop(30, 1), EnemyKind::Throne);
+
+        assert_eq!(boss_for_floor_and_loop(33, 2), EnemyKind::BigBanditLoop);
+        assert_eq!(boss_for_floor_and_loop(37, 2), EnemyKind::BigDogLoop);
+        assert_eq!(boss_for_floor_and_loop(45, 2), EnemyKind::Throne);
+    }
+
+    #[test]
+    fn floor_derived_boss_selection_stays_consistent() {
+        // boss_for_floor derives loop from global floor.
         assert_eq!(boss_for_floor(3), EnemyKind::BigBandit);
-        assert_eq!(boss_for_floor(7), EnemyKind::BigDog);
-        assert_eq!(boss_for_floor(11), EnemyKind::LilHunter);
-        assert_eq!(boss_for_floor(15), EnemyKind::Throne);
-        // Loops repeat the same roster.
-        assert_eq!(boss_for_floor(18), EnemyKind::BigBandit);
-        assert_eq!(boss_for_floor(22), EnemyKind::BigDog);
+        assert_eq!(boss_for_floor(18), EnemyKind::BigBanditLoop);
+        assert_eq!(boss_for_floor(22), EnemyKind::BigDogLoop);
+        assert_eq!(boss_for_floor(26), EnemyKind::LilHunterLoop);
+        assert_eq!(boss_for_floor(30), EnemyKind::Throne);
     }
 
     #[test]
@@ -1169,11 +1647,145 @@ mod loop_boss_spawn_tests {
     use super::*;
 
     #[test]
+    fn loop_substitutions_do_nothing_on_loop_zero() {
+        let mut table = vec![(EnemyKind::Bandit, 10)];
+        apply_loop_elite_substitutions(&mut table, AreaId::Desert, 0);
+        assert_eq!(table, vec![(EnemyKind::Bandit, 10)]);
+    }
+
+    #[test]
+    fn desert_loop_gets_pressure_units() {
+        let mut table = vec![(EnemyKind::Bandit, 10)];
+        apply_loop_elite_substitutions(&mut table, AreaId::Desert, 1);
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::SnowBandit));
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::IdpdGrunt));
+    }
+
+    #[test]
+    fn caves_loop_two_gets_idpd_elite() {
+        let mut table = vec![(EnemyKind::Scorpion, 10)];
+        apply_loop_elite_substitutions(&mut table, AreaId::CrystalCaves, 2);
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::IdpdElite));
+    }
+
+    #[test]
     fn hyper_applies_to_looped_crystal_caves_only() {
         // gml_area(floor)==4 corresponds to route floor 8 (+15 per loop).
         assert_eq!(gml_area(8), 4);
         assert_eq!(gml_area(23), 4);
         assert_ne!(gml_area(7), 4);
         assert_ne!(gml_area(9), 4);
+    }
+}
+
+#[cfg(test)]
+mod environment_gen_tests {
+    use super::*;
+
+    fn run_for_floor(floor: u32) -> Run {
+        Run {
+            floor,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn functional_environment_kinds_are_non_claiming() {
+        // These never claim prop_tiles, so enemies/chests can share the cell.
+        for kind in [
+            PropKind::Cobweb,
+            PropKind::IcePatch,
+            PropKind::FireTrap,
+            PropKind::GroundDecal,
+        ] {
+            let claims = !matches!(
+                kind,
+                PropKind::GroundDecal | PropKind::Cobweb | PropKind::IcePatch | PropKind::FireTrap
+            );
+            assert!(!claims, "{kind:?} should not claim tiles");
+        }
+    }
+
+    #[test]
+    fn crystal_caves_generate_cave_props() {
+        let mut found = false;
+        for seed in 0..64u64 {
+            let mut run = run_for_floor(8);
+            run.gen_seed = seed;
+            let plan = generate_level(&run);
+            found |= plan
+                .props
+                .iter()
+                .any(|(kind, _)| matches!(kind, PropKind::Cobweb | PropKind::Cocoon));
+        }
+        assert!(found, "no cobwebs/cocoons generated across 64 seeds");
+    }
+
+    #[test]
+    fn frozen_city_generates_ice() {
+        let mut found = false;
+        for seed in 0..64u64 {
+            let mut run = run_for_floor(9);
+            run.gen_seed = seed;
+            let plan = generate_level(&run);
+            found |= plan
+                .props
+                .iter()
+                .any(|(kind, _)| *kind == PropKind::IcePatch);
+        }
+        assert!(found, "no ice patches generated across 64 seeds");
+    }
+
+    #[test]
+    fn labs_generate_toxic_barrels() {
+        let mut found = false;
+        for seed in 0..96u64 {
+            let mut run = run_for_floor(12);
+            run.gen_seed = seed;
+            let plan = generate_level(&run);
+            found |= plan
+                .props
+                .iter()
+                .any(|(kind, _)| *kind == PropKind::ToxicBarrel);
+        }
+        assert!(found, "no toxic barrels generated across 96 seeds");
+    }
+
+    #[test]
+    fn palace_generates_fire_traps_or_mines() {
+        let mut found = false;
+        for seed in 0..96u64 {
+            let mut run = run_for_floor(13);
+            run.gen_seed = seed;
+            let plan = generate_level(&run);
+            found |= plan
+                .props
+                .iter()
+                .any(|(kind, _)| matches!(kind, PropKind::FireTrap | PropKind::Mine));
+        }
+        assert!(found, "no traps/mines generated across 96 seeds");
+    }
+
+    #[test]
+    fn generated_props_sit_on_floor_cells() {
+        for floor in [4_u32, 5, 8, 9, 12, 13] {
+            let run = run_for_floor(floor);
+            let plan = generate_level(&run);
+
+            let floors: std::collections::HashSet<_> = plan
+                .floor_cells
+                .iter()
+                .map(|&(x, y)| cell_center_px(x, y))
+                .map(|p| (p.x.round() as i32, p.y.round() as i32))
+                .collect();
+
+            for (_, pos) in &plan.props {
+                let key = (pos.x.round() as i32, pos.y.round() as i32);
+                assert!(
+                    floors.contains(&key),
+                    "floor {floor}: prop {pos:?} not on a floor cell"
+                );
+            }
+        }
     }
 }

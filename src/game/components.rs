@@ -822,9 +822,27 @@ pub struct BossBrain {
 impl BossBrain {
     pub fn new(kind: EnemyKind, spawn: Vec2) -> Self {
         let (attack, special) = match kind {
-            EnemyKind::BigBandit => (1.15, 2.8),
-            EnemyKind::BigDog => (0.8, 2.2),
-            EnemyKind::LilHunter => (0.55, 1.7),
+            EnemyKind::BigBandit | EnemyKind::BigBanditLoop => {
+                if kind == EnemyKind::BigBanditLoop {
+                    (0.95, 2.25)
+                } else {
+                    (1.15, 2.8)
+                }
+            }
+            EnemyKind::BigDog | EnemyKind::BigDogLoop => {
+                if kind == EnemyKind::BigDogLoop {
+                    (0.62, 1.8)
+                } else {
+                    (0.8, 2.2)
+                }
+            }
+            EnemyKind::LilHunter | EnemyKind::LilHunterLoop => {
+                if kind == EnemyKind::LilHunterLoop {
+                    (0.42, 1.35)
+                } else {
+                    (0.55, 1.7)
+                }
+            }
             EnemyKind::Throne => (0.7, 2.5),
             EnemyKind::ThroneII => (0.85, 3.4),
             EnemyKind::Hyper => (1.1, 4.0),
@@ -980,3 +998,17 @@ pub struct HazardCloud {
 /// Chicken headless grace (one lethal soak per floor).
 #[derive(Component, Default)]
 pub struct HeadlessReady(pub bool);
+
+#[cfg(test)]
+mod loop_boss_brain_tests {
+    use super::*;
+
+    #[test]
+    fn loop_boss_brains_have_faster_cadence() {
+        let base = BossBrain::new(EnemyKind::BigDog, Vec2::ZERO);
+        let looped = BossBrain::new(EnemyKind::BigDogLoop, Vec2::ZERO);
+
+        assert!(looped.attack_timer.duration() < base.attack_timer.duration());
+        assert!(looped.special_timer.duration() < base.special_timer.duration());
+    }
+}
