@@ -33,15 +33,26 @@ pub struct Explosion {
 pub fn move_projectiles(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Projectile, &Velocity, &mut Transform), Without<Prop>>,
+    mut q: Query<
+        (
+            Entity,
+            &Team,
+            &mut Projectile,
+            &mut Velocity,
+            &mut Transform,
+            Option<&mut BouncesLeft>,
+            Option<&SpawnHazardOnDeath>,
+            Option<&SplitOnDeath>,
+        ),
+        Without<Prop>,
+    >,
     mut props: Query<(Entity, &mut Prop, &Transform), With<Prop>>,
 ) {
     let dt = time.delta_secs();
 
-    for (e, mut p, vel, mut tf) in &mut q {
+    for (e, team, mut p, mut vel, mut tf, bounces, hazard, split) in &mut q {
         p.life.tick(time.delta());
         tf.translation += (vel.0 * dt).extend(0.0);
-
         let pos = tf.translation.truncate();
         let out = pos.x.abs() > ARENA_W / 2.0 + 80.0 || pos.y.abs() > ARENA_H / 2.0 + 80.0;
         let wall_hit = !out
@@ -50,15 +61,37 @@ pub fn move_projectiles(
 
         if p.life.just_finished() || out {
             if p.explosive {
-                spawn_explosion(&mut commands, pos, p.damage);
+                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
             }
+            on_projectile_removed(
+                &mut commands,
+                pos,
+                *team,
+                p.source,
+                hazard.copied(),
+                split.copied(),
+            );
             commands.entity(e).despawn();
             continue;
         }
 
         if wall_hit {
+            if let Some(mut bounce) = bounces
+                && bounce.0 > 0
+            {
+                bounce.0 -= 1;
+                let normal = if pos.x.abs() > ARENA_W / 2.0 - p.radius {
+                    Vec2::new(pos.x.signum(), 0.0)
+                } else {
+                    Vec2::new(0.0, pos.y.signum())
+                };
+                vel.0 = vel.0.reflect(normal);
+                tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
+                continue;
+            }
+
             if p.explosive {
-                spawn_explosion(&mut commands, pos, p.damage);
+                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
             } else {
                 VfxSpawner::spawn_burst(
                     &mut commands,
@@ -68,17 +101,22 @@ pub fn move_projectiles(
                     (30.0, 90.0),
                 );
             }
+
+            on_projectile_removed(
+                &mut commands,
+                pos,
+                *team,
+                p.source,
+                hazard.copied(),
+                split.copied(),
+            );
             commands.entity(e).despawn();
             continue;
         }
 
         if prop_hit {
-            // Bullets chip destructible props; explosive props detonate.
-            let mut dead_prop: Option<(Vec2, bool)> = None;
+            let mut dead_prop = None;
             for (prop_e, mut prop, prop_tf) in &mut props {
-                if !prop.destructible {
-                    continue;
-                }
                 let center = prop_tf.translation.truncate();
                 let half = prop.size / 2.0;
                 let closest = Vec2::new(
@@ -97,7 +135,7 @@ pub fn move_projectiles(
             }
 
             if p.explosive {
-                spawn_explosion(&mut commands, pos, p.damage);
+                spawn_explosion_with_source(&mut commands, pos, p.damage, p.source);
             }
             if let Some((center, explosive)) = dead_prop {
                 VfxSpawner::spawn_burst(
@@ -111,6 +149,15 @@ pub fn move_projectiles(
                     spawn_explosion(&mut commands, center, 6);
                 }
             }
+
+            on_projectile_removed(
+                &mut commands,
+                pos,
+                *team,
+                p.source,
+                hazard.copied(),
+                split.copied(),
+            );
             commands.entity(e).despawn();
         }
     }
@@ -139,6 +186,122 @@ fn spawn_explosion_with_source(
         },
         Transform::from_translation(pos.extend(20.0)),
     ));
+}
+
+fn spawn_hazard_cloud(commands: &mut Commands, pos: Vec2, team: Team, spec: HazardDef) {
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        team,
+        HazardCloud {
+            kind: spec.kind,
+            radius: spec.radius,
+            damage: spec.damage,
+            timer: Timer::from_seconds(spec.duration, TimerMode::Once),
+            tick: Timer::from_seconds(spec.tick, TimerMode::Repeating),
+        },
+        Sprite {
+            color: spec.color,
+            custom_size: Some(Vec2::splat(spec.radius * 2.0)),
+            ..default()
+        },
+        Transform::from_translation(pos.extend(8.0)),
+    ));
+}
+
+fn spawn_split_projectiles(
+    commands: &mut Commands,
+    pos: Vec2,
+    team: Team,
+    split: SplitDef,
+    source: Option<DamageSource>,
+) {
+    let mut rng = rand::rng();
+    for _ in 0..split.pellets {
+        let angle = rng.random_range(-split.spread..split.spread);
+        let dir = Vec2::new(angle.cos(), angle.sin()).normalize_or_zero();
+
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            team,
+            Projectile {
+                damage: split.damage,
+                life: Timer::from_seconds(split.lifetime, TimerMode::Once),
+                radius: split.radius,
+                knockback: split.knockback,
+                explosive: false,
+                source,
+            },
+            Velocity(dir * split.speed),
+            Sprite {
+                color: split.color,
+                custom_size: Some(split.size),
+                ..default()
+            },
+            Transform::from_translation(pos.extend(16.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
+        ));
+    }
+}
+
+fn on_projectile_removed(
+    commands: &mut Commands,
+    pos: Vec2,
+    team: Team,
+    source: Option<DamageSource>,
+    hazard: Option<SpawnHazardOnDeath>,
+    split: Option<SplitOnDeath>,
+) {
+    if let Some(SpawnHazardOnDeath(spec)) = hazard {
+        spawn_hazard_cloud(commands, pos, team, spec);
+    }
+    if let Some(SplitOnDeath(spec)) = split {
+        spawn_split_projectiles(commands, pos, team, spec, source);
+    }
+}
+
+pub fn tick_hazard_clouds(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut clouds: Query<(Entity, &Team, &Transform, &mut HazardCloud)>,
+    mut targets: Query<
+        (Entity, &Transform, &Team, &mut Health),
+        (Without<HazardCloud>, Without<Projectile>),
+    >,
+) {
+    for (cloud_e, cloud_team, cloud_tf, mut cloud) in &mut clouds {
+        cloud.timer.tick(time.delta());
+        cloud.tick.tick(time.delta());
+
+        if cloud.timer.just_finished() {
+            commands.entity(cloud_e).despawn();
+            continue;
+        }
+
+        if !cloud.tick.just_finished() {
+            continue;
+        }
+
+        let pos = cloud_tf.translation.truncate();
+        for (_, target_tf, target_team, mut health) in &mut targets {
+            if *target_team == *cloud_team {
+                continue;
+            }
+            if target_tf.translation.truncate().distance(pos) > cloud.radius {
+                continue;
+            }
+            if *target_team == Team::Player && !health.invuln.is_finished() {
+                continue;
+            }
+
+            health.hp -= cloud.damage;
+
+            if *target_team == Team::Player {
+                health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
+            }
+        }
+    }
 }
 
 pub fn apply_explosions(
@@ -262,7 +425,17 @@ pub fn projectile_hits(
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
     player_state: Query<&Player, With<Player>>,
-    projectiles: Query<(Entity, &Transform, &Team, &Projectile, &Velocity), Without<Hitbox>>,
+    mut projectiles: Query<
+        (
+            Entity,
+            &Transform,
+            &Team,
+            &Projectile,
+            &Velocity,
+            Option<&mut PiercesLeft>,
+        ),
+        Without<Hitbox>,
+    >,
     mut targets: Query<
         (
             Entity,
@@ -279,7 +452,7 @@ pub fn projectile_hits(
     let mut processed: Vec<Entity> = Vec::new();
     let player = player_state.single().ok();
 
-    for (proj_e, proj_tf, proj_team, proj, proj_vel) in &projectiles {
+    for (proj_e, proj_tf, proj_team, proj, proj_vel, pierce) in &mut projectiles {
         let proj_pos = proj_tf.translation.truncate();
         let mut hit = false;
         let mut hit_player = false;
@@ -299,7 +472,6 @@ pub fn projectile_hits(
             hit = true;
             hit_pos = target_pos;
 
-            // Crystal's shield absorbs enemy projectiles.
             if *target_team == Team::Player
                 && let Some(shield) = shield
                 && !shield.timer.is_finished()
@@ -336,7 +508,6 @@ pub fn projectile_hits(
 
             HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.1);
             ScreenEffects::add_trauma(&mut trauma, 0.08);
-
             VfxSpawner::spawn_damage_number(
                 &mut commands,
                 proj.damage,
@@ -359,7 +530,17 @@ pub fn projectile_hits(
         }
 
         if hit {
-            processed.push(proj_e);
+            let mut despawn = true;
+            if let Some(mut pierce) = pierce
+                && pierce.0 > 0
+            {
+                pierce.0 -= 1;
+                despawn = false;
+            }
+
+            if despawn {
+                processed.push(proj_e);
+            }
         }
     }
 

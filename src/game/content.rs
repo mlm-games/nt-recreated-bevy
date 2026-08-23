@@ -478,6 +478,35 @@ pub struct MeleeDef {
     pub arc: f32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HazardKind {
+    Fire,
+    Toxic,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct HazardDef {
+    pub kind: HazardKind,
+    pub radius: f32,
+    pub damage: i32,
+    pub duration: f32,
+    pub tick: f32,
+    pub color: Color,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SplitDef {
+    pub pellets: u8,
+    pub spread: f32,
+    pub speed: f32,
+    pub damage: i32,
+    pub lifetime: f32,
+    pub radius: f32,
+    pub knockback: f32,
+    pub color: Color,
+    pub size: Vec2,
+}
+
 #[derive(Clone, Copy)]
 pub struct WeaponDef {
     pub name: &'static str,
@@ -501,6 +530,10 @@ pub struct WeaponDef {
     pub color: Color,
     pub size: Vec2,
     pub muzzle_burst: usize,
+    pub bounces: u8,
+    pub pierce: u8,
+    pub hazard: Option<HazardDef>,
+    pub split: Option<SplitDef>,
 }
 
 pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
@@ -527,6 +560,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.4, 0.4, 0.4),
             size: Vec2::new(1.0, 1.0),
             muzzle_burst: 0,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Revolver => WeaponDef {
             name: "Revolver",
@@ -550,6 +587,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(1.0, 0.9, 0.25),
             size: Vec2::new(16.0, 5.0),
             muzzle_burst: 4,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Machinegun => WeaponDef {
             name: "Machinegun",
@@ -573,6 +614,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(1.0, 1.0, 0.35),
             size: Vec2::new(12.0, 4.0),
             muzzle_burst: 2,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Smg => WeaponDef {
             name: "SMG",
@@ -596,6 +641,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(1.0, 0.85, 0.3),
             size: Vec2::new(11.0, 4.0),
             muzzle_burst: 1,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::AssaultRifle => WeaponDef {
             name: "Assault Rifle",
@@ -619,6 +668,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.95, 0.95, 0.5),
             size: Vec2::new(13.0, 4.0),
             muzzle_burst: 2,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Shotgun => WeaponDef {
             name: "Shotgun",
@@ -642,6 +695,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(1.0, 0.72, 0.26),
             size: Vec2::new(10.0, 4.0),
             muzzle_burst: 6,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Crossbow => WeaponDef {
             name: "Crossbow",
@@ -665,6 +722,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.65, 0.35, 0.12),
             size: Vec2::new(24.0, 5.0),
             muzzle_burst: 3,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::GrenadeLauncher => WeaponDef {
             name: "Grenade Launcher",
@@ -688,6 +749,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.25, 0.95, 0.25),
             size: Vec2::splat(12.0),
             muzzle_burst: 5,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Wrench => WeaponDef {
             name: "Wrench",
@@ -714,6 +779,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.7, 0.7, 0.75),
             size: Vec2::splat(20.0),
             muzzle_burst: 0,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
         WeaponKind::Sledgehammer => WeaponDef {
             name: "Sledgehammer",
@@ -740,6 +809,10 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
             color: Color::srgb(0.55, 0.5, 0.6),
             size: Vec2::splat(26.0),
             muzzle_burst: 0,
+            bounces: 0,
+            pierce: 0,
+            hazard: None,
+            split: None,
         },
     }
 }

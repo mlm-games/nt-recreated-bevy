@@ -339,6 +339,18 @@ pub struct Projectile {
     pub source: Option<DamageSource>,
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BouncesLeft(pub u8);
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PiercesLeft(pub u8);
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SpawnHazardOnDeath(pub HazardDef);
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SplitOnDeath(pub SplitDef);
+
 #[derive(Component, Clone, Copy)]
 pub struct Enemy {
     pub kind: EnemyKind,
@@ -465,12 +477,13 @@ pub struct PortalStrike {
     pub damage: i32,
 }
 
-/// Frog / Horror residual hazard cloud.
+/// Frog / Horror residual hazard cloud
 #[derive(Component)]
 pub struct HazardCloud {
-    pub timer: Timer,
+    pub kind: HazardKind,
     pub radius: f32,
-    pub dps: i32,
+    pub damage: i32,
+    pub timer: Timer,
     pub tick: Timer,
 }
 

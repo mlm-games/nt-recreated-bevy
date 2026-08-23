@@ -82,6 +82,7 @@ impl Plugin for GamePlugin {
                         player_sys::ally_ai,
                         enemies::enemy_ai,
                         combat::move_projectiles,
+                        combat::tick_hazard_clouds,
                         combat::apply_explosions,
                         combat::projectile_hits,
                         combat::contact_damage,

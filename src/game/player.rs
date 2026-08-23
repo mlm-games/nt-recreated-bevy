@@ -478,9 +478,10 @@ pub fn player_ability(
             commands.spawn((
                 LevelCleanup,
                 HazardCloud {
-                    timer: Timer::from_seconds(0.8, TimerMode::Once),
+                    kind: HazardKind::Fire,
                     radius: 28.0,
-                    dps: 1,
+                    damage: 1,
+                    timer: Timer::from_seconds(0.8, TimerMode::Once),
                     tick: Timer::from_seconds(0.15, TimerMode::Repeating),
                 },
                 Transform::from_translation((pos + dir * 160.0).extend(6.0)),
@@ -583,9 +584,10 @@ pub fn player_ability(
             commands.spawn((
                 LevelCleanup,
                 HazardCloud {
-                    timer: Timer::from_seconds(3.0, TimerMode::Once),
+                    kind: HazardKind::Toxic,
                     radius: 70.0,
-                    dps: 1,
+                    damage: 1,
+                    timer: Timer::from_seconds(3.0, TimerMode::Once),
                     tick: Timer::from_seconds(0.25, TimerMode::Repeating),
                 },
                 Transform::from_translation(spot.extend(5.0)),
@@ -853,6 +855,10 @@ fn spawn_pellets(
             def.explosive,
             def.color,
             def.size,
+            def.bounces,
+            def.pierce,
+            def.hazard,
+            def.split,
             Some(DamageSource {
                 owner: player_ent,
                 team: Team::Player,
@@ -976,8 +982,8 @@ pub fn spawn_player_projectile(
     size: Vec2,
 ) {
     spawn_player_projectile_with_source(
-        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size,
-        None,
+        commands, pos, dir, speed, damage, lifetime, radius, knockback, explosive, color, size, 0,
+        0, None, None, None,
     )
 }
 
@@ -993,33 +999,48 @@ pub fn spawn_player_projectile_with_source(
     explosive: bool,
     color: Color,
     size: Vec2,
+    bounces: u8,
+    pierce: u8,
+    hazard: Option<HazardDef>,
+    split: Option<SplitDef>,
     source: Option<DamageSource>,
 ) {
     let angle = dir.y.atan2(dir.x);
-    let e = commands
-        .spawn((
-            GameCleanup,
-            LevelCleanup,
-            Team::Player,
-            Projectile {
-                damage,
-                life: Timer::from_seconds(lifetime, TimerMode::Once),
-                radius,
-                knockback,
-                explosive,
-                source,
-            },
-            Velocity(dir * speed),
-            Sprite {
-                color,
-                custom_size: Some(size),
-                ..default()
-            },
-            Transform::from_translation(pos.extend(16.0))
-                .with_rotation(Quat::from_rotation_z(angle)),
-        ))
-        .id();
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Team::Player,
+        Projectile {
+            damage,
+            life: Timer::from_seconds(lifetime, TimerMode::Once),
+            radius,
+            knockback,
+            explosive,
+            source,
+        },
+        Velocity(dir * speed),
+        Sprite {
+            color,
+            custom_size: Some(size),
+            ..default()
+        },
+        Transform::from_translation(pos.extend(16.0)).with_rotation(Quat::from_rotation_z(angle)),
+    ));
 
+    if bounces > 0 {
+        ec.insert(BouncesLeft(bounces));
+    }
+    if pierce > 0 {
+        ec.insert(PiercesLeft(pierce));
+    }
+    if let Some(spec) = hazard {
+        ec.insert(SpawnHazardOnDeath(spec));
+    }
+    if let Some(spec) = split {
+        ec.insert(SplitOnDeath(spec));
+    }
+
+    let e = ec.id();
     if explosive {
         Juice::shake(commands, e, 1.2, lifetime);
     }
@@ -1129,7 +1150,7 @@ pub fn tick_hazard_clouds(
         let pos = tf.translation.truncate();
         for (etf, mut h) in &mut enemies {
             if etf.translation.truncate().distance(pos) <= cloud.radius {
-                h.hp -= cloud.dps;
+                h.hp -= cloud.damage;
             }
         }
     }
