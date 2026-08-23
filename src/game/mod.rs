@@ -13,6 +13,7 @@ pub mod crown;
 pub mod enemies;
 pub mod generated;
 pub mod hud;
+pub mod idpd;
 pub mod input;
 pub mod pickups;
 pub mod player;
@@ -54,6 +55,7 @@ impl Plugin for GamePlugin {
             .init_resource::<OpenMind>()
             .init_resource::<HeavyHeart>()
             .init_resource::<secret_areas::SecretTriggers>()
+            .init_resource::<idpd::IdpdRaidState>()
             .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
@@ -64,21 +66,24 @@ impl Plugin for GamePlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    sync_hud.in_set(NtSimSet::Always),
-                    anim::animate_sprites.in_set(NtSimSet::Always),
+                    (
+                        sync_hud,
+                        anim::animate_sprites,
+                        progress_sys::handle_mutation_choice,
+                        player_sys::face_aim,
+                        pickups::tick_toast,
+                        secret_areas::detect_oasis_eligibility,
+                        secret_areas::detect_cursed_caves,
+                        secret_areas::detect_hq,
+                        secret_areas::secret_debug_toast,
+                        crown::tick_crown_life,
+                        crown::tick_crown_protection,
+                        crown::tick_crown_love,
+                        crown::tick_crown_curses,
+                        crown::crown_floor_start_bonus,
+                    )
+                        .in_set(NtSimSet::Always),
                     anim::player_anim_switch.in_set(NtSimSet::Input),
-                    progress_sys::handle_mutation_choice.in_set(NtSimSet::Always),
-                    player_sys::face_aim.in_set(NtSimSet::Always),
-                    pickups::tick_toast.in_set(NtSimSet::Always),
-                    secret_areas::detect_oasis_eligibility.in_set(NtSimSet::Always),
-                    secret_areas::detect_cursed_caves.in_set(NtSimSet::Always),
-                    secret_areas::detect_hq.in_set(NtSimSet::Always),
-                    secret_areas::secret_debug_toast.in_set(NtSimSet::Always),
-                    crown::tick_crown_life.in_set(NtSimSet::Always),
-                    crown::tick_crown_protection.in_set(NtSimSet::Always),
-                    crown::tick_crown_love.in_set(NtSimSet::Always),
-                    crown::tick_crown_curses.in_set(NtSimSet::Always),
-                    crown::crown_floor_start_bonus.in_set(NtSimSet::Always),
                     (
                         player_sys::tick_player_timers,
                         player_sys::player_aim,
@@ -100,10 +105,21 @@ impl Plugin for GamePlugin {
                         player_sys::ally_ai,
                         enemies::enemy_ai,
                         boss_ai::boss_ai,
+                    )
+                        .in_set(NtSimSet::Combat)
+                        .run_if(gameplay_active),
+                    (
+                        idpd::tick_idpd_raids,
+                        idpd::tick_idpd_vans,
+                        idpd::hq_pressure,
                         combat::tick_homing_projectiles,
                         combat::tick_sticky_projectiles,
                         combat::tick_beams,
                         combat::tick_sentry_turrets,
+                    )
+                        .in_set(NtSimSet::Combat)
+                        .run_if(gameplay_active),
+                    (
                         combat::move_projectiles,
                         combat::tick_hazard_clouds,
                         combat::apply_explosions,

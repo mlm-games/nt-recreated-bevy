@@ -534,29 +534,43 @@ fn populate(
                 plan.enemies.push((k, center));
             }
             5 => {
-                // Frozen City: snow bandits and wolves.
-                let k = pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::SnowBandit,
-                        EnemyKind::SnowBandit,
-                        EnemyKind::Wolf,
-                        EnemyKind::Assassin,
-                    ],
-                );
+                // Frozen City: snow bandits and wolves; IDPD scouts on loops.
+                let mut frozen = vec![
+                    EnemyKind::SnowBandit,
+                    EnemyKind::SnowBandit,
+                    EnemyKind::Wolf,
+                    EnemyKind::Assassin,
+                ];
+                if run.loop_count > 0 {
+                    frozen.extend(std::iter::repeat_n(
+                        EnemyKind::IdpdGrunt,
+                        (run.loop_count.min(3) * 2) as usize,
+                    ));
+                }
+                let k = pick_kind(&mut rng, &frozen);
                 plan.enemies.push((k, center));
             }
             6 | 7 => {
-                // Labs / Palace: mixed late-game garrisons.
-                let k = pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::RobotGuard,
-                        EnemyKind::Assassin,
-                        EnemyKind::Freak,
-                        EnemyKind::Turret,
-                    ],
-                );
+                // Labs / Palace: mixed late-game garrisons; IDPD squads scale
+                // with loop count.
+                let mut late = vec![
+                    EnemyKind::RobotGuard,
+                    EnemyKind::Assassin,
+                    EnemyKind::Freak,
+                    EnemyKind::Turret,
+                ];
+                late.extend(std::iter::repeat_n(
+                    EnemyKind::IdpdGrunt,
+                    (run.loop_count.min(3) * 2) as usize,
+                ));
+                late.extend(std::iter::repeat_n(
+                    EnemyKind::IdpdShield,
+                    run.loop_count.min(3) as usize,
+                ));
+                if run.loop_count >= 2 {
+                    late.push(EnemyKind::IdpdElite);
+                }
+                let k = pick_kind(&mut rng, &late);
                 plan.enemies.push((k, center));
             }
             _ => {}
@@ -1064,6 +1078,17 @@ mod tests {
             game_over: false,
             total_kills: 0,
         }
+    }
+
+    #[test]
+    fn hq_area_exists_for_spawns() {
+        assert_eq!(AreaId::HQ as u8, 11);
+    }
+
+    #[test]
+    fn boss_mapping_still_ends_normal_cycle_at_throne() {
+        assert_eq!(boss_for_floor(15), EnemyKind::Throne);
+        assert_eq!(boss_for_floor(30), EnemyKind::Throne);
     }
 
     #[test]

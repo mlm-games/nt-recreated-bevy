@@ -567,6 +567,57 @@ pub struct Beam {
     pub tick: Timer,
 }
 
+// --- IDPD raids / vans (see idpd.rs) ----------------------------------------
+
+#[derive(Component)]
+pub struct IdpdVanBrain {
+    pub deploy_timer: Timer,
+    pub charges_left: u8,
+}
+
+impl Default for IdpdVanBrain {
+    fn default() -> Self {
+        Self {
+            deploy_timer: Timer::from_seconds(2.2, TimerMode::Repeating),
+            charges_left: 4,
+        }
+    }
+}
+
+/// Marker for shield units (frontal advance, reduced strafe).
+#[derive(Component)]
+pub struct IdpdShieldUnit;
+
+/// Loop-only raid director state.
+#[derive(Resource)]
+pub struct IdpdRaidState {
+    pub cooldown: Timer,
+    pub warning: Timer,
+    pub pending_wave: Option<RaidWave>,
+    pub wave_index: u32,
+    pub kills_checkpoint: u32,
+}
+
+impl Default for IdpdRaidState {
+    fn default() -> Self {
+        Self {
+            cooldown: Timer::from_seconds(20.0, TimerMode::Repeating),
+            warning: Timer::from_seconds(1.25, TimerMode::Once),
+            pending_wave: None,
+            wave_index: 0,
+            kills_checkpoint: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaidWave {
+    Light,
+    Medium,
+    Heavy,
+    VanDrop,
+}
+
 /// Autonomous friendly turret deployed by the Sentry Gun pod.
 #[derive(Component, Clone, Debug)]
 pub struct SentryTurret {

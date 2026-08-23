@@ -1033,6 +1033,10 @@ pub enum EnemyKind {
     Wolf,
     BigDog,
     LilHunter,
+    IdpdGrunt,
+    IdpdShield,
+    IdpdElite,
+    IdpdVan,
 }
 
 #[derive(Clone, Copy)]
@@ -1518,6 +1522,126 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_color: Color::srgb(0.6, 0.95, 1.0),
             projectile_size: 7.0,
             boss: true,
+        },
+        EnemyKind::IdpdGrunt => EnemyDef {
+            name: "IDPD Grunt",
+            hp: 14,
+            speed: 120.0,
+            accel: 1100.0,
+            radius: 13.0,
+            size: 24.0,
+            color: Color::srgb(0.25, 0.45, 0.95),
+            sprite: "images/sprGruntIdle.png",
+            score: 18,
+            touch_damage: 3,
+            rad_drop: 4,
+            drop_chance: 18,
+            weapon_chance: 4,
+            preferred_range: 220.0,
+            shoot_range: 520.0,
+            attack_cooldown: 0.75,
+            bullets_per_shot: 3,
+            burst: true,
+            burst_interval: 0.07,
+            fan_spread: 0.07,
+            projectile_speed: 280.0,
+            projectile_spread: 0.03,
+            projectile_damage: 2,
+            projectile_radius: 3.5,
+            projectile_lifetime: 2.2,
+            projectile_color: Color::srgb(0.45, 0.75, 1.0),
+            projectile_size: 7.0,
+            boss: false,
+        },
+        EnemyKind::IdpdShield => EnemyDef {
+            name: "IDPD Shield",
+            hp: 24,
+            speed: 95.0,
+            accel: 950.0,
+            radius: 15.0,
+            size: 28.0,
+            color: Color::srgb(0.2, 0.5, 0.9),
+            sprite: "images/sprShielderIdle.png",
+            score: 28,
+            touch_damage: 4,
+            rad_drop: 6,
+            drop_chance: 20,
+            weapon_chance: 5,
+            preferred_range: 180.0,
+            shoot_range: 420.0,
+            attack_cooldown: 1.0,
+            bullets_per_shot: 2,
+            burst: true,
+            burst_interval: 0.08,
+            fan_spread: 0.05,
+            projectile_speed: 250.0,
+            projectile_spread: 0.02,
+            projectile_damage: 2,
+            projectile_radius: 4.0,
+            projectile_lifetime: 2.0,
+            projectile_color: Color::srgb(0.4, 0.75, 1.0),
+            projectile_size: 8.0,
+            boss: false,
+        },
+        EnemyKind::IdpdElite => EnemyDef {
+            name: "IDPD Elite",
+            hp: 36,
+            speed: 135.0,
+            accel: 1200.0,
+            radius: 14.0,
+            size: 26.0,
+            color: Color::srgb(0.4, 0.25, 1.0),
+            sprite: "images/sprEliteGruntIdle.png",
+            score: 45,
+            touch_damage: 4,
+            rad_drop: 10,
+            drop_chance: 26,
+            weapon_chance: 8,
+            preferred_range: 260.0,
+            shoot_range: 700.0,
+            attack_cooldown: 0.6,
+            bullets_per_shot: 5,
+            burst: true,
+            burst_interval: 0.05,
+            fan_spread: 0.11,
+            projectile_speed: 340.0,
+            projectile_spread: 0.03,
+            projectile_damage: 3,
+            projectile_radius: 4.0,
+            projectile_lifetime: 2.6,
+            projectile_color: Color::srgb(0.55, 0.75, 1.0),
+            projectile_size: 7.5,
+            boss: false,
+        },
+        EnemyKind::IdpdVan => EnemyDef {
+            name: "IDPD Van",
+            hp: 80,
+            speed: 0.0,
+            accel: 0.0,
+            radius: 24.0,
+            size: 44.0,
+            color: Color::srgb(0.18, 0.28, 0.72),
+            sprite: "images/sprVanDrive.png",
+            score: 80,
+            touch_damage: 6,
+            rad_drop: 18,
+            drop_chance: 40,
+            weapon_chance: 12,
+            preferred_range: 0.0,
+            shoot_range: 999.0,
+            attack_cooldown: 2.0,
+            bullets_per_shot: 0,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.0,
+            projectile_speed: 0.0,
+            projectile_spread: 0.0,
+            projectile_damage: 0,
+            projectile_radius: 0.0,
+            projectile_lifetime: 0.0,
+            projectile_color: Color::srgb(0.4, 0.7, 1.0),
+            projectile_size: 1.0,
+            boss: false,
         },
     }
 }
@@ -2153,5 +2277,46 @@ mod boss_def_tests {
         let def = enemy_def(EnemyKind::BigBandit);
         assert!(def.touch_damage >= 5);
         assert!(def.shoot_range >= 500.0);
+    }
+}
+
+#[cfg(test)]
+mod idpd_def_tests {
+    use super::*;
+
+    #[test]
+    fn idpd_units_are_not_bosses() {
+        for kind in [
+            EnemyKind::IdpdGrunt,
+            EnemyKind::IdpdShield,
+            EnemyKind::IdpdElite,
+            EnemyKind::IdpdVan,
+        ] {
+            assert!(!enemy_def(kind).boss, "{kind:?} should not be boss");
+        }
+    }
+
+    #[test]
+    fn idpd_van_is_stationary() {
+        let def = enemy_def(EnemyKind::IdpdVan);
+        assert_eq!(def.speed, 0.0);
+        assert_eq!(def.accel, 0.0);
+        assert!(def.hp >= 60);
+    }
+
+    #[test]
+    fn idpd_elite_is_more_dangerous_than_grunt() {
+        let grunt = enemy_def(EnemyKind::IdpdGrunt);
+        let elite = enemy_def(EnemyKind::IdpdElite);
+        assert!(elite.hp > grunt.hp);
+        assert!(elite.attack_cooldown <= grunt.attack_cooldown);
+        assert!(elite.bullets_per_shot >= grunt.bullets_per_shot);
+    }
+
+    #[test]
+    fn idpd_shield_is_midrange() {
+        let def = enemy_def(EnemyKind::IdpdShield);
+        assert!(def.preferred_range > 0.0);
+        assert!(def.shoot_range >= 400.0);
     }
 }

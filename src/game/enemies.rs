@@ -112,11 +112,22 @@ pub fn spawn_enemy(
     if let Some(strip) = strip {
         ec.insert(strip);
     }
-    let e = ec.id();
 
     if def.boss {
-        commands.entity(e).insert(BossBrain::new(kind, pos));
+        ec.insert(BossBrain::new(kind, pos));
     }
+
+    match kind {
+        EnemyKind::IdpdVan => {
+            ec.insert((IdpdVanBrain::default(), IdpdShieldUnit));
+        }
+        EnemyKind::IdpdShield => {
+            ec.insert(IdpdShieldUnit);
+        }
+        _ => {}
+    }
+
+    let e = ec.id();
 
     Juice::pop_in(commands, e, 0.18);
 }
@@ -177,6 +188,12 @@ pub fn enemy_ai(
             continue;
         }
 
+        // Vans are stationary deployment points, not chasers.
+        if enemy.kind == EnemyKind::IdpdVan {
+            vel.0 = Vec2::ZERO;
+            continue;
+        }
+
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
@@ -185,6 +202,9 @@ pub fn enemy_ai(
 
         let desired = if dashing {
             dir
+        } else if enemy.kind == EnemyKind::IdpdShield {
+            // Shields advance frontally toward the player.
+            dir * 0.85
         } else if brain.preferred_range > 0.0 && dist < brain.preferred_range {
             -dir
         } else {
@@ -199,7 +219,12 @@ pub fn enemy_ai(
             brain.strafe_timer = Timer::from_seconds(rng.random_range(0.6..1.4), TimerMode::Once);
         }
         if !dashing && dist < brain.preferred_range + 60.0 {
-            strafe = Vec2::new(-dir.y, dir.x) * brain.strafe_dir * 0.6;
+            let amount = if enemy.kind == EnemyKind::IdpdShield {
+                0.25
+            } else {
+                0.6
+            };
+            strafe = Vec2::new(-dir.y, dir.x) * brain.strafe_dir * amount;
         }
 
         let target = (desired + strafe).normalize_or_zero();
