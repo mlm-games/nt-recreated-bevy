@@ -1233,3 +1233,25 @@ pub fn mutation_def(id: MutationId) -> MutationDef {
         },
     }
 }
+
+#[cfg(test)]
+mod weapon_id_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_weapon_ids_are_sanitized() {
+        assert_eq!(sanitize_weapon_id(WeaponId(255)), WeaponId::NONE);
+    }
+
+    #[test]
+    fn invalid_weapon_metadata_does_not_panic() {
+        assert_eq!(weapon_meta(WeaponId(255)).id, 0);
+    }
+
+    #[test]
+    fn all_real_weapon_ids_resolve() {
+        for id in 0..crate::game::weapons_data::MAXWEP as u8 {
+            assert_eq!(weapon_meta(WeaponId(id)).id, id);
+        }
+    }
+}

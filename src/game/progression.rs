@@ -117,11 +117,15 @@ pub fn setup_run(
             ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
             mutations: Vec::new(),
         },
+        RaceState {
+            race: character.0,
+            skin: crate::game::content::SkinLetter::A,
+        },
         Inventory {
-            weapons: [WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
+            weapons: equipped,
             weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
             current: 0,
-            ammo: [0, 96, 0, 0, 0, 0],
+            ammo: starting_ammo,
         },
         FireCooldown {
             timer: ready_timer(),
