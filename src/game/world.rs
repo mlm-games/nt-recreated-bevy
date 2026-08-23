@@ -9,8 +9,10 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use crate::game::areas::AreaId;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::secret_areas::SecretTarget;
 
 pub const WALL_PX: f32 = 16.0;
 
@@ -790,6 +792,10 @@ pub fn spawn_level(
         spawn_prop(commands, catalog, asset_server, *kind, *pos, decal_prop_png);
     }
 
+    // Secret entrances (destructible markers; destroying one queues the
+    // secret via the SecretEntrance component).
+    spawn_secret_entrances(commands, catalog, asset_server, run);
+
     // Chests.
     for chest in &plan.chests {
         let (kind, pos) = match *chest {
@@ -824,6 +830,81 @@ pub fn spawn_level(
             false,
             false,
         );
+    }
+}
+
+/// Destructible secret-entrance markers for the current area/floor.
+/// Destroying one queues its secret target (see combat's prop-death hook).
+fn spawn_secret_entrances(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    run: &Run,
+) {
+    let maybe = match (run.area, run.floor_in_area) {
+        // Sewers manhole.
+        (AreaId::Sewers, _) => Some((
+            SecretTarget::PizzaSewers,
+            "images/sprPipe.png",
+            Vec2::new(220.0, -120.0),
+            28.0,
+        )),
+        // Proto/crown statue appears on the stage before each boss floor.
+        (AreaId::Desert, 2) | (AreaId::Scrapyards, 2) | (AreaId::FrozenCity, 2) => Some((
+            SecretTarget::CrownVault,
+            "images/sprOldGuardianStatue.png",
+            Vec2::new(-240.0, 160.0),
+            34.0,
+        )),
+        // Y.V. Mansion hook in Scrapyards.
+        (AreaId::Scrapyards, 1) => Some((
+            SecretTarget::YvMansion,
+            "images/sprCarIdle.png",
+            Vec2::new(260.0, 140.0),
+            36.0,
+        )),
+        // Jungle hook in Frozen City.
+        (AreaId::FrozenCity, 1) => Some((
+            SecretTarget::Jungle,
+            "images/sprBushIdle.png",
+            Vec2::new(-260.0, -140.0),
+            30.0,
+        )),
+        _ => None,
+    };
+
+    let Some((target, sprite, pos, size)) = maybe else {
+        return;
+    };
+
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        SecretEntrance { target },
+        Prop {
+            size: Vec2::splat(size),
+            hp: 6,
+            destructible: true,
+            explosive: false,
+        },
+        sprite_exact(catalog, asset_server, sprite),
+        Transform::from_translation(pos.extend(12.0)),
+    ));
+
+    match target {
+        SecretTarget::PizzaSewers => {
+            ec.insert(ManholeCover);
+        }
+        SecretTarget::CrownVault | SecretTarget::Vault => {
+            ec.insert(ProtoStatue);
+        }
+        SecretTarget::YvMansion => {
+            ec.insert(GoldCar);
+        }
+        SecretTarget::Jungle => {
+            ec.insert(BloodFlower);
+        }
+        _ => {}
     }
 }
 

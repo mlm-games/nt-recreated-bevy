@@ -69,6 +69,7 @@ pub fn sync_hud(
         ui.ammo = inv.ammo;
         ui.ability = ability_name(player.ability).to_string();
         ui.ability_ready = player.ability_cooldown.is_finished();
+        ui.crown = crown_short_name(player.crown.to_u8()).to_string();
     }
 
     ui.floor = run.floor;

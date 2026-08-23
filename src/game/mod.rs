@@ -7,6 +7,7 @@ pub mod audio;
 pub mod combat;
 pub mod components;
 pub mod content;
+pub mod crown;
 pub mod enemies;
 pub mod generated;
 pub mod hud;
@@ -15,6 +16,7 @@ pub mod pickups;
 pub mod player;
 pub mod progression;
 pub mod projectile_math;
+pub mod secret_areas;
 pub mod ui_art;
 pub mod weapon_runtime;
 pub mod weapons_data;
@@ -48,6 +50,8 @@ impl Plugin for GamePlugin {
             .init_resource::<Euphoria>()
             .init_resource::<OpenMind>()
             .init_resource::<HeavyHeart>()
+            .init_resource::<secret_areas::SecretTriggers>()
+            .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
             .add_systems(PreUpdate, input::sample_input.run_if(gameplay_active))
@@ -63,6 +67,15 @@ impl Plugin for GamePlugin {
                     progress_sys::handle_mutation_choice.in_set(NtSimSet::Always),
                     player_sys::face_aim.in_set(NtSimSet::Always),
                     pickups::tick_toast.in_set(NtSimSet::Always),
+                    secret_areas::detect_oasis_eligibility.in_set(NtSimSet::Always),
+                    secret_areas::detect_cursed_caves.in_set(NtSimSet::Always),
+                    secret_areas::detect_hq.in_set(NtSimSet::Always),
+                    secret_areas::secret_debug_toast.in_set(NtSimSet::Always),
+                    crown::tick_crown_life.in_set(NtSimSet::Always),
+                    crown::tick_crown_protection.in_set(NtSimSet::Always),
+                    crown::tick_crown_love.in_set(NtSimSet::Always),
+                    crown::tick_crown_curses.in_set(NtSimSet::Always),
+                    crown::crown_floor_start_bonus.in_set(NtSimSet::Always),
                     (
                         player_sys::tick_player_timers,
                         player_sys::player_aim,
@@ -147,6 +160,7 @@ fn setup_game(
     character: Res<SelectedCharacter>,
     save: Res<crate::save::SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
+    floor_started: MessageWriter<FloorStarted>,
 ) {
     progress_sys::setup_run(
         commands,
@@ -163,6 +177,7 @@ fn setup_game(
         character,
         save,
         camera_q,
+        floor_started,
     );
 }
 

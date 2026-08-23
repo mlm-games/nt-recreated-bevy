@@ -219,6 +219,7 @@ pub struct Player {
     pub ability_cooldown: Timer,
     pub headless_ready: bool,
     pub free_ammo: bool,
+    pub crown: CrownKind,
     pub mutations: Vec<MutationId>,
 }
 
@@ -293,6 +294,47 @@ impl Inventory {
 pub struct RaceState {
     pub race: RaceId,
     pub skin: SkinLetter,
+}
+
+/// Runtime state for the equipped crown's per-floor behaviors.
+#[derive(Component)]
+pub struct CrownState {
+    pub crown: CrownKind,
+    pub life_timer: Timer,
+    pub love_timer: Timer,
+    pub protection_ready: bool,
+    pub destiny_ready: bool,
+    pub curses_timer: Timer,
+}
+
+impl CrownState {
+    pub fn new(crown: CrownKind) -> Self {
+        let mut life_timer = Timer::from_seconds(2.0, TimerMode::Repeating);
+        life_timer.reset();
+
+        let mut love_timer = Timer::from_seconds(35.0, TimerMode::Repeating);
+        love_timer.reset();
+
+        let mut curses_timer = Timer::from_seconds(14.0, TimerMode::Repeating);
+        curses_timer.reset();
+
+        Self {
+            crown,
+            life_timer,
+            love_timer,
+            protection_ready: true,
+            destiny_ready: true,
+            curses_timer,
+        }
+    }
+}
+
+/// Emitted once per floor (initial spawn and every portal transition) so
+/// floor-start effects (crown bonuses, etc.) can react.
+#[derive(bevy::ecs::message::Message, Clone, Copy, Debug)]
+pub struct FloorStarted {
+    pub floor: u32,
+    pub area: crate::game::areas::AreaId,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -427,6 +469,24 @@ pub struct Prop {
     pub destructible: bool,
     pub explosive: bool,
 }
+
+/// A destructible prop that leads to a secret area when destroyed.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SecretEntrance {
+    pub target: crate::game::secret_areas::SecretTarget,
+}
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct ManholeCover;
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct ProtoStatue;
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct GoldCar;
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct BloodFlower;
 
 /// Visual for a melee swing (fades out quickly).
 #[derive(Component)]

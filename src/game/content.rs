@@ -242,6 +242,135 @@ pub enum PassiveKind {
     FreeAmmo,        // Robot passive: ammo pickups heal slightly (hooked later)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(u8)]
+pub enum CrownKind {
+    None = 0,
+    Death = 1,
+    Life = 2,
+    Haste = 3,
+    Guns = 4,
+    Hatred = 5,
+    Blood = 6,
+    Destiny = 7,
+    Love = 8,
+    Risk = 9,
+    Curses = 10,
+    Luck = 11,
+    Protection = 12,
+}
+
+impl CrownKind {
+    pub const ALL: [CrownKind; 13] = [
+        CrownKind::None,
+        CrownKind::Death,
+        CrownKind::Life,
+        CrownKind::Haste,
+        CrownKind::Guns,
+        CrownKind::Hatred,
+        CrownKind::Blood,
+        CrownKind::Destiny,
+        CrownKind::Love,
+        CrownKind::Risk,
+        CrownKind::Curses,
+        CrownKind::Luck,
+        CrownKind::Protection,
+    ];
+
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => CrownKind::Death,
+            2 => CrownKind::Life,
+            3 => CrownKind::Haste,
+            4 => CrownKind::Guns,
+            5 => CrownKind::Hatred,
+            6 => CrownKind::Blood,
+            7 => CrownKind::Destiny,
+            8 => CrownKind::Love,
+            9 => CrownKind::Risk,
+            10 => CrownKind::Curses,
+            11 => CrownKind::Luck,
+            12 => CrownKind::Protection,
+            _ => CrownKind::None,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CrownKind::None => "No Crown",
+            CrownKind::Death => "Crown of Death",
+            CrownKind::Life => "Crown of Life",
+            CrownKind::Haste => "Crown of Haste",
+            CrownKind::Guns => "Crown of Guns",
+            CrownKind::Hatred => "Crown of Hatred",
+            CrownKind::Blood => "Crown of Blood",
+            CrownKind::Destiny => "Crown of Destiny",
+            CrownKind::Love => "Crown of Love",
+            CrownKind::Risk => "Crown of Risk",
+            CrownKind::Curses => "Crown of Curses",
+            CrownKind::Luck => "Crown of Luck",
+            CrownKind::Protection => "Crown of Protection",
+        }
+    }
+
+    pub fn short_name(self) -> &'static str {
+        match self {
+            CrownKind::None => "NONE",
+            CrownKind::Death => "DEATH",
+            CrownKind::Life => "LIFE",
+            CrownKind::Haste => "HASTE",
+            CrownKind::Guns => "GUNS",
+            CrownKind::Hatred => "HATRED",
+            CrownKind::Blood => "BLOOD",
+            CrownKind::Destiny => "DESTINY",
+            CrownKind::Love => "LOVE",
+            CrownKind::Risk => "RISK",
+            CrownKind::Curses => "CURSES",
+            CrownKind::Luck => "LUCK",
+            CrownKind::Protection => "PROTECTION",
+        }
+    }
+
+    pub fn is_active(self) -> bool {
+        self != CrownKind::None
+    }
+
+    pub fn cycle(self, dir: i8) -> Self {
+        let len = Self::ALL.len();
+        let current = Self::ALL.iter().position(|&c| c == self).unwrap_or(0);
+
+        let next = if dir >= 0 {
+            (current + 1) % len
+        } else {
+            (current + len - 1) % len
+        };
+
+        Self::ALL[next]
+    }
+}
+
+impl Default for CrownKind {
+    fn default() -> Self {
+        CrownKind::None
+    }
+}
+
+pub fn crown_name(id: u8) -> &'static str {
+    CrownKind::from_u8(id).name()
+}
+
+pub fn crown_short_name(id: u8) -> &'static str {
+    CrownKind::from_u8(id).short_name()
+}
+
+pub fn cycle_crown_id(id: u8, dir: i8) -> u8 {
+    CrownKind::from_u8(id).cycle(dir).to_u8()
+}
+
 pub struct CharacterDef {
     pub name: &'static str,
     pub color: Color,
@@ -1600,6 +1729,37 @@ mod weapon_id_tests {
     fn all_real_weapon_ids_resolve() {
         for id in 0..crate::game::weapons_data::MAXWEP as u8 {
             assert_eq!(weapon_meta(WeaponId(id)).id, id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod crown_tests {
+    use super::*;
+
+    #[test]
+    fn crown_ids_roundtrip() {
+        for crown in CrownKind::ALL {
+            assert_eq!(CrownKind::from_u8(crown.to_u8()), crown);
+        }
+    }
+
+    #[test]
+    fn bad_crown_ids_are_none() {
+        assert_eq!(CrownKind::from_u8(99), CrownKind::None);
+    }
+
+    #[test]
+    fn crown_cycle_wraps() {
+        assert_eq!(CrownKind::None.cycle(-1), CrownKind::Protection);
+        assert_eq!(CrownKind::Protection.cycle(1), CrownKind::None);
+    }
+
+    #[test]
+    fn crown_names_are_non_empty() {
+        for crown in CrownKind::ALL {
+            assert!(!crown.name().is_empty());
+            assert!(!crown.short_name().is_empty());
         }
     }
 }

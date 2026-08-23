@@ -8,6 +8,7 @@ use crate::app::{OverlayMenu, Paused, PendingUnpause};
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::secret_areas::{self, SecretTriggers};
 use crate::game::world;
 use crate::save::SaveData;
 use game_utils_bevy::camera_follow::CameraFollow;
@@ -32,6 +33,7 @@ pub fn setup_run(
     character: Res<SelectedCharacter>,
     save: Res<SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
+    mut floor_started: MessageWriter<FloorStarted>,
 ) {
     score.0 = 0;
     dirty.0 = false;
@@ -60,6 +62,7 @@ pub fn setup_run(
 
     // Saved race loadout drives the starting kit (upstream Campfire menu).
     let loadout = save.race_loadout(character.0);
+    let crown = CrownKind::from_u8(loadout.start_crown);
 
     let primary = {
         let saved = sanitize_weapon_id(loadout.start_weapon);
@@ -89,61 +92,79 @@ pub fn setup_run(
     } else {
         1.0
     };
+
+    // Build player components as locals so the crown can mutate them before
+    // insertion (upstream crowns reshape HP/weapons at run start).
+    let mut player_comp = Player {
+        speed: 240.0 * def.speed_mult,
+        accel: PLAYER_ACCEL,
+        friction: PLAYER_FRICTION,
+        speed_mult: 1.0,
+        rads: 0,
+        level: 1,
+        next_level_rads: 60,
+        pickup_range: def.pickup_range,
+        fire_rate_mult,
+        spread_mult: 1.0,
+        knockback_mult: 1.0,
+        melee_range_mult: 1.0,
+        drop_mult: 0.0,
+        medkit_mult: 1.0,
+        boiling_veins: false,
+        veins_threshold: 4,
+        bloodlust: false,
+        lucky_shot: false,
+        gamma_guts: false,
+        back_muscle: 0,
+        stress: false,
+        sharp_teeth: false,
+        strong_spirit_ready: false,
+        last_wish_used: false,
+        chain_explosions: def.passive == PassiveKind::ChainExplosions,
+        shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
+        ability: def.ability,
+        ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+        headless_ready: def.passive == PassiveKind::Headless,
+        free_ammo: def.passive == PassiveKind::FreeAmmo,
+        crown,
+        mutations: Vec::new(),
+    };
+
+    let mut inv_comp = Inventory {
+        weapons: equipped,
+        weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
+        current: 0,
+        ammo: starting_ammo,
+    };
+
+    let mut health_comp = Health {
+        hp: def.max_hp,
+        max: def.max_hp,
+        invuln: ready_timer(),
+    };
+
+    crate::game::crown::apply_crown_to_spawn(
+        crown,
+        &mut player_comp,
+        &mut health_comp,
+        &mut inv_comp,
+    );
+
     let mut player = commands.spawn((
         GameCleanup,
-        Player {
-            speed: 240.0 * def.speed_mult,
-            accel: PLAYER_ACCEL,
-            friction: PLAYER_FRICTION,
-            speed_mult: 1.0,
-            rads: 0,
-            level: 1,
-            next_level_rads: 60,
-            pickup_range: def.pickup_range,
-            fire_rate_mult,
-            spread_mult: 1.0,
-            knockback_mult: 1.0,
-            melee_range_mult: 1.0,
-            drop_mult: 0.0,
-            medkit_mult: 1.0,
-            boiling_veins: false,
-            veins_threshold: 4,
-            bloodlust: false,
-            lucky_shot: false,
-            gamma_guts: false,
-            back_muscle: 0,
-            stress: false,
-            sharp_teeth: false,
-            strong_spirit_ready: false,
-            last_wish_used: false,
-            chain_explosions: def.passive == PassiveKind::ChainExplosions,
-            shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
-            ability: def.ability,
-            ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
-            headless_ready: def.passive == PassiveKind::Headless,
-            free_ammo: def.passive == PassiveKind::FreeAmmo,
-            mutations: Vec::new(),
-        },
+        player_comp,
         RaceState {
             race: character.0,
             skin: crate::game::content::SkinLetter::A,
         },
-        Inventory {
-            weapons: equipped,
-            weapon_slots: if character.0 == RaceId::Cuz { 3 } else { 2 },
-            current: 0,
-            ammo: starting_ammo,
-        },
+        inv_comp,
         FireCooldown {
             timer: ready_timer(),
             burst_left: 0,
             burst_timer: ready_timer(),
         },
-        Health {
-            hp: def.max_hp,
-            max: def.max_hp,
-            invuln: ready_timer(),
-        },
+        health_comp,
+        CrownState::new(crown),
         Team::Player,
         Hitbox {
             radius: PLAYER_RADIUS,
@@ -186,6 +207,17 @@ pub fn setup_run(
         &plan,
         &mut mask,
     );
+    floor_started.write(FloorStarted {
+        floor: run.floor,
+        area: run.area,
+    });
+
+    if crown.is_active() {
+        toast.show(&format!(
+            "{} equipped",
+            crate::game::crown::crown_name_for_toast(crown)
+        ));
+    }
 }
 
 pub fn cleanup_run(
@@ -523,6 +555,8 @@ pub fn portal_enter(
     mut chroma: ResMut<ChromaticAberration>,
     mut toast: ResMut<Toast>,
     audio: Res<GameAudio>,
+    mut triggers: ResMut<SecretTriggers>,
+    mut floor_started: MessageWriter<FloorStarted>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
     level_q: Query<Entity, With<LevelCleanup>>,
     mut player_q: Query<
@@ -556,14 +590,19 @@ pub fn portal_enter(
     }
     commands.entity(portal_e).despawn();
 
-    run.floor += 1;
-    run.loop_count = (run.floor - 1) / 15;
-    let (world, floor_in_world) = crate::game::areas::route_coordinates(run.floor);
-    run.world = world;
-    run.floor_in_area = floor_in_world;
-    run.area = crate::game::areas::area_for_floor(run.floor, run.loop_count);
-    run.portal_open = false;
-    run.gen_seed = rand::rng().random_range(0..u64::MAX);
+    // Secret-aware transition: queued secret wins; else exit a secret back to
+    // the route; else advance one ordinary floor.
+    let entered_secret = secret_areas::apply_secret_transition(&mut run, &mut triggers);
+
+    if let Some(secret) = entered_secret {
+        toast.show(&format!("ENTERING {}", secret.name()));
+    } else {
+        toast.show(&format!(
+            "FLOOR {}-{}",
+            run.world,
+            world::floor_in_world(run.floor)
+        ));
+    }
 
     health.hp = (health.hp + 1).min(health.max);
     // Chicken passive: refresh headless each floor.
@@ -580,6 +619,10 @@ pub fn portal_enter(
         &plan,
         &mut mask,
     );
+    floor_started.write(FloorStarted {
+        floor: run.floor,
+        area: run.area,
+    });
     // Spawn player on a floor cell near origin
     if let Some(c) = mask.cells.iter().min_by_key(|c| {
         let p = mask.cell_center(**c);
@@ -594,11 +637,6 @@ pub fn portal_enter(
     ScreenEffects::add_trauma(&mut trauma, 0.55);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.65);
     audio.play_portal(&mut commands);
-    toast.show(&format!(
-        "FLOOR {}-{}",
-        run.world,
-        world::floor_in_world(run.floor)
-    ));
 }
 
 pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<Portal>>) {

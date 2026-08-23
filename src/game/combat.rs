@@ -9,6 +9,7 @@ use crate::app::{AppState, Paused};
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::secret_areas::SecretTriggers;
 use crate::game::world::*;
 use crate::save::SaveData;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
@@ -47,6 +48,8 @@ pub fn move_projectiles(
         Without<Prop>,
     >,
     mut props: Query<(Entity, &mut Prop, &Transform), With<Prop>>,
+    entrances: Query<&SecretEntrance>,
+    mut secrets: ResMut<SecretTriggers>,
 ) {
     let dt = time.delta_secs();
 
@@ -132,6 +135,10 @@ pub fn move_projectiles(
                     prop.hp -= 1;
                     if prop.hp <= 0 {
                         dead_prop = Some((center, prop.explosive));
+                        // Destroying a secret entrance queues that secret.
+                        if let Ok(entrance) = entrances.get(prop_e) {
+                            secrets.queue(entrance.target);
+                        }
                         commands.entity(prop_e).despawn();
                     }
                 }
@@ -286,6 +293,7 @@ fn on_projectile_removed(
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    mut secrets: ResMut<SecretTriggers>,
     mut clouds: Query<(Entity, &Team, &Transform, &mut HazardCloud), Without<AbilityHazard>>,
     mut targets: Query<
         (Entity, &Transform, &Team, &mut Health),
@@ -319,6 +327,8 @@ pub fn tick_hazard_clouds(
             health.hp -= cloud.damage;
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
+                // Hazard damage disqualifies the Oasis secret for this floor.
+                secrets.mark_damage_taken();
             }
         }
     }
@@ -331,6 +341,8 @@ pub fn apply_explosions(
     mut hitstop: ResMut<HitStop>,
     mut chroma: ResMut<ChromaticAberration>,
     audio: Res<GameAudio>,
+    entrances: Query<&SecretEntrance>,
+    mut secrets: ResMut<SecretTriggers>,
     mut q: Query<
         (Entity, &mut Explosion, &Transform),
         (Without<Enemy>, Without<Player>, Without<Prop>),
@@ -389,6 +401,10 @@ pub fn apply_explosions(
                 if pos.distance(closest) < boom.radius && prop.destructible {
                     prop.hp -= 1;
                     if prop.hp <= 0 {
+                        // Explosions can also open secret entrances.
+                        if let Ok(entrance) = entrances.get(prop_e) {
+                            secrets.queue(entrance.target);
+                        }
                         commands.entity(prop_e).despawn();
                         spawn_prop_destroyed(&mut commands, &mut trauma, &audio, pos);
                     }
@@ -414,6 +430,7 @@ pub fn apply_explosions(
             }
             health.hp -= dmg;
             health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
+            secrets.mark_damage_taken();
             HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
         }
@@ -444,6 +461,7 @@ pub fn projectile_hits(
     mut trauma: ResMut<Trauma>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
+    mut secrets: ResMut<SecretTriggers>,
     player_state: Query<&Player, With<Player>>,
     mut projectiles: Query<
         (
@@ -544,6 +562,7 @@ pub fn projectile_hits(
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 hit_player = true;
+                secrets.mark_damage_taken();
                 audio.play_hurt(&mut commands);
             } else {
                 audio.play_hit(&mut commands);
@@ -669,6 +688,7 @@ pub fn contact_damage(
     audio: Res<GameAudio>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
+    mut secrets: ResMut<SecretTriggers>,
     mut player_q: Query<
         (Entity, &Transform, &mut Health, &mut Velocity, &Player),
         (With<Player>, Without<Enemy>),
@@ -720,6 +740,7 @@ pub fn contact_damage(
         took_damage = damage;
         health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
         brain.melee = Timer::from_seconds(0.5, TimerMode::Once);
+        secrets.mark_damage_taken();
 
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
         GameFeel::apply_knockback(&mut player_vel.0, away, 240.0);

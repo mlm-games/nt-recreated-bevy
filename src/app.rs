@@ -122,7 +122,7 @@ pub struct SharedUi {
     pub loadout_summary: String,
     pub start_weapon_name: String,
     pub stored_weapon_name: String,
-    pub crown: u8,
+    pub crown: String,
     pub selected_skin: u8,
 }
 
@@ -170,7 +170,7 @@ impl Default for SharedUi {
             loadout_summary: String::new(),
             start_weapon_name: "None".to_string(),
             stored_weapon_name: "None".to_string(),
-            crown: 0,
+            crown: "NONE".to_string(),
             selected_skin: 0,
         }
     }
@@ -356,13 +356,13 @@ fn sync_shared_ui(
         }
         ui.start_weapon_name = crate::game::content::weapon_id_name(lo.start_weapon).to_string();
         ui.stored_weapon_name = crate::game::content::weapon_id_name(lo.stored_weapon).to_string();
-        ui.crown = lo.start_crown;
+        ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
         ui.loadout_summary = format!(
             "{} | start {} | stored {} | crown {} | {}",
             def.name,
             crate::game::content::weapon_id_name(lo.start_weapon),
             crate::game::content::weapon_id_name(lo.stored_weapon),
-            lo.start_crown,
+            crate::game::content::crown_short_name(lo.start_crown),
             crate::game::content::ability_name(def.ability)
         );
     }
@@ -536,8 +536,7 @@ fn process_ui_actions(
             UiAction::CycleCrown(dir) => {
                 let race = selected.0;
                 let lo = save.race_loadout_mut(race);
-                let next = lo.start_crown as i16 + dir as i16;
-                lo.start_crown = next.rem_euclid(13) as u8;
+                lo.start_crown = crate::game::content::cycle_crown_id(lo.start_crown, dir);
                 let _ = manager.save(&*save);
             }
             UiAction::PickMutation(idx) => {
