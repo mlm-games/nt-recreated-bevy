@@ -125,10 +125,6 @@ pub fn tick_campfire(
 
                 commands.entity(entity).despawn();
             }
-
-            CampfirePhase::Done => {
-                commands.entity(entity).despawn();
-            }
         }
     }
 }

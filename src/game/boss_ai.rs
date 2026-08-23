@@ -742,8 +742,20 @@ fn throne_ii_ai(
     limit_velocity(vel, def.speed.max(90.0));
     tf.translation += (vel.0 * dt).extend(0.0);
 
+    // Enrage transition: faster cadence + a named phase for the pulse VFX.
+    if boss.enraged
+        && !matches!(
+            boss.phase,
+            BossPhase::Enraged | BossPhase::Radial | BossPhase::Beam
+        )
+    {
+        boss.set_phase(BossPhase::Enraged, 0.35);
+        boss.attack_timer = Timer::from_seconds(0.6, TimerMode::Repeating);
+        ScreenEffects::add_trauma(trauma, 0.38);
+    }
+
     match boss.phase {
-        BossPhase::Idle | BossPhase::Cooldown => {
+        BossPhase::Idle | BossPhase::Cooldown | BossPhase::Enraged => {
             if boss.attack_timer.just_finished() {
                 boss.pattern_index += 1;
                 match boss.pattern_index % 3 {
@@ -1066,7 +1078,7 @@ pub fn tick_hyper_orbit_crystals(
 ) {
     let dt = time.delta_secs();
 
-    for (entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
+    for (_entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
         let Ok(core_tf) = cores.get(crystal.owner) else {
             // Core dead: become a drifting free crystal.
             vel.0 *= 0.9;

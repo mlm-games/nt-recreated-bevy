@@ -109,6 +109,7 @@ impl Plugin for GamePlugin {
                         player_sys::ally_ai,
                         enemies::enemy_ai,
                         boss_ai::boss_ai,
+                        boss_ai::tick_hyper_orbit_crystals,
                     )
                         .in_set(NtSimSet::Combat)
                         .run_if(gameplay_active),

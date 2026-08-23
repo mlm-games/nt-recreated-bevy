@@ -625,7 +625,6 @@ pub enum CampfirePhase {
     Sitting,
     Rising,
     SpawnThroneII,
-    Done,
 }
 
 #[derive(Component)]
