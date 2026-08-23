@@ -15,6 +15,7 @@ pub mod generated;
 pub mod hud;
 pub mod idpd;
 pub mod input;
+pub mod loop_transition;
 pub mod pickups;
 pub mod player;
 pub mod progression;
@@ -56,6 +57,7 @@ impl Plugin for GamePlugin {
             .init_resource::<HeavyHeart>()
             .init_resource::<secret_areas::SecretTriggers>()
             .init_resource::<idpd::IdpdRaidState>()
+            .init_resource::<LoopTransition>()
             .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
@@ -81,6 +83,8 @@ impl Plugin for GamePlugin {
                         crown::tick_crown_love,
                         crown::tick_crown_curses,
                         crown::crown_floor_start_bonus,
+                        loop_transition::tick_campfire,
+                        enemies::flush_pending_enemy_spawns,
                     )
                         .in_set(NtSimSet::Always),
                     anim::player_anim_switch.in_set(NtSimSet::Input),

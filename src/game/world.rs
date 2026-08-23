@@ -577,9 +577,12 @@ fn populate(
         }
     }
 
-    // Bosses.
+    // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
+    // quiet single-floor stop.
     if boss_sub {
         plan.boss = Some(boss_for_floor(run.floor));
+    } else if gml_area(run.floor) == 4 && run.loop_count >= 1 {
+        plan.boss = Some(EnemyKind::Hyper);
     }
 
     // Chest trimming (scrPopChests): keep the furthest of each kind.
@@ -1158,5 +1161,19 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod loop_boss_spawn_tests {
+    use super::*;
+
+    #[test]
+    fn hyper_applies_to_looped_crystal_caves_only() {
+        // gml_area(floor)==4 corresponds to route floor 8 (+15 per loop).
+        assert_eq!(gml_area(8), 4);
+        assert_eq!(gml_area(23), 4);
+        assert_ne!(gml_area(7), 4);
+        assert_ne!(gml_area(9), 4);
     }
 }

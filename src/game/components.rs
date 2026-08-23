@@ -618,6 +618,99 @@ pub enum RaidWave {
     VanDrop,
 }
 
+// --- Loop transition / Throne II interlude (see loop_transition.rs) ---------
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CampfirePhase {
+    Sitting,
+    Rising,
+    SpawnThroneII,
+    Done,
+}
+
+#[derive(Component)]
+pub struct CampfireState {
+    pub phase: CampfirePhase,
+    pub timer: Timer,
+    pub spawned_throne_ii: bool,
+}
+
+impl CampfireState {
+    pub fn new() -> Self {
+        Self {
+            phase: CampfirePhase::Sitting,
+            timer: Timer::from_seconds(3.5, TimerMode::Once),
+            spawned_throne_ii: false,
+        }
+    }
+
+    pub fn set_phase(&mut self, phase: CampfirePhase, seconds: f32) {
+        self.phase = phase;
+        self.timer = Timer::from_seconds(seconds.max(0.01), TimerMode::Once);
+        self.timer.reset();
+    }
+}
+
+#[derive(Component)]
+pub struct CampfireProp;
+
+/// Tracks the Throne -> campfire -> Throne II -> loop-portal sequence.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct LoopTransition {
+    pub campfire_active: bool,
+    pub throne_ii_alive: bool,
+    pub loop_ready: bool,
+    pub last_completed_loop: u32,
+}
+
+impl LoopTransition {
+    pub fn blocks_portal(&self) -> bool {
+        self.campfire_active || self.throne_ii_alive
+    }
+
+    pub fn begin_campfire(&mut self) {
+        self.campfire_active = true;
+        self.throne_ii_alive = false;
+        self.loop_ready = false;
+    }
+
+    pub fn throne_ii_spawned(&mut self) {
+        self.campfire_active = false;
+        self.throne_ii_alive = true;
+        self.loop_ready = false;
+    }
+
+    pub fn throne_ii_defeated(&mut self) {
+        self.campfire_active = false;
+        self.throne_ii_alive = false;
+        self.loop_ready = true;
+    }
+
+    pub fn consume_loop_ready(&mut self) -> bool {
+        let ready = self.loop_ready;
+        self.loop_ready = false;
+        ready
+    }
+}
+
+/// Deferred enemy spawn for systems that do not hold asset handles.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PendingEnemySpawn {
+    pub kind: EnemyKind,
+    pub pos: Vec2,
+    pub difficulty: f32,
+}
+
+/// Laser crystal orbiting a Hyper Crystal core.
+#[derive(Component)]
+pub struct HyperOrbitCrystal {
+    pub owner: Entity,
+    pub angle: f32,
+    pub radius: f32,
+    pub angular_speed: f32,
+    pub fire_timer: Timer,
+}
+
 /// Autonomous friendly turret deployed by the Sentry Gun pod.
 #[derive(Component, Clone, Debug)]
 pub struct SentryTurret {
@@ -665,6 +758,7 @@ pub enum BossPhase {
     Landing,
     Radial,
     Beam,
+    Enraged,
 }
 
 /// Phase state machine driving the bespoke boss behaviors in `boss_ai`.
@@ -687,6 +781,8 @@ impl BossBrain {
             EnemyKind::BigDog => (0.8, 2.2),
             EnemyKind::LilHunter => (0.55, 1.7),
             EnemyKind::Throne => (0.7, 2.5),
+            EnemyKind::ThroneII => (0.85, 3.4),
+            EnemyKind::Hyper => (1.1, 4.0),
             _ => (1.2, 3.0),
         };
 

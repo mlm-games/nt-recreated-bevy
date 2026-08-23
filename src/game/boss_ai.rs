@@ -6,7 +6,9 @@
 
 use bevy::prelude::*;
 
-use crate::game::boss_patterns::{dir_from_angle, fan_angles, lead_target, ring_angles};
+use crate::game::boss_patterns::{
+    dir_from_angle, fan_angles, hyper_orbit_count, lead_target, ring_angles,
+};
 use crate::game::combat::Explosion;
 use crate::game::components::*;
 use crate::game::content::*;
@@ -16,6 +18,7 @@ use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 pub fn boss_ai(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    run: Res<Run>,
     mut trauma: ResMut<Trauma>,
     player_q: Query<(&Transform, &Velocity), (With<Player>, Without<Enemy>)>,
     mut bosses: Query<
@@ -117,6 +120,33 @@ pub fn boss_ai(
                 player_pos,
                 dir,
                 dt,
+            ),
+            EnemyKind::ThroneII => throne_ii_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dir,
+                dt,
+                run.loop_count,
+            ),
+            EnemyKind::Hyper => hyper_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dt,
+                run.loop_count,
             ),
             _ => {}
         }
@@ -680,6 +710,436 @@ fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, en
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
+}
+
+// -----------------------------------------------------------------------------
+// Throne II — circling orb boss (split orbs / laser orbs / static stars)
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn throne_ii_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dir_to_player: Vec2,
+    dt: f32,
+    loop_count: u32,
+) {
+    // Circle the arena around home, reversing direction every few patterns.
+    let reverse = (boss.pattern_index / 3) % 2 == 1;
+    let ang_speed = if reverse { -1.15 } else { 1.15 };
+    let angle = boss.phase_timer.elapsed_secs() * ang_speed + boss.pattern_index as f32 * 0.2;
+    let target = crate::game::boss_patterns::orbit_point(boss.home, 120.0, angle);
+
+    let desired = (target - pos).normalize_or_zero() * 0.85 + dir_to_player * 0.15;
+    vel.0 += desired.normalize_or_zero() * def.accel * 0.22 * dt;
+    limit_velocity(vel, def.speed.max(90.0));
+    tf.translation += (vel.0 * dt).extend(0.0);
+
+    match boss.phase {
+        BossPhase::Idle | BossPhase::Cooldown => {
+            if boss.attack_timer.just_finished() {
+                boss.pattern_index += 1;
+                match boss.pattern_index % 3 {
+                    0 => {
+                        throne_ii_split_orbs(
+                            commands,
+                            owner,
+                            pos,
+                            player_pos,
+                            loop_count,
+                            boss.enraged,
+                        );
+                    }
+                    1 => {
+                        throne_ii_laser_orbs(commands, owner, pos, loop_count, boss.enraged);
+                    }
+                    _ => {
+                        boss.set_phase(BossPhase::Radial, if boss.enraged { 0.55 } else { 0.7 });
+                        vel.0 *= 0.2;
+                    }
+                }
+            }
+
+            if boss.special_timer.just_finished() {
+                throne_ii_split_orbs(commands, owner, pos, player_pos, loop_count, true);
+                ScreenEffects::add_trauma(trauma, 0.18);
+            }
+        }
+
+        BossPhase::Radial => {
+            // Static star phase.
+            vel.0 *= 0.85_f32.powf(dt * 60.0);
+            if boss.phase_timer.just_finished() {
+                throne_ii_star_burst(commands, owner, pos, loop_count, boss.enraged);
+                ScreenEffects::add_trauma(trauma, 0.22);
+                boss.set_phase(BossPhase::Cooldown, 0.45);
+            }
+        }
+
+        _ => boss.set_phase(BossPhase::Idle, 0.1),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn throne_ii_split_orbs(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    player_pos: Vec2,
+    loop_count: u32,
+    enraged: bool,
+) {
+    let count = 3 + loop_count as usize + usize::from(enraged);
+    let aim = (player_pos - pos).normalize_or_zero();
+    let base = aim.to_angle();
+
+    for angle in fan_angles(base, count, 0.18) {
+        let dir = dir_from_angle(angle);
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            Team::Enemy,
+            Projectile {
+                damage: 12,
+                life: Timer::from_seconds(0.55, TimerMode::Once),
+                radius: 10.0,
+                knockback: 80.0,
+                explosive: false,
+                source: Some(DamageSource {
+                    owner,
+                    team: Team::Enemy,
+                    hit_id: HitId::Enemy(0),
+                }),
+            },
+            Velocity(dir * 140.0),
+            SplitOnDeath(crate::game::content::SplitDef {
+                pellets: (8u8).saturating_add(loop_count as u8).min(14),
+                spread: std::f32::consts::TAU,
+                speed: 220.0,
+                damage: 5,
+                lifetime: 1.6,
+                radius: 4.0,
+                knockback: 40.0,
+                color: Color::srgb(0.35, 1.0, 0.5),
+                size: Vec2::splat(7.0),
+            }),
+            Sprite {
+                color: Color::srgb(0.3, 1.0, 0.45),
+                custom_size: Some(Vec2::splat(16.0)),
+                ..default()
+            },
+            Transform::from_translation((pos + dir * 28.0).extend(16.0)),
+        ));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn throne_ii_laser_orbs(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    loop_count: u32,
+    enraged: bool,
+) {
+    let count = 5 + loop_count as usize + usize::from(enraged);
+    for i in 0..count {
+        let angle = i as f32 * (std::f32::consts::TAU / count as f32);
+        let dir = dir_from_angle(angle);
+
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            Team::Enemy,
+            Projectile {
+                damage: 12,
+                life: Timer::from_seconds(0.35, TimerMode::Once),
+                radius: 9.0,
+                knockback: 60.0,
+                explosive: false,
+                source: Some(DamageSource {
+                    owner,
+                    team: Team::Enemy,
+                    hit_id: HitId::Enemy(0),
+                }),
+            },
+            Velocity(dir * 120.0),
+            Sprite {
+                color: Color::srgb(0.75, 1.0, 0.85),
+                custom_size: Some(Vec2::splat(14.0)),
+                ..default()
+            },
+            Transform::from_translation((pos + dir * 24.0).extend(16.0)),
+        ));
+
+        // Bright orbs fire a random-direction beam from their travel lane.
+        let beam_dir = dir_from_angle(angle + 1.7);
+        spawn_enemy_beam(
+            commands,
+            pos + dir * 80.0 + beam_dir * 260.0,
+            beam_dir,
+            if enraged { 620.0 } else { 520.0 },
+            16.0,
+            2,
+            if enraged { 0.55 } else { 0.45 },
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn throne_ii_star_burst(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    loop_count: u32,
+    enraged: bool,
+) {
+    let points = 10 + loop_count as usize * 2 + usize::from(enraged);
+    for angle in crate::game::boss_patterns::star_angles(points, 0.15) {
+        let dir = dir_from_angle(angle);
+        fire_projectile(
+            commands,
+            owner,
+            pos + dir * 22.0,
+            dir,
+            Team::Enemy,
+            260.0,
+            5,
+            1.8,
+            4.0,
+            50.0,
+            Color::srgb(0.4, 1.0, 0.55),
+            7.0,
+        );
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Hyper Crystal — contact flunky core with orbiting laser crystals
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn hyper_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dt: f32,
+    loop_count: u32,
+) {
+    // Slow drift; the huge touch damage is the threat.
+    let desired = (boss.home - pos) * 0.4 + (player_pos - pos) * 0.1;
+    if desired.length_squared() > 1.0 {
+        vel.0 += desired.normalize_or_zero() * def.accel * 0.12 * dt;
+    }
+    limit_velocity(vel, def.speed.max(35.0));
+    tf.translation += (vel.0 * dt).extend(0.0);
+
+    // Rearm orbit ring periodically.
+    if boss.attack_timer.just_finished() {
+        boss.pattern_index += 1;
+        hyper_ensure_orbit(commands, owner, pos, loop_count, boss.enraged);
+    }
+
+    // Search phase when the player keeps distance.
+    if boss.special_timer.just_finished() && pos.distance(player_pos) > 220.0 {
+        hyper_search_detonate(
+            commands,
+            trauma,
+            owner,
+            player_pos,
+            loop_count,
+            boss.enraged,
+        );
+        boss.set_phase(BossPhase::Cooldown, 0.8);
+    }
+}
+
+fn hyper_search_detonate(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    player_pos: Vec2,
+    loop_count: u32,
+    enraged: bool,
+) {
+    ScreenEffects::add_trauma(trauma, 0.3);
+    let lasers = 7 + loop_count as usize * 2 + usize::from(enraged);
+
+    // Explosion at the player's cover.
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Explosion {
+            timer: Timer::from_seconds(0.03, TimerMode::Once),
+            radius: 90.0,
+            damage: 6,
+            team: Team::Enemy,
+            hits_player: true,
+            source: Some(DamageSource {
+                owner,
+                team: Team::Enemy,
+                hit_id: HitId::Enemy(0),
+            }),
+        },
+        Transform::from_translation(player_pos.extend(20.0)),
+    ));
+
+    for angle in ring_angles(lasers, 0.0) {
+        let dir = dir_from_angle(angle);
+        spawn_enemy_beam(
+            commands,
+            player_pos + dir * 210.0,
+            dir,
+            420.0,
+            12.0,
+            2,
+            0.28,
+        );
+    }
+}
+
+fn hyper_ensure_orbit(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    loop_count: u32,
+    enraged: bool,
+) {
+    let n = hyper_orbit_count(loop_count) + usize::from(enraged);
+
+    for i in 0..n {
+        let angle = i as f32 / n as f32 * std::f32::consts::TAU;
+        let radius = 70.0 + (i % 3) as f32 * 12.0;
+
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            Team::Enemy,
+            Health {
+                hp: 6,
+                max: 6,
+                invuln: short_ready_timer(),
+            },
+            Hitbox { radius: 9.0 },
+            Velocity(Vec2::ZERO),
+            Sprite {
+                color: Color::srgb(1.0, 0.28, 0.38),
+                custom_size: Some(Vec2::splat(14.0)),
+                ..default()
+            },
+            Transform::from_translation((pos + dir_from_angle(angle) * radius).extend(14.0)),
+            HyperOrbitCrystal {
+                owner,
+                angle,
+                radius,
+                angular_speed: 1.15 + (i as f32) * 0.04,
+                fire_timer: Timer::from_seconds(1.4 + (i % 3) as f32 * 0.35, TimerMode::Repeating),
+            },
+        ));
+    }
+}
+
+/// Orbit positioning around the core plus periodic beam fire; crystals free
+/// themselves (slow drift) when their core dies.
+pub fn tick_hyper_orbit_crystals(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(
+        Entity,
+        &mut Transform,
+        &mut Velocity,
+        &mut HyperOrbitCrystal,
+    )>,
+    cores: Query<&Transform, (With<Enemy>, Without<HyperOrbitCrystal>)>,
+) {
+    let dt = time.delta_secs();
+
+    for (entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
+        let Ok(core_tf) = cores.get(crystal.owner) else {
+            // Core dead: become a drifting free crystal.
+            vel.0 *= 0.9;
+            continue;
+        };
+
+        crystal.angle += crystal.angular_speed * dt;
+        let center = core_tf.translation.truncate();
+        tf.translation =
+            (center + dir_from_angle(crystal.angle) * crystal.radius).extend(tf.translation.z);
+        vel.0 = Vec2::ZERO;
+
+        crystal.fire_timer.tick(time.delta());
+        if !crystal.fire_timer.just_finished() {
+            continue;
+        }
+
+        let origin = tf.translation.truncate();
+        let aim = dir_from_angle(crystal.angle + std::f32::consts::FRAC_PI_2);
+        spawn_enemy_beam(
+            &mut commands,
+            origin + aim * 210.0,
+            aim,
+            420.0,
+            12.0,
+            2,
+            0.28,
+        );
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Shared enemy beam helper
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_enemy_beam(
+    commands: &mut Commands,
+    center: Vec2,
+    dir: Vec2,
+    length: f32,
+    width: f32,
+    damage: i32,
+    duration: f32,
+) {
+    let angle = dir.to_angle();
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Beam {
+            team: Team::Enemy,
+            dir,
+            length,
+            width,
+            damage,
+            knockback: 40.0,
+            timer: Timer::from_seconds(duration, TimerMode::Once),
+            tick: Timer::from_seconds(0.06, TimerMode::Repeating),
+        },
+        Sprite {
+            color: Color::srgba(0.55, 1.0, 0.6, 0.65),
+            custom_size: Some(Vec2::new(length, width)),
+            ..default()
+        },
+        Transform::from_translation(center.extend(17.0))
+            .with_rotation(Quat::from_rotation_z(angle)),
+    ));
+}
+
+fn short_ready_timer() -> Timer {
+    let mut t = Timer::from_seconds(0.01, TimerMode::Once);
+    t.finish();
+    t
 }
 
 #[allow(clippy::too_many_arguments)]

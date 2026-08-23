@@ -1370,6 +1370,8 @@ pub fn resolve_deaths(
         ResMut<FlashWhite>,
         ResMut<HitStop>,
         ResMut<SlowMotion>,
+        ResMut<LoopTransition>,
+        ResMut<Toast>,
     ),
     audio: Res<GameAudio>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -1385,7 +1387,15 @@ pub fn resolve_deaths(
         (Without<Prop>, Without<Player>),
     >,
 ) {
-    let (mut trauma, mut chroma, mut flash, mut hitstop, mut slow_mo) = effects;
+    let (
+        mut trauma,
+        mut chroma,
+        mut flash,
+        mut hitstop,
+        mut slow_mo,
+        mut loop_transition,
+        mut toast,
+    ) = effects;
     if run.game_over {
         return;
     }
@@ -1413,6 +1423,27 @@ pub fn resolve_deaths(
         let pos = tf.translation.truncate();
 
         commands.entity(e).despawn();
+
+        // Loop-transition hooks must run before normal drop handling so the
+        // interlude starts while loot still pops.
+        let player_pos_now = player_tf.translation.truncate();
+        match enemy.kind {
+            EnemyKind::Throne => {
+                crate::game::loop_transition::begin_throne_campfire(
+                    &mut commands,
+                    &mut loop_transition,
+                    &mut toast,
+                    &mut trauma,
+                    player_pos_now,
+                );
+            }
+            EnemyKind::ThroneII => {
+                loop_transition.throne_ii_defeated();
+                crate::game::loop_transition::mark_throne_ii_defeated(&mut toast, &mut trauma);
+            }
+            _ => {}
+        }
+
         run.total_kills += 1;
         score.0 += enemy.score;
 

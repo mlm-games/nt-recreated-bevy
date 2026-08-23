@@ -53,6 +53,7 @@ pub fn setup_run(
 
     commands.remove_resource::<PendingMutation>();
     commands.remove_resource::<PendingUltra>();
+    commands.insert_resource(LoopTransition::default());
     commands.insert_resource(MutationChoice(None));
     commands.insert_resource(ScarierFace(false));
     commands.insert_resource(Euphoria(false));
@@ -835,6 +836,7 @@ pub fn portal_check(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
+    loop_transition: Res<LoopTransition>,
     mut run: ResMut<Run>,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
@@ -844,6 +846,10 @@ pub fn portal_check(
     audio: Res<GameAudio>,
 ) {
     if run.game_over || run.portal_open {
+        return;
+    }
+    // Throne I campfire / Throne II fight suppress the normal exit.
+    if loop_transition.blocks_portal() {
         return;
     }
     if !enemy_q.is_empty() {
@@ -911,6 +917,7 @@ pub fn portal_enter(
     mut toast: ResMut<Toast>,
     audio: Res<GameAudio>,
     mut triggers: ResMut<SecretTriggers>,
+    mut loop_transition: ResMut<LoopTransition>,
     mut floor_started: MessageWriter<FloorStarted>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
     level_q: Query<Entity, With<LevelCleanup>>,
@@ -945,9 +952,18 @@ pub fn portal_enter(
     }
     commands.entity(portal_e).despawn();
 
-    // Secret-aware transition: queued secret wins; else exit a secret back to
-    // the route; else advance one ordinary floor.
-    let entered_secret = secret_areas::apply_secret_transition(&mut run, &mut triggers);
+    // Priority: completed-loop portal -> queued secret -> ordinary advance.
+    let looped = crate::game::loop_transition::try_apply_loop_portal_transition(
+        &mut run,
+        &mut loop_transition,
+        &mut trauma,
+    );
+
+    let entered_secret = if looped {
+        None
+    } else {
+        secret_areas::apply_secret_transition(&mut run, &mut triggers)
+    };
 
     if let Some(secret) = entered_secret {
         toast.show(&format!("ENTERING {}", secret.name()));

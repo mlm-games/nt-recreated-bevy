@@ -31,6 +31,29 @@ pub fn spawn_enemy_at(
     );
 }
 
+/// Applies deferred spawns queued by systems without asset handles
+/// (campfire Throne II, future wave directors).
+pub fn flush_pending_enemy_spawns(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    pending: Query<(Entity, &PendingEnemySpawn)>,
+) {
+    for (entity, spawn) in pending.iter() {
+        spawn_enemy_at(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            spawn.kind,
+            spawn.pos,
+            spawn.difficulty,
+            false,
+            false,
+        );
+        commands.entity(entity).despawn();
+    }
+}
+
 pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
     loop {
         let x = rng.random_range(-ARENA_W / 2.0 + 80.0..ARENA_W / 2.0 - 80.0);

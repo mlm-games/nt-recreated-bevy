@@ -1025,6 +1025,8 @@ pub enum EnemyKind {
     Freak,
     BigBandit,
     Throne,
+    ThroneII,
+    Hyper,
     Rat,
     BigRat,
     RobotGuard,
@@ -1281,6 +1283,66 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_lifetime: 3.0,
             projectile_color: Color::srgb(1.0, 0.75, 0.25),
             projectile_size: 9.0,
+            boss: true,
+        },
+        EnemyKind::ThroneII => EnemyDef {
+            name: "Throne II",
+            hp: 460,
+            speed: 90.0,
+            accel: 900.0,
+            radius: 30.0,
+            size: 60.0,
+            color: Color::srgb(0.45, 1.0, 0.55),
+            sprite: "images/sprThroneStatue.png",
+            score: 8000,
+            touch_damage: 10,
+            rad_drop: 90,
+            drop_chance: 100,
+            weapon_chance: 25,
+            preferred_range: 0.0,
+            shoot_range: 999.0,
+            attack_cooldown: 0.85,
+            bullets_per_shot: 3,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.0,
+            projectile_speed: 180.0,
+            projectile_spread: 0.0,
+            projectile_damage: 5,
+            projectile_radius: 8.0,
+            projectile_lifetime: 1.4,
+            projectile_color: Color::srgb(0.35, 1.0, 0.45),
+            projectile_size: 14.0,
+            boss: true,
+        },
+        EnemyKind::Hyper => EnemyDef {
+            name: "Hyper Crystal",
+            hp: 520,
+            speed: 35.0,
+            accel: 500.0,
+            radius: 34.0,
+            size: 68.0,
+            color: Color::srgb(1.0, 0.25, 0.35),
+            sprite: "images/sprThroneStatue.png",
+            score: 9000,
+            touch_damage: 60,
+            rad_drop: 150,
+            drop_chance: 100,
+            weapon_chance: 20,
+            preferred_range: 0.0,
+            shoot_range: 0.0,
+            attack_cooldown: 1.1,
+            bullets_per_shot: 0,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.0,
+            projectile_speed: 0.0,
+            projectile_spread: 0.0,
+            projectile_damage: 0,
+            projectile_radius: 0.0,
+            projectile_lifetime: 0.0,
+            projectile_color: Color::WHITE,
+            projectile_size: 0.0,
             boss: true,
         },
         EnemyKind::Rat => EnemyDef {
@@ -2318,5 +2380,35 @@ mod idpd_def_tests {
         let def = enemy_def(EnemyKind::IdpdShield);
         assert!(def.preferred_range > 0.0);
         assert!(def.shoot_range >= 400.0);
+    }
+}
+
+#[cfg(test)]
+mod loop_boss_def_tests {
+    use super::*;
+
+    #[test]
+    fn loop_bosses_are_boss_flagged() {
+        assert!(enemy_def(EnemyKind::ThroneII).boss);
+        assert!(enemy_def(EnemyKind::Hyper).boss);
+    }
+
+    #[test]
+    fn throne_ii_is_mobile_and_tougher_than_throne() {
+        let t1 = enemy_def(EnemyKind::Throne);
+        let t2 = enemy_def(EnemyKind::ThroneII);
+        assert!(t2.hp > t1.hp);
+        assert!(t2.speed > t1.speed);
+        assert!(t2.touch_damage >= 10);
+        assert!(t2.score > t1.score);
+    }
+
+    #[test]
+    fn hyper_is_contact_flunky_boss() {
+        let h = enemy_def(EnemyKind::Hyper);
+        assert!(h.touch_damage >= 50);
+        assert_eq!(h.bullets_per_shot, 0);
+        assert!(h.hp >= 400);
+        assert_eq!(h.speed, 35.0);
     }
 }
