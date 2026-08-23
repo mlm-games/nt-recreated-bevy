@@ -60,6 +60,7 @@ bevy = { git = "https://github.com/bevyengine/bevy", rev = "fb89a8649d9b359e53ff
     "png",
     "vorbis",
     "multi_threaded",
+    "debug",
     "default_font",
     "bevy_log",
     "async_executor",

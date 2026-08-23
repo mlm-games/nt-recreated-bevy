@@ -15,8 +15,9 @@ pub struct AssetCatalog {
     pub images: HashSet<String>,
     /// Audio files (music/ambience candidates), keyed by asset path.
     pub audio: HashSet<String>,
-    /// Strip metadata from assets/images/anims.json (name -> frames/w/h/fps).
-    pub anims: HashMap<String, [f32; 4]>,
+    /// Strip metadata from assets/images/anims.json
+    /// (name -> [frames, w, h, fps, xorigin, yorigin]).
+    pub anims: HashMap<String, [f32; 6]>,
 }
 
 impl AssetCatalog {
@@ -80,7 +81,14 @@ impl AssetCatalog {
                 ) {
                     anims.insert(
                         format!("images/{name}.png"),
-                        [frames, w, h, e.get("fps").copied().unwrap_or(8.0)],
+                        [
+                            frames,
+                            w,
+                            h,
+                            e.get("fps").copied().unwrap_or(8.0),
+                            e.get("xorigin").copied().unwrap_or((w / 2.0).floor()),
+                            e.get("yorigin").copied().unwrap_or((h / 2.0).floor()),
+                        ],
                     );
                 }
             }
@@ -190,6 +198,55 @@ pub const PLAYABLE_RACES: [RaceId; 16] = [
 pub type CharacterId = RaceId;
 /// All 16 selectable races (upstream Menu/Create_0 grid).
 pub const CHARACTERS: [CharacterId; PLAYABLE_RACES.len()] = PLAYABLE_RACES;
+
+/// The slot list upstream `Menu/Create_0` builds: every race id from
+/// `Race.Random` up to (but excluding) `Race.NUM_ALL_RACE_TYPES` that is not
+/// hidden (or is unlocked). The port has no unlock gating yet, so all ids are
+/// included — matching the `unlock_chars` custom-mode behaviour.
+pub const CHAR_SELECT_RACES: [RaceId; 17] = [
+    RaceId::Random,
+    RaceId::Fish,
+    RaceId::Crystal,
+    RaceId::Eyes,
+    RaceId::Melting,
+    RaceId::Plant,
+    RaceId::Venuz,
+    RaceId::Steroids,
+    RaceId::Robot,
+    RaceId::Chicken,
+    RaceId::Rebel,
+    RaceId::Horror,
+    RaceId::Rogue,
+    RaceId::BigDog,
+    RaceId::Skeleton,
+    RaceId::Frog,
+    RaceId::Cuz,
+];
+
+/// Inverse of `race as usize` for the nt-rewrite `enum Race` values.
+pub fn race_from_gml_id(id: usize) -> Option<RaceId> {
+    CHAR_SELECT_RACES
+        .iter()
+        .copied()
+        .find(|r| *r as usize == id)
+}
+
+/// Exact HUD icon sprite used by nt-rewrite `wep_sprt[]`
+/// (scripts/scrWeapons/scrWeapons.gml) for a weapon gml id.
+pub fn weapon_hud_sprite(gml_id: u8) -> Option<&'static str> {
+    Some(match gml_id {
+        1 => "images/sprRevolver.png",
+        3 => "images/sprWrench.png",
+        4 => "images/sprMachinegun.png",
+        5 => "images/sprShotgun.png",
+        6 => "images/sprCrossbow.png",
+        7 => "images/sprNader.png",
+        16 => "images/sprSmg.png",
+        17 => "images/sprARifle.png",
+        88 => "images/sprHammer.png",
+        _ => return None,
+    })
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 #[repr(u8)]
@@ -2104,10 +2161,20 @@ pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
 /// the game must never boot with invisible entities.
 pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &str) -> Sprite {
     catalog.require(path);
-    Sprite {
+    let mut sprite = Sprite {
         image: asset_server.load(path.to_string()),
         ..Default::default()
+    };
+    // Extracted strips now keep every frame; a plain consumer must show one
+    // frame, not the whole row. Animated users (SpriteAnim, ui_art) overwrite
+    // the rect themselves.
+    if let Some(m) = catalog.anims.get(path)
+        && m[0] > 1.0
+    {
+        let (w, h) = (m[1].max(1.0), m[2].max(1.0));
+        sprite.rect = Some(Rect::new(0.0, 0.0, w, h));
     }
+    sprite
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]

@@ -60,10 +60,8 @@ pub fn sync_hud(
 
     if let Some(character) = character {
         ui.character = character_def(character.0).name.to_string();
-        ui.selected_character = PLAYABLE_RACES
-            .iter()
-            .position(|c| *c == character.0)
-            .unwrap_or(0);
+        // nt-rewrite `enum Race` id (Random=0..Cuz=16).
+        ui.selected_character = character.0 as usize;
     }
 
     if let Ok((player, health, inv)) = player_q.single() {
@@ -77,6 +75,14 @@ pub fn sync_hud(
             .collect();
         ui.current_weapon = inv.current;
         ui.ammo = inv.ammo;
+        // Ammo count of each weapon's own type, for the HUD text pass.
+        let t1 = crate::game::content::weapon_meta(inv.weapons[0]).wep_type as usize;
+        let t2 = if inv.weapon_slots > 1 {
+            crate::game::content::weapon_meta(inv.weapons[1]).wep_type as usize
+        } else {
+            0
+        };
+        ui.weapon_ammo = [inv.ammo[t1.min(5)], inv.ammo[t2.min(5)]];
         ui.ability = ability_name(player.ability).to_string();
         ui.ability_ready = player.ability_cooldown.is_finished();
         ui.crown = crown_short_name(player.crown.to_u8()).to_string();

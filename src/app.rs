@@ -119,7 +119,15 @@ pub struct SharedUi {
     pub mutation_choices: Vec<String>,
     pub game_over: bool,
     pub character: String,
+    /// nt-rewrite `enum Race` id of the chosen mutant (Random=0..Cuz=16).
     pub selected_character: usize,
+    /// GoButton revealed after the first successful char-select click
+    /// (nt-rewrite CharSelect/Mouse_4).
+    pub title_go_visible: bool,
+    /// Race id currently hovered in the char-select row (-1 = none).
+    pub title_hover_race: i32,
+    /// Ammo count of each equipped weapon's type (HUD text).
+    pub weapon_ammo: [i32; 2],
     pub best_floor: u32,
     pub total_kills: u32,
     pub loadout_summary: String,
@@ -174,7 +182,10 @@ impl Default for SharedUi {
             mutation_choices: Vec::new(),
             game_over: false,
             character: "Fish".to_string(),
-            selected_character: 0,
+            selected_character: 1,
+            title_go_visible: false,
+            title_hover_race: -1,
+            weapon_ammo: [0, 0],
             best_floor: 0,
             total_kills: 0,
             loadout_summary: String::new(),
@@ -201,6 +212,10 @@ pub enum NtSimSet {
     Cleanup,
 }
 
+/// Pixel font standing in for NT's bitmap `fntM1` (OFL, see
+/// assets/fonts/Silkscreen-OFL.txt).
+const NT_UI_FONT: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Regular.ttf");
+
 pub struct AppPlugin;
 
 impl Plugin for AppPlugin {
@@ -219,22 +234,25 @@ impl Plugin for AppPlugin {
                 shared: shared.clone(),
                 actions: actions.clone(),
             })
-            .add_plugins(ReposePlugin::with_settings(
-                ReposePluginSettings {
-                    clear_alpha: 0.0,
-                    compose_every_frame: true,
-                    msaa_samples: 1,
-                    overlay: true,
-                },
-                move |_s, _c| {
-                    let st = shared_ui.lock().unwrap().clone();
-                    let acts = actions_ui.clone();
-                    let overlay_rc = remember(OverlayHandle::new);
-                    let overlay = (*overlay_rc).clone();
-                    let root = menus::compose_root(overlay.clone(), st, acts);
-                    overlay.host(Modifier::new().fill_max_size(), root)
-                },
-            ))
+            .add_plugins(
+                ReposePlugin::with_settings(
+                    ReposePluginSettings {
+                        clear_alpha: 0.0,
+                        compose_every_frame: true,
+                        msaa_samples: 1,
+                        overlay: true,
+                    },
+                    move |_s, _c| {
+                        let st = shared_ui.lock().unwrap().clone();
+                        let acts = actions_ui.clone();
+                        let overlay_rc = remember(OverlayHandle::new);
+                        let overlay = (*overlay_rc).clone();
+                        let root = menus::compose_root(overlay.clone(), st, acts);
+                        overlay.host(Modifier::new().fill_max_size(), root)
+                    },
+                )
+                .with_font_bytes(NT_UI_FONT),
+            )
             .add_plugins((
                 ThemePlugin,
                 EcosystemPlugin::<AppState>::new(I18nPlugin::new(TRANSLATION_KEYS, LOCALES)),
@@ -344,6 +362,11 @@ fn sync_shared_ui(
         return;
     };
     ui.phase = state.get().clone();
+    if state.is_changed() && *state.get() == AppState::Title {
+        // Menu/Create_0 spawns GoButton with visible = false.
+        ui.title_go_visible = false;
+        ui.title_hover_race = -1;
+    }
     ui.paused = paused.0;
     ui.overlay = *overlay;
     ui.high_score = save.high_score;
@@ -376,12 +399,7 @@ fn sync_shared_ui(
         let lo = save.race_loadout(sel);
         let def = crate::game::content::character_def(sel);
         ui.character = def.name.to_string();
-        if let Some(idx) = crate::game::content::PLAYABLE_RACES
-            .iter()
-            .position(|&r| r == sel)
-        {
-            ui.selected_character = idx;
-        }
+        ui.selected_character = sel as usize;
         ui.start_weapon_name = crate::game::content::weapon_id_name(lo.start_weapon).to_string();
         ui.stored_weapon_name = crate::game::content::weapon_id_name(lo.stored_weapon).to_string();
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
@@ -536,12 +554,22 @@ fn process_ui_actions(
                     locale.set_locale(lang);
                 }
             }
-            UiAction::SelectCharacter(idx) => {
-                if let Ok(mut ui) = bridge.shared.lock() {
-                    ui.selected_character = idx;
-                }
-                if let Some(id) = crate::game::content::PLAYABLE_RACES.get(idx).copied() {
-                    selected.0 = id;
+            UiAction::SelectCharacter(race_id) => {
+                // nt-rewrite CharSelect/Mouse_4: first click selects and
+                // reveals the Go button; clicking the chosen mutant again
+                // starts the run. Locked mutants reject with sndNoSelect
+                // (no unlock gating exists yet, so everything can).
+                let Some(race) = crate::game::content::race_from_gml_id(race_id) else {
+                    break;
+                };
+                if selected.0 == race {
+                    transition.begin_to_state(AppState::Loading);
+                } else {
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.selected_character = race_id;
+                        ui.title_go_visible = true;
+                    }
+                    selected.0 = race;
                 }
             }
             UiAction::SelectSkin(s) => {

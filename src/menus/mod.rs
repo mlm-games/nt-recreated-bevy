@@ -79,22 +79,6 @@ fn popup_anim_config(key: &str) -> AnimatedVisibilityConfig {
     }
 }
 
-fn slide_in_config(key: &str, dx: f32, dy: f32) -> AnimatedVisibilityConfig {
-    AnimatedVisibilityConfig {
-        key: key.into(),
-        spec: AnimationSpec::tween(Duration::from_millis(260), Easing::EaseOut),
-        enter: EnterTransition::FadeIn.and(EnterTransition::SlideIn {
-            offset_x: dx,
-            offset_y: dy,
-        }),
-        exit: ExitTransition::FadeOut,
-    }
-}
-
-fn rise_in_config(key: &str) -> AnimatedVisibilityConfig {
-    slide_in_config(key, 0.0, 18.0)
-}
-
 pub fn compose_root(
     overlay: OverlayHandle,
     st: SharedUi,
@@ -104,10 +88,10 @@ pub fn compose_root(
     let settings_view = settings_ui(overlay, &st, actions.clone());
 
     let content = match st.phase {
-        AppState::Splash => splash_ui(),
+        AppState::Splash => splash_ui(&st),
         AppState::Loading => loading_ui(&st),
         AppState::Title => ZStack(Modifier::new().fill_max_size()).child((
-            title_ui(&st, actions.clone()),
+            title_screen::title_screen(&st, actions.clone()),
             AnimatedVisibility(
                 st.overlay == OverlayMenu::Settings,
                 settings_view.clone(),
@@ -120,9 +104,9 @@ pub fn compose_root(
             ),
         )),
         AppState::InGame => {
-            let hud = ingame_hud(&st, actions.clone());
-            let hud = AnimatedVisibility(true, hud, slide_in_config("hud_in", 0.0, -14.0));
-            let mut children: Vec<View> = vec![hud];
+            // Original HUD: sprite art lives in game/ui_art.rs; this overlay
+            // only carries the numeric texts drawn by scrDrawPlayerHUD.
+            let mut children: Vec<View> = vec![nt_hud_overlay(&st)];
             if st.game_over {
                 let panel = game_over_panel(&st, actions.clone());
                 children.push(AnimatedVisibility(
@@ -178,188 +162,96 @@ pub fn compose_root(
     }
 }
 
-fn splash_ui() -> View {
+/// Wrap a panel so it sits centred inside the letterboxed NT GUI surface,
+/// matching sprite art placement across window sizes.
+fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
+    let v = nt_view(st);
     Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(col(8, 8, 12)),
+            .padding_values(PaddingValues {
+                left: v.ox,
+                right: 0.0,
+                top: v.oy,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
     )
-    .child(
-        RText("Nuclear Throne (Bevy Recreation)")
-            .size(36.0)
-            .color(RColor::WHITE),
-    )
-}
-
-fn loading_ui(st: &SharedUi) -> View {
-    let pct = st.loading_progress.clamp(0.0, 1.0);
-    Column(
-        Modifier::new()
-            .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(col(8, 8, 12)),
-    )
-    .child(RText("Loading...").size(32.0).color(RColor::WHITE))
-    .child(spacer(16.0))
-    .child(
-        RText(format!("{:.0}%", pct * 100.0))
-            .size(18.0)
-            .color(RColor::WHITE),
-    )
-    .child(spacer(12.0))
     .child(
         Column(
             Modifier::new()
-                .width(320.0)
-                .height(12.0)
-                .background(col(30, 30, 38))
-                .clip_rounded(6.0),
+                .width(320.0 * v.s)
+                .height(240.0 * v.s)
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER),
         )
-        .child(Column(
-            Modifier::new()
-                .width((320.0 * pct).max(1.0))
-                .height(12.0)
-                .background(col(96, 165, 250))
-                .clip_rounded(6.0)
-                .align_self(AlignSelf::FLEX_START),
-        )),
+        .child(panel),
     )
 }
 
-fn title_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let a1 = actions.clone();
-    let a2 = actions.clone();
-    let a3 = actions.clone();
-    let a4 = actions.clone();
-    let tr = &st.translations;
-
-    // Character grid (2 rows of 8)
-    let mut row1: Vec<View> = Vec::new();
-    let mut row2: Vec<View> = Vec::new();
-    for (i, race) in PLAYABLE_RACES.iter().enumerate() {
-        let def = character_def(*race);
-        let label = def.name;
-        // Short label for button (first word)
-        let short = label.split_whitespace().next().unwrap_or(label);
-        let a = actions.clone();
-        // Highlight selected via btn content but keep helper simple
-        let btn = mk_button_sm(short, move || push(&a, UiAction::SelectCharacter(i)));
-        if i < 8 {
-            row1.push(btn);
-        } else {
-            row2.push(btn);
-        }
-    }
-    let sel_idx = st.selected_character.min(PLAYABLE_RACES.len() - 1);
-    let sel_def = character_def(PLAYABLE_RACES[sel_idx]);
-    let sel_ability = crate::game::content::ability_name(sel_def.ability);
-    let sel_line = format!(
-        "▶ {}  •  {}  •  {}",
-        sel_def.name, sel_ability, st.loadout_summary
-    );
-
-    // Loadout cycle buttons
-    let a_sw_prev = actions.clone();
-    let a_sw_next = actions.clone();
-    let a_st_prev = actions.clone();
-    let a_st_next = actions.clone();
-    let a_cr_prev = actions.clone();
-    let a_cr_next = actions.clone();
-
-    Column(
-        Modifier::new()
-            .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(10, 8, 16, 120)),
-    )
-    .child(AnimatedVisibility(
+/// Boot screen: the original `Logo` object draws sprLogo dead-centre on a
+/// black GUI; the sprite itself is spawned by ui_art.rs.
+fn splash_ui(st: &SharedUi) -> View {
+    let v = nt_view(st);
+    // No background: the world behind (black clear + boot logo sprite) must
+    // stay visible through the transparent UI surface.
+    Column(Modifier::new().fill_max_size()).child(nt_text_at(
+        "PRESS ANY KEY".to_string(),
+        160.0,
+        192.0,
+        &v,
+        col(255, 255, 255),
         true,
+    ))
+}
+
+/// Loading pass rendered on the NT surface: centred label plus a thin
+/// white progress bar (original NT shows nothing; kept minimal).
+fn loading_ui(st: &SharedUi) -> View {
+    let v = nt_view(st);
+    let pct = st.loading_progress.clamp(0.0, 1.0);
+
+    let bar_x = 70.0;
+    let bar_y = 132.0;
+    let bar_w = 180.0;
+    let bar_h = 6.0;
+
+    ZStack(Modifier::new().fill_max_size()).child((
+        nt_text_at(
+            "LOADING...".to_string(),
+            160.0,
+            108.0,
+            &v,
+            col(255, 255, 255),
+            true,
+        ),
         Column(
             Modifier::new()
-                .width(620.0)
-                .padding(24.0)
-                .background(RColor::from_rgba(8, 8, 14, 150))
-                .clip_rounded(18.0)
-                .border(2.0, col(90, 90, 110), 18.0)
-                .align_items(AlignItems::CENTER)
-                .gap(6.0),
+                .fill_max_size()
+                .padding_values(PaddingValues {
+                    left: v.ox + bar_x * v.s,
+                    right: 0.0,
+                    top: v.oy + bar_y * v.s,
+                    bottom: 0.0,
+                })
+                .align_items(AlignItems::FLEX_START),
         )
-        .child(vec![
-            RText(t(tr, "app-title", "NUCLEAR THRONE"))
-                .size(40.0)
-                .color(col(240, 210, 110)),
-            spacer(2.0),
-            reward_chip(
-                format!(
-                    "{} {} • {} {}",
-                    t(tr, "score", "Score"),
-                    st.high_score,
-                    t(tr, "best", "Best"),
-                    st.best_floor
-                ),
-                RColor::from_rgba(255, 255, 255, 16),
-                col(190, 195, 210),
-            ),
-            spacer(6.0),
-            RText("SELECT CHARACTER")
-                .size(12.0)
-                .color(col(150, 155, 168)),
-            Row(Modifier::new().gap(4.0)).child(row1),
-            Row(Modifier::new().gap(4.0)).child(row2),
-            reward_chip(
-                sel_line,
-                RColor::from_rgba(120, 170, 255, 30),
-                col(180, 200, 255),
-            ),
-            spacer(4.0),
-            RText(format!(
-                "Start: {}  •  Stored: {}  •  Crown: {}",
-                st.start_weapon_name, st.stored_weapon_name, st.crown
-            ))
-            .size(11.0)
-            .color(col(170, 175, 190)),
-            Row(Modifier::new().gap(6.0)).child(vec![
-                mk_button_sm("S-◀", move || {
-                    push(&a_sw_prev, UiAction::CycleStartWeapon(-1))
-                }),
-                mk_button_sm("S-▶", move || {
-                    push(&a_sw_next, UiAction::CycleStartWeapon(1))
-                }),
-                mk_button_sm("T-◀", move || {
-                    push(&a_st_prev, UiAction::CycleStoredWeapon(-1))
-                }),
-                mk_button_sm("T-▶", move || {
-                    push(&a_st_next, UiAction::CycleStoredWeapon(1))
-                }),
-                mk_button_sm("C◀", move || push(&a_cr_prev, UiAction::CycleCrown(-1))),
-                mk_button_sm("C▶", move || push(&a_cr_next, UiAction::CycleCrown(1))),
-            ]),
-            spacer(10.0),
-            mk_button(
-                &t(tr, "start-game", "▶  PLAY"),
-                col(80, 160, 100),
-                move || push(&a1, UiAction::StartGame),
-            ),
-            Row(Modifier::new().gap(6.0)).child(vec![
-                mk_button_sm(&t(tr, "settings", "Settings"), {
-                    let a = a2.clone();
-                    move || push(&a, UiAction::OpenSettings)
-                }),
-                mk_button_sm(&t(tr, "credits", "Credits"), {
-                    let a = a3.clone();
-                    move || push(&a, UiAction::OpenCredits)
-                }),
-                mk_button_sm(&t(tr, "quit", "Quit"), {
-                    let a = a4;
-                    move || push(&a, UiAction::QuitApp)
-                }),
-            ]),
-        ]),
-        rise_in_config("title_card"),
+        .child(
+            Column(
+                Modifier::new()
+                    .width(bar_w * v.s)
+                    .height(bar_h * v.s)
+                    .background(col(20, 20, 24))
+                    .border((1.0 * v.s).max(1.0), col(238, 239, 225), 0.0)
+                    .padding((1.0 * v.s).max(1.0)),
+            )
+            .child(Column(
+                Modifier::new()
+                    .width(((bar_w - 2.0) * pct * v.s).max(1.0))
+                    .height((bar_h - 2.0) * v.s)
+                    .background(col(238, 239, 225)),
+            )),
+        ),
     ))
 }
 
@@ -376,7 +268,7 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 180)),
     )
-    .child(pause_panel(tr, a1, a2, a3))
+    .child(nt_surface_wrap(st, pause_panel(tr, a1, a2, a3)))
 }
 
 fn pause_panel(
@@ -555,7 +447,7 @@ fn settings_ui(overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiA
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 180)),
     )
-    .child(inner)
+    .child(nt_surface_wrap(st, inner))
 }
 
 fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -596,7 +488,7 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 180)),
     )
-    .child(inner)
+    .child(nt_surface_wrap(st, inner))
 }
 
 static NT_PANEL: RColor = RColor(7, 8, 11, 218);
@@ -613,6 +505,7 @@ static NT_PURPLE: RColor = RColor(181, 86, 229, 255);
 static NT_BLUE: RColor = RColor(77, 151, 230, 255);
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // some fields only exercised by tests
 struct HudMetrics {
     margin: f32,
     player_width: f32,
@@ -670,35 +563,6 @@ fn empty_view() -> View {
     Column(Modifier::new().width(0.001).height(0.001))
 }
 
-fn nt_panel(width: f32, accent: RColor, padding: f32, child: View) -> View {
-    Column(
-        Modifier::new()
-            .width(width)
-            .padding(padding)
-            .background(NT_PANEL)
-            .border(2.0, accent, 3.0)
-            .clip_rounded(3.0)
-            .align_items(AlignItems::STRETCH),
-    )
-    .child(child)
-}
-
-fn nt_section(child: View) -> View {
-    Column(
-        Modifier::new()
-            .padding_values(PaddingValues {
-                left: 6.0,
-                right: 6.0,
-                top: 5.0,
-                bottom: 5.0,
-            })
-            .background(NT_PANEL_INNER)
-            .border(1.0, NT_BORDER, 2.0)
-            .clip_rounded(2.0),
-    )
-    .child(child)
-}
-
 fn nt_chip(label: impl Into<String>, bg: RColor, fg: RColor, size: f32) -> View {
     Column(
         Modifier::new()
@@ -723,38 +587,6 @@ fn nt_chip(label: impl Into<String>, bg: RColor, fg: RColor, size: f32) -> View 
     )
 }
 
-fn nt_bar_inner_width(width: f32, fraction: f32) -> f32 {
-    let usable = (width - 4.0).max(0.001);
-    let fraction = fraction.clamp(0.0, 1.0);
-
-    if fraction <= 0.0 {
-        0.001
-    } else {
-        (usable * fraction).max(1.0)
-    }
-}
-
-fn nt_bar(width: f32, height: f32, fraction: f32, fill: RColor) -> View {
-    let inner_width = nt_bar_inner_width(width, fraction);
-
-    Column(
-        Modifier::new()
-            .width(width)
-            .height(height)
-            .padding(2.0)
-            .background(NT_TRACK)
-            .border(1.0, NT_BORDER, 2.0)
-            .clip_rounded(2.0)
-            .align_items(AlignItems::FLEX_START),
-    )
-    .child(Column(
-        Modifier::new()
-            .width(inner_width)
-            .height((height - 4.0).max(1.0))
-            .background(fill),
-    ))
-}
-
 fn hp_fill_color(hp: i32, max_hp: i32) -> RColor {
     if max_hp <= 0 {
         return NT_RED;
@@ -771,6 +603,7 @@ fn hp_fill_color(hp: i32, max_hp: i32) -> RColor {
     }
 }
 
+#[allow(dead_code)] // tested
 fn boss_display_name(name: &str) -> String {
     if name.trim().is_empty() {
         "BOSS".to_string()
@@ -802,360 +635,6 @@ fn mutation_choice_parts(choice: &str) -> (bool, String, String) {
     } else {
         (is_ultra, trimmed.to_string(), String::new())
     }
-}
-
-fn weapon_slot_view(index: usize, name: &str, active: bool, metrics: HudMetrics) -> View {
-    let marker = if active { ">" } else { " " };
-    let fg = if active { NT_GOLD } else { NT_MUTED };
-    let bg = if active {
-        RColor::from_rgba(245, 210, 92, 34)
-    } else {
-        RColor::from_rgba(255, 255, 255, 8)
-    };
-
-    Row(Modifier::new()
-        .height(if metrics.small_text < 10.0 {
-            20.0
-        } else {
-            23.0
-        })
-        .padding_values(PaddingValues {
-            left: 5.0,
-            right: 5.0,
-            top: 2.0,
-            bottom: 2.0,
-        })
-        .background(bg)
-        .border(
-            1.0,
-            if active {
-                RColor::from_rgba(245, 210, 92, 88)
-            } else {
-                RColor::from_rgba(255, 255, 255, 12)
-            },
-            2.0,
-        )
-        .align_items(AlignItems::CENTER)
-        .justify_content(JustifyContent::SPACE_BETWEEN))
-    .child((
-        RText(format!("{marker} {}", index + 1))
-            .size(metrics.small_text)
-            .color(fg)
-            .single_line(),
-        RText(name.to_ascii_uppercase())
-            .size(metrics.small_text)
-            .color(fg)
-            .single_line()
-            .overflow_ellipsize(),
-    ))
-}
-
-fn ammo_cell(label: &str, amount: i32, tint: RColor, compact: bool) -> View {
-    Column(
-        Modifier::new()
-            .width(if compact { 40.0 } else { 50.0 })
-            .height(if compact { 31.0 } else { 35.0 })
-            .padding(3.0)
-            .background(RColor::from_rgba(255, 255, 255, 8))
-            .border(1.0, RColor::from_rgba(255, 255, 255, 18), 2.0)
-            .clip_rounded(2.0)
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::CENTER),
-    )
-    .child((
-        RText(label)
-            .size(if compact { 7.0 } else { 8.0 })
-            .color(NT_MUTED)
-            .single_line(),
-        RText(amount.max(0).to_string())
-            .size(if compact { 11.0 } else { 13.0 })
-            .color(tint)
-            .single_line(),
-    ))
-}
-
-fn ingame_hud(st: &SharedUi, _actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let metrics = hud_metrics(st.hud_compact);
-    let compact = st.hud_compact;
-
-    let hp_fraction = if st.max_hp <= 0 {
-        0.0
-    } else {
-        st.hp.max(0) as f32 / st.max_hp as f32
-    };
-
-    let rad_fraction = if st.max_rads == 0 {
-        0.0
-    } else {
-        st.rads as f32 / st.max_rads as f32
-    };
-
-    let weapon_views = st
-        .weapons
-        .iter()
-        .enumerate()
-        .map(|(index, name)| weapon_slot_view(index, name, index == st.current_weapon, metrics))
-        .collect::<Vec<_>>();
-
-    const AMMO: [(&str, usize, RColor); 5] = [
-        ("BUL", 1, RColor(238, 205, 82, 255)),
-        ("SHL", 2, RColor(224, 121, 54, 255)),
-        ("BLT", 3, RColor(130, 196, 225, 255)),
-        ("EXP", 4, RColor(218, 204, 82, 255)),
-        ("NRG", 5, RColor(102, 219, 238, 255)),
-    ];
-
-    let ammo_views = AMMO
-        .iter()
-        .map(|(label, slot, tint)| {
-            ammo_cell(
-                label,
-                st.ammo.get(*slot).copied().unwrap_or_default(),
-                *tint,
-                compact,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let header = Row(Modifier::new()
-        .align_items(AlignItems::CENTER)
-        .justify_content(JustifyContent::SPACE_BETWEEN))
-    .child((
-        RText(st.character.to_ascii_uppercase())
-            .size(metrics.normal_text)
-            .color(NT_TEXT)
-            .single_line()
-            .overflow_ellipsize(),
-        if st.crown != "NONE" && !st.crown.is_empty() {
-            nt_chip(
-                format!("CROWN {}", st.crown),
-                RColor(245, 210, 92, 24),
-                NT_GOLD,
-                metrics.small_text,
-            )
-        } else {
-            empty_view()
-        },
-    ));
-
-    let health = nt_section(
-        Column(Modifier::new().gap(4.0)).child((
-            Row(Modifier::new()
-                .align_items(AlignItems::CENTER)
-                .justify_content(JustifyContent::SPACE_BETWEEN))
-            .child((
-                RText("HP")
-                    .size(metrics.small_text)
-                    .color(NT_MUTED)
-                    .single_line(),
-                RText(format!("{}/{}", st.hp.max(0), st.max_hp.max(0)))
-                    .size(metrics.normal_text)
-                    .color(hp_fill_color(st.hp, st.max_hp))
-                    .single_line(),
-            )),
-            nt_bar(
-                metrics.hp_bar_width,
-                if compact { 10.0 } else { 12.0 },
-                hp_fraction,
-                hp_fill_color(st.hp, st.max_hp),
-            ),
-        )),
-    );
-
-    let weapons = nt_section(Column(Modifier::new().gap(3.0)).child(weapon_views));
-
-    let ammo = Row(Modifier::new()
-        .gap(if compact { 3.0 } else { 5.0 })
-        .align_items(AlignItems::CENTER))
-    .child(ammo_views);
-
-    let ability = nt_section(
-        Row(Modifier::new().align_items(AlignItems::CENTER)).child(
-            RText(st.ability.to_ascii_uppercase())
-                .size(metrics.small_text)
-                .color(if st.ability_ready { NT_GREEN } else { NT_MUTED })
-                .single_line()
-                .overflow_ellipsize(),
-        ),
-    );
-
-    let player_panel = nt_panel(
-        metrics.player_width,
-        RColor(245, 210, 92, 100),
-        metrics.panel_padding,
-        Column(Modifier::new().gap(6.0)).child((header, health, weapons, ammo, ability)),
-    );
-
-    let floor_title = if st.loop_count > 0 {
-        format!("{}-{}  LOOP {}", st.world, st.floor_in_world, st.loop_count)
-    } else {
-        format!("{}-{}", st.world, st.floor_in_world)
-    };
-
-    let run_panel = nt_panel(
-        metrics.run_width,
-        RColor(77, 151, 230, 95),
-        metrics.panel_padding,
-        Column(Modifier::new().gap(6.0).align_items(AlignItems::STRETCH)).child((
-            RText(floor_title)
-                .size(metrics.normal_text + 1.0)
-                .color(NT_TEXT)
-                .single_line(),
-            nt_section(
-                Column(Modifier::new().gap(3.0)).child((
-                    Row(Modifier::new()
-                        .justify_content(JustifyContent::SPACE_BETWEEN)
-                        .align_items(AlignItems::CENTER))
-                    .child((
-                        RText(format!("LEVEL {}", st.level))
-                            .size(metrics.small_text)
-                            .color(NT_GREEN)
-                            .single_line(),
-                        RText(format!("{}/{}", st.rads, st.max_rads))
-                            .size(metrics.small_text)
-                            .color(NT_MUTED)
-                            .single_line(),
-                    )),
-                    nt_bar(
-                        (metrics.run_width - metrics.panel_padding * 2.0 - 14.0).max(1.0),
-                        8.0,
-                        rad_fraction,
-                        NT_GREEN,
-                    ),
-                )),
-            ),
-            Row(Modifier::new().justify_content(JustifyContent::SPACE_BETWEEN)).child((
-                RText("SCORE").size(metrics.small_text).color(NT_MUTED),
-                RText(st.score.to_string())
-                    .size(metrics.normal_text)
-                    .color(NT_GOLD),
-            )),
-        )),
-    );
-
-    let boss_view = if st.boss_max > 0 {
-        let fraction = st.boss_hp as f32 / st.boss_max.max(1) as f32;
-
-        nt_panel(
-            metrics.boss_width,
-            RColor(181, 86, 229, 120),
-            if compact { 7.0 } else { 9.0 },
-            Column(Modifier::new().gap(4.0)).child((
-                Row(Modifier::new()
-                    .align_items(AlignItems::CENTER)
-                    .justify_content(JustifyContent::SPACE_BETWEEN))
-                .child((
-                    RText(boss_display_name(&st.boss_name))
-                        .size(if compact { 11.0 } else { 13.0 })
-                        .color(NT_TEXT)
-                        .single_line()
-                        .overflow_ellipsize(),
-                    RText(format!("{}/{}", st.boss_hp, st.boss_max))
-                        .size(if compact { 9.0 } else { 11.0 })
-                        .color(NT_PURPLE)
-                        .single_line(),
-                )),
-                nt_bar(
-                    (metrics.boss_width - if compact { 28.0 } else { 36.0 }).max(1.0),
-                    if compact { 9.0 } else { 11.0 },
-                    fraction,
-                    NT_PURPLE,
-                ),
-            )),
-        )
-    } else {
-        empty_view()
-    };
-
-    let toast = if st.toast_timer > 0.0 && !st.toast.is_empty() {
-        let alpha = (st.toast_timer.clamp(0.0, 1.0) * 255.0) as u8;
-
-        Column(
-            Modifier::new()
-                .padding_values(PaddingValues {
-                    left: 14.0,
-                    right: 14.0,
-                    top: 7.0,
-                    bottom: 7.0,
-                })
-                .background(RColor(7, 8, 11, alpha))
-                .border(1.0, RColor(245, 210, 92, alpha / 2), 3.0)
-                .clip_rounded(3.0),
-        )
-        .child(
-            RText(st.toast.to_ascii_uppercase())
-                .size(if compact { 13.0 } else { 17.0 })
-                .color(RColor(255, 227, 135, alpha))
-                .single_line()
-                .overflow_ellipsize(),
-        )
-    } else {
-        empty_view()
-    };
-
-    let player_anchor = Column(
-        Modifier::new()
-            .fill_max_size()
-            .padding(metrics.margin)
-            .align_items(AlignItems::FLEX_START)
-            .justify_content(JustifyContent::FLEX_START),
-    )
-    .child(player_panel);
-
-    let run_anchor = Column(
-        Modifier::new()
-            .fill_max_size()
-            .padding(metrics.margin)
-            .align_items(AlignItems::FLEX_END)
-            .justify_content(if compact {
-                JustifyContent::FLEX_END
-            } else {
-                JustifyContent::FLEX_START
-            }),
-    )
-    .child(run_panel);
-
-    let boss_anchor = if compact {
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding_values(PaddingValues {
-                    left: metrics.margin,
-                    right: metrics.margin,
-                    top: 0.0,
-                    bottom: 92.0,
-                })
-                .align_items(AlignItems::CENTER)
-                .justify_content(JustifyContent::FLEX_END),
-        )
-        .child(boss_view)
-    } else {
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding(metrics.margin)
-                .align_items(AlignItems::CENTER)
-                .justify_content(JustifyContent::FLEX_START),
-        )
-        .child(boss_view)
-    };
-
-    let feedback_anchor = Column(
-        Modifier::new()
-            .fill_max_size()
-            .padding(metrics.margin)
-            .gap(7.0)
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::FLEX_END),
-    )
-    .child(toast);
-
-    ZStack(Modifier::new().fill_max_size()).child((
-        player_anchor,
-        run_anchor,
-        boss_anchor,
-        feedback_anchor,
-    ))
 }
 
 fn mutation_choice_card(
@@ -1275,12 +754,11 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     Column(
         Modifier::new()
             .fill_max_size()
-            .padding(if st.hud_compact { 6.0 } else { 20.0 })
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::CENTER)
             .background(RColor(0, 0, 0, 188)),
     )
-    .child(panel)
+    .child(nt_surface_wrap(st, panel))
 }
 
 fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
@@ -1328,7 +806,7 @@ fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .align_items(AlignItems::CENTER)
             .background(RColor::from_rgba(0, 0, 0, 200)),
     )
-    .child(panel)
+    .child(nt_surface_wrap(st, panel))
 }
 
 fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {
@@ -1445,27 +923,6 @@ mod nt_ui_tests {
     }
 
     #[test]
-    fn bar_width_clamps_low() {
-        assert_eq!(nt_bar_inner_width(100.0, -4.0), 0.001);
-        assert_eq!(nt_bar_inner_width(100.0, 0.0), 0.001);
-    }
-
-    #[test]
-    fn bar_width_clamps_high() {
-        let full = nt_bar_inner_width(100.0, 1.0);
-        let over = nt_bar_inner_width(100.0, 8.0);
-
-        assert!((full - 96.0).abs() < 0.001);
-        assert!((over - 96.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn bar_width_half_uses_half_inner_track() {
-        let width = nt_bar_inner_width(100.0, 0.5);
-        assert!((width - 48.0).abs() < 0.001);
-    }
-
-    #[test]
     fn mutation_choice_splits_normal() {
         let (ultra, name, desc) = mutation_choice_parts("RHINO SKIN \u{2014} +4 max HP");
 
@@ -1537,4 +994,130 @@ mod nt_ui_tests {
         assert!(metrics.player_width + metrics.run_width + metrics.margin * 2.0 < 1280.0);
         assert!(metrics.boss_width < 1280.0);
     }
+}
+
+/// Original HUD text pass — everything scrDrawPlayerHUD draws as text,
+/// placed in NT GUI coordinates scaled into window space. Sprite art
+/// (health bar, fills, rad meter, ammo/weapon icons) lives in ui_art.rs.
+fn nt_hud_overlay(st: &SharedUi) -> View {
+    let v = nt_view(st);
+    let mut layers: Vec<View> = Vec::new();
+
+    // Health string, centred at gui (67, 7).
+    layers.push(nt_text_at(
+        format!("{}/{}", st.hp.max(0), st.max_hp.max(0)),
+        67.0,
+        7.0,
+        &v,
+        col(255, 255, 255),
+        true,
+    ));
+
+    // Level number centred at gui (11, 16) until ultra.
+    if st.level < 99 {
+        layers.push(nt_text_at(
+            st.level.to_string(),
+            11.0,
+            16.0,
+            &v,
+            col(255, 255, 255),
+            true,
+        ));
+    }
+
+    // Ammo counts left-aligned at (dx + 18, dy + 5) per weapon slot; the
+    // stored weapon renders in silver (c_silver) like upstream.
+    for slot in 0..2usize {
+        let amount = st.weapon_ammo[slot];
+        let color = if slot == st.current_weapon {
+            col(255, 255, 255)
+        } else {
+            col(192, 192, 192)
+        };
+        layers.push(nt_text_at(
+            amount.to_string(),
+            42.0 + slot as f32 * 44.0,
+            21.0,
+            &v,
+            color,
+            false,
+        ));
+    }
+
+    // LOW HP warning at gui (110, 7), red.
+    if st.hp <= 4 && st.hp != st.max_hp {
+        layers.push(nt_text_at(
+            "LOW HP".to_string(),
+            110.0,
+            7.0,
+            &v,
+            col(255, 60, 40),
+            false,
+        ));
+    }
+
+    ZStack(Modifier::new().fill_max_size()).child(layers)
+}
+
+/// Window-space mapping of the 320x240 NT GUI surface: uniform pixel scale
+/// plus centered letterbox offsets. Matches ui_art::GuiMap exactly and, like
+/// GameMaker's GUI layer, is independent of gameplay camera zoom.
+pub(crate) struct NtView {
+    pub s: f32,
+    pub ox: f32,
+    pub oy: f32,
+}
+
+pub(crate) fn nt_view(st: &SharedUi) -> NtView {
+    let w = if st.viewport_width > 1.0 {
+        st.viewport_width
+    } else {
+        1280.0
+    };
+    let h = if st.viewport_height > 1.0 {
+        st.viewport_height
+    } else {
+        720.0
+    };
+    let s = (w / 320.0).min(h / 240.0);
+    NtView {
+        s,
+        ox: (w - 320.0 * s) * 0.5,
+        oy: (h - 240.0 * s) * 0.5,
+    }
+}
+
+/// One text layer anchored at NT GUI coords. Centred texts sit in a box
+/// whose centre is the anchor; left texts run out to the right.
+fn nt_text_at(text: String, gx: f32, gy: f32, v: &NtView, color: RColor, centered: bool) -> View {
+    let box_w = if centered {
+        (2.0 * gx * v.s).max(1.0)
+    } else {
+        200.0 * v.s
+    };
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding_values(PaddingValues {
+                left: v.ox,
+                right: 0.0,
+                top: v.oy + gy * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
+    )
+    .child(
+        Column(Modifier::new().width(box_w).align_items(if centered {
+            AlignItems::CENTER
+        } else {
+            AlignItems::FLEX_START
+        }))
+        .child(
+            RText(text)
+                .size((7.0 * v.s).clamp(8.0, 96.0))
+                .font_family("Silkscreen")
+                .color(color)
+                .single_line(),
+        ),
+    )
 }
