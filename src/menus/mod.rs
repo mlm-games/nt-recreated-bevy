@@ -56,6 +56,8 @@ pub enum UiAction {
     SetLanguage(String),
     SelectCharacter(usize),
     SelectSkin(u8),
+    /// Toggle the char-select loadout panel (Menu.loadout_open).
+    ToggleLoadout,
     CycleStartWeapon(i8),
     CycleStoredWeapon(i8),
     CycleCrown(i8),
@@ -239,63 +241,30 @@ fn splash_ui(st: &SharedUi) -> View {
             ));
         }
         3 => {
-            // Team credits: VLAMBEER in yellow, the rest white.
-            layers.push(nt_text_at(
-                "VLAMBEER".to_string(),
-                160.0,
-                cy - 24.0,
-                &v,
-                col(255, 221, 0),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "PAUL VEER".to_string(),
-                160.0,
-                cy - 8.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "JUKIO KALLIO".to_string(),
-                160.0,
-                cy + 2.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "JOONAS TURNER".to_string(),
-                160.0,
-                cy + 12.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "JUSTIN CHAN".to_string(),
-                160.0,
-                cy + 22.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "YELLOWAFTERLIFE".to_string(),
-                160.0,
-                cy + 32.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "PRESENT".to_string(),
-                160.0,
-                cy + 48.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
+            const LINES: [(&str, (u8, u8, u8)); 9] = [
+                ("VLAMBEER", (255, 221, 0)),
+                ("", (255, 255, 255)),
+                ("PAUL VEER", (255, 255, 255)),
+                ("JUKIO KALLIO", (255, 255, 255)),
+                ("JOONAS TURNER", (255, 255, 255)),
+                ("JUSTIN CHAN", (255, 255, 255)),
+                ("YELLOWAFTERLIFE", (255, 255, 255)),
+                ("", (255, 255, 255)),
+                ("PRESENT", (255, 255, 255)),
+            ];
+            for (i, (line, (r, g, b))) in LINES.into_iter().enumerate() {
+                if line.is_empty() {
+                    continue;
+                }
+                layers.push(nt_text_at(
+                    line.to_string(),
+                    160.0,
+                    cy + (i as f32 - 4.0) * 10.0,
+                    &v,
+                    col(r, g, b),
+                    true,
+                ));
+            }
         }
         _ => {}
     }
@@ -1110,17 +1079,27 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ];
 
     let mut layers: Vec<View> = Vec::new();
+
+    layers.push(Column(
+        Modifier::new()
+            .fill_max_size()
+            .background(RColor::from_rgba(0, 0, 0, 40)),
+    ));
+
     for (label, index) in LABELS {
         let gy = 72.0 + index as f32 * 24.0;
         // CO-OP and STATS have no backend in this port yet: c_uidark, inert.
         let available = matches!(index, 0 | 2 | 4);
+        let hovered = st.main_menu_hover == index;
         let color = if !available {
             col(64, 64, 64)
-        } else if st.main_menu_hover == index {
+        } else if hovered {
             col(255, 255, 255)
         } else {
             col(153, 153, 153)
         };
+        // Hover lifts the row by 1 NT px (MainMenuButton/Draw_0).
+        let lift = if hovered && available { 1.0 } else { 0.0 };
 
         let a = actions.clone();
         layers.push(
@@ -1129,7 +1108,7 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 .padding_values(PaddingValues {
                     left: v.ox,
                     right: 0.0,
-                    top: v.oy + (gy - 10.0) * v.s,
+                    top: v.oy + (gy - 10.0 - lift) * v.s,
                     bottom: 0.0,
                 })
                 .align_items(AlignItems::FLEX_START))
@@ -1137,7 +1116,7 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 Column(
                     Modifier::new()
                         .width(320.0 * v.s)
-                        .height(20.0 * v.s)
+                        .height(22.0 * v.s)
                         .align_items(AlignItems::CENTER)
                         .clickable_ext(available, None, None, move || match index {
                             0 => push(&a, UiAction::MainMenuPlay),
@@ -1148,7 +1127,7 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 )
                 .child(
                     RText(label)
-                        .size((14.0 * v.s).clamp(10.0, 160.0))
+                        .size((16.0 * v.s).clamp(12.0, 180.0))
                         .font_family("Silkscreen")
                         .color(color)
                         .single_line(),

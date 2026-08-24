@@ -27,63 +27,72 @@ pub fn title_screen(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ))
 }
 
-/// Bottom-right loadout chips (start wep / stored / crown) — mirrors the
-/// Menu loadout row.
 fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) -> View {
     if st.selected_character == 0 {
         return Column(Modifier::new().width(0.001).height(0.001));
     }
 
-    let a1 = actions.clone();
-    let a2 = actions.clone();
-    let a3 = actions;
-
-    let chip = |label: String, on: Box<dyn Fn() + 'static>| {
+    let zone = |x: f32, y: f32, w: f32, h: f32, a: Arc<Mutex<Vec<UiAction>>>, act: UiAction| {
         Column(
             Modifier::new()
+                .fill_max_size()
                 .padding_values(PaddingValues {
-                    left: 6.0 * v.s,
-                    right: 6.0 * v.s,
-                    top: 3.0 * v.s,
-                    bottom: 3.0 * v.s,
+                    left: v.ox + x * v.s,
+                    right: 0.0,
+                    top: v.oy + y * v.s,
+                    bottom: 0.0,
                 })
-                .background(RColor::from_rgba(12, 12, 16, 220))
-                .clip_rounded(3.0)
-                .clickable_ext(true, None, None, move || on()),
+                .align_items(AlignItems::FLEX_START),
         )
-        .child(
-            RText(label)
-                .size((7.0 * v.s).clamp(8.0, 96.0))
-                .font_family("Silkscreen")
-                .color(RColor::WHITE)
-                .single_line(),
-        )
+        .child(Column(
+            Modifier::new()
+                .width(w * v.s)
+                .height(h * v.s)
+                .clickable_ext(true, None, None, move || push(&a, act.clone())),
+        ))
     };
 
-    Row(Modifier::new()
-        .fill_max_size()
-        .padding_values(PaddingValues {
-            left: v.ox + 160.0 * v.s,
-            right: 0.0,
-            top: v.oy + (240.0 - 36.0 - 28.0) * v.s,
-            bottom: 0.0,
-        })
-        .gap(6.0 * v.s)
-        .align_items(AlignItems::FLEX_START))
-    .child((
-        chip(
-            format!("WEP {}", st.start_weapon_name.to_ascii_uppercase()),
-            Box::new(move || push(&a1, UiAction::CycleStartWeapon(1))),
-        ),
-        chip(
-            format!("BWP {}", st.stored_weapon_name.to_ascii_uppercase()),
-            Box::new(move || push(&a2, UiAction::CycleStoredWeapon(1))),
-        ),
-        chip(
-            format!("CRN {}", st.crown.to_ascii_uppercase()),
-            Box::new(move || push(&a3, UiAction::CycleCrown(1))),
-        ),
-    ))
+    if st.loadout_open {
+        ZStack(Modifier::new().fill_max_size()).child((
+            zone(
+                238.0,
+                147.0,
+                72.0,
+                32.0,
+                actions.clone(),
+                UiAction::CycleStartWeapon(1),
+            ),
+            zone(
+                216.0,
+                32.0,
+                104.0,
+                116.0,
+                actions.clone(),
+                UiAction::CycleCrown(1),
+            ),
+            zone(298.0, 178.0, 24.0, 28.0, actions, UiAction::ToggleLoadout),
+        ))
+    } else {
+        ZStack(Modifier::new().fill_max_size()).child((
+            zone(
+                234.0,
+                172.0,
+                58.0,
+                36.0,
+                actions.clone(),
+                UiAction::CycleStartWeapon(1),
+            ),
+            zone(
+                246.0,
+                149.0,
+                32.0,
+                32.0,
+                actions.clone(),
+                UiAction::CycleCrown(1),
+            ),
+            zone(213.0, 136.0, 109.0, 69.0, actions, UiAction::ToggleLoadout),
+        ))
+    }
 }
 
 /// scrCampfireMenuDrawCharText: the chosen mutant's big name plus their
@@ -132,6 +141,7 @@ fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
 /// One invisible click target per `CharSelect` instance (CharSelect/Mouse_4).
 fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) -> View {
     let count = CHAR_SELECT_RACES.len();
+    let step = slot_step(count);
     let ystart = crate::game::ui_art::slot_ystart();
 
     let mut cells: Vec<View> = Vec::with_capacity(count);
@@ -140,7 +150,7 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
         let a = actions.clone();
         cells.push(Column(
             Modifier::new()
-                .width(POD_W * v.s)
+                .width(step * v.s) // match the sprite pitch, not just POD_W
                 .height(POD_H * v.s)
                 .clickable_ext(true, None, None, move || {
                     push(&a, UiAction::SelectCharacter(race_id));

@@ -128,6 +128,8 @@ pub struct SharedUi {
     /// GoButton revealed after the first successful char-select click
     /// (nt-rewrite CharSelect/Mouse_4).
     pub title_go_visible: bool,
+    /// Loadout panel open (Menu.loadout_open; toggled from the splat/arrow).
+    pub loadout_open: bool,
     /// Race id currently hovered in the char-select row (-1 = none).
     pub title_hover_race: i32,
     /// Main-menu button index currently hovered (-1 = none).
@@ -142,6 +144,10 @@ pub struct SharedUi {
     pub start_weapon_name: String,
     pub stored_weapon_name: String,
     pub crown: String,
+    /// Numeric ids for loadout ICON frames (sprLoadoutCrown / weapon art).
+    pub start_weapon_id: u8,
+    pub stored_weapon_id: u8,
+    pub crown_id: u8,
     pub selected_skin: u8,
 
     /// Viewport data used to pick HUD layout without adaptive APIs.
@@ -192,6 +198,7 @@ impl Default for SharedUi {
             character: "Fish".to_string(),
             selected_character: 1,
             title_go_visible: false,
+            loadout_open: false,
             title_hover_race: -1,
             main_menu_hover: -1,
             boot_mode: 0,
@@ -202,6 +209,9 @@ impl Default for SharedUi {
             start_weapon_name: "None".to_string(),
             stored_weapon_name: "None".to_string(),
             crown: "NONE".to_string(),
+            start_weapon_id: 0,
+            stored_weapon_id: 0,
+            crown_id: 0,
             selected_skin: 0,
             viewport_width: 1280.0,
             viewport_height: 720.0,
@@ -376,6 +386,7 @@ fn sync_shared_ui(
     if state.is_changed() && *state.get() == AppState::Title {
         // Menu/Create_0 spawns GoButton with visible = false.
         ui.title_go_visible = false;
+        ui.loadout_open = false;
         ui.title_hover_race = -1;
     }
     if state.is_changed() && *state.get() == AppState::MainMenu {
@@ -417,6 +428,9 @@ fn sync_shared_ui(
         ui.start_weapon_name = crate::game::content::weapon_id_name(lo.start_weapon).to_string();
         ui.stored_weapon_name = crate::game::content::weapon_id_name(lo.stored_weapon).to_string();
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
+        ui.start_weapon_id = lo.start_weapon.0;
+        ui.stored_weapon_id = lo.stored_weapon.0;
+        ui.crown_id = lo.start_crown;
         ui.loadout_summary = format!(
             "{} | start {} | stored {} | crown {} | {}",
             def.name,
@@ -596,6 +610,11 @@ fn process_ui_actions(
             UiAction::SelectSkin(s) => {
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.selected_skin = s;
+                }
+            }
+            UiAction::ToggleLoadout => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.loadout_open = !ui.loadout_open;
                 }
             }
             UiAction::CycleStartWeapon(dir) => {

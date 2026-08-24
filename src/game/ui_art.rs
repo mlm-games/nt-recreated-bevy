@@ -7,12 +7,14 @@ use bevy::audio::AudioSource;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings, Volume};
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
+use rand::RngExt;
 
 use crate::app::AppState;
 use crate::game::components::{Health, Inventory, Player};
 use crate::game::content::AmmoKind;
 use crate::game::content::{AssetCatalog, CHAR_SELECT_RACES, WeaponId, sprite_exact};
 use crate::menus::UiBridge;
+use game_utils_bevy::screen_effects::CameraBase;
 use game_utils_bevy::transitions::Transition;
 
 /// Marker for menu art (title backdrop); despawned on state exit.
@@ -319,7 +321,10 @@ fn play_cue(
     ));
 }
 
-const MODE_SECS: [f32; 4] = [2.0, 1.0, 2.0, 1.0];
+/// Card stage lengths. Upstream Vlambeer/Create_0 sets alarm[0]=120 and
+/// Alarm_0 re-arms 60 (+60 for the Vlambeer card) at a game speed of
+/// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
+const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
 
 /// The boot driver: mode timers, input skipping, per-mode sprites, the logo
 /// sound script, and the transition to the main-menu buttons.
@@ -350,14 +355,16 @@ fn boot_intro(
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
+    // Publish the boot stage every frame, before any per-stage logic: overlay
+    // text must switch in lockstep with the sprites (never show a neighbouring
+    // card's text early or leave mode-3 credits up over the logo).
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.boot_mode = boot.mode.min(4);
+    }
+
     // ----- Logo stage (mode 4) -----
     if boot.mode == 4 {
         boot.t += dt;
-
-        // Keep UI text clear on the logo stage (prevents credits over logo).
-        if let Ok(mut ui) = bridge.shared.lock() {
-            ui.boot_mode = 4;
-        }
 
         // Spawn the NT logo once. Frame 0 is blank; it builds up per shot.
         if boot.spawned.is_empty()
@@ -380,18 +387,18 @@ fn boot_intro(
                 .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
         }
 
-        // Logo/Alarm_0 (30 TPS):
-        //   start alarm=30 -> index 1..6 every 2 ticks, wait 20 after 6,
-        //   then 7 + the boom set + logo-loop ambience.
+        // Logo/Alarm_0 (game runs at 30 fps; Logo/Create_0 arms alarm[0]=30):
+        //   index 1 after 1.0s, then every 2 ticks; after frame 6 wait 20
+        //   ticks, then frame 7 + the boom set + logo-loop ambience.
         // Times when image_index becomes 1,2,...,7:
         const STEP_T: [f32; 7] = [
-            0.5,                             // -> 1
-            0.5 + 2.0 / 30.0,                // -> 2
-            0.5 + 4.0 / 30.0,                // -> 3
-            0.5 + 6.0 / 30.0,                // -> 4
-            0.5 + 8.0 / 30.0,                // -> 5
-            0.5 + 10.0 / 30.0,               // -> 6
-            0.5 + 10.0 / 30.0 + 20.0 / 30.0, // -> 7 boom
+            1.0,                             // -> 1
+            1.0 + 2.0 / 30.0,                // -> 2
+            1.0 + 4.0 / 30.0,                // -> 3
+            1.0 + 6.0 / 30.0,                // -> 4
+            1.0 + 8.0 / 30.0,                // -> 5
+            1.0 + 10.0 / 30.0,               // -> 6
+            1.0 + 10.0 / 30.0 + 20.0 / 30.0, // -> 7 boom
         ];
         while (boot.guns as usize) < STEP_T.len() && boot.t >= STEP_T[boot.guns as usize] {
             boot.guns += 1; // guns == image_index after step
@@ -420,7 +427,7 @@ fn boot_intro(
 
         // Draw_0: the logo steps to the current frame and jitters by shake,
         // which decays one unit per tick.
-        boot.shake = (boot.shake - dt * 60.0).max(0.0);
+        boot.shake = (boot.shake - dt * 30.0).max(0.0); // decays 1/tick @ 30 fps
         if let Some(logo) = boot.spawned.first().copied() {
             if let Ok(mut spr) = sprites.get_mut(logo) {
                 let m = meta_of(&catalog, "images/sprLogo.png");
@@ -444,7 +451,7 @@ fn boot_intro(
         if pressed {
             if boot.guns == 0 {
                 // Before frame 1: speed the alarm up (min 10 ticks).
-                boot.t = boot.t.max(0.5 - 10.0 / 30.0);
+                boot.t = boot.t.max(1.0 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
             }
@@ -453,7 +460,11 @@ fn boot_intro(
     }
 
     // ----- Card modes 0..3 -----
-    if pressed || boot.t >= MODE_SECS[boot.mode as usize] {
+    // Skip input needs a short grace per card: the click that focuses the
+    // window at launch would otherwise insta-advance mode 0 ("MADE IN
+    // GAMEMAKER" appearing early / both cards seemingly at once).
+    let can_skip = boot.t >= 0.25;
+    if (pressed && can_skip) || boot.t >= MODE_SECS[boot.mode as usize] {
         boot.mode += 1;
         boot.t = 0.0;
         boot.rendered_mode = -1;
@@ -504,11 +515,8 @@ fn boot_intro(
     if boot.mode >= 4 {
         return;
     }
-    boot.da += dt * 30.0;
-
-    if let Ok(mut ui) = bridge.shared.lock() {
-        ui.boot_mode = boot.mode;
-    }
+    // da advances 0.5/tick at 30 fps (Draw_0: da += 0.5).
+    boot.da += dt * 15.0;
 
     // Rebuild sprites when the mode changes.
     if boot.rendered_mode != boot.mode as i8 {
@@ -594,10 +602,19 @@ fn boot_intro(
     }
 }
 
-/// Gameplay zoom (CameraFollow) must not leak into the menu screens: the
-/// Repose hitbox layer is zoom-independent, so restore the base scale.
-fn reset_camera_view(mut proj: Query<&mut Projection, With<Camera2d>>) {
-    for mut p in &mut proj {
+/// Gameplay zoom AND chase offset (CameraFollow) must not leak into the menu
+/// screens: the Repose hitbox layer is zoom-independent and all menu art is
+/// placed in world coords around the origin, so restore base scale and centre.
+fn reset_camera_view(
+    mut q: Query<(&mut Transform, &mut Projection, Option<&mut CameraBase>), With<Camera2d>>,
+) {
+    for (mut tf, mut p, base) in &mut q {
+        tf.translation.x = 0.0;
+        tf.translation.y = 0.0;
+        if let Some(mut b) = base {
+            b.translation = tf.translation;
+            b.rotation = 0.0;
+        }
         if let Projection::Orthographic(o) = p.as_mut() {
             o.scale = CAM_SCALE;
         }
@@ -831,6 +848,25 @@ struct CharSelectArt {
     /// sprBigName (frame = race id).
     big_name: Option<Entity>,
     splat_anim: f32,
+    /// sprCampfire burning centre-screen (camera is centred on it).
+    campfire: Option<Entity>,
+    campfire_anim: f32,
+    /// sprLogMenu bench above the fire.
+    log: Option<Entity>,
+    /// CampChar mutants around the fire: (entity, frames, fw, fh).
+    chars: Vec<(Entity, usize, f32, f32)>,
+    char_anim: f32,
+    /// Right-side loadout art (scrMenuDrawLoadout).
+    arrow: Option<Entity>,
+    loadout_splat: Option<Entity>,
+    crown_icon: Option<Entity>,
+    /// (entity, weapon gml id) per slot; swapped on equipment change.
+    wep_icons: [Option<(Entity, u8)>; 2],
+    /// Open-panel state (Menu.loadout_frame via approach()).
+    loadout_anim: f32,
+    /// sprLoadoutOpen panel + crown grid entries (entity, gui x, gui y).
+    open_panel: Option<Entity>,
+    crown_grid: Vec<(Entity, f32, f32)>,
 }
 
 const GO_W: f32 = 31.0;
@@ -883,33 +919,243 @@ fn spawn_char_select(
         art.pods.push((pod, race_id, x));
     }
 
-    // Letterboxes (scrLetterbox): top + bottom black bars on the GUI surface.
-    for (gy, frame) in [(0.0_f32, 0usize), (GUI_H - LETTERBOX_SIZE, 1usize)] {
-        // sprLetterbox is 320x44; we stretch height to LETTERBOX_SIZE.
-        let (mut spr, mut tf) = gm_sprite(
+    // Campfire-area level (MenuGen): backdrop colour scrAreaGetBackround
+    // Color(area_campfire) = #6a7aaf, then a jittered sprFloor0 tile field.
+    // The floor renders in front of the portal spiral, like upstream depths.
+    {
+        let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
+        commands.spawn((
+            TitleArt,
+            ChildOf(cam),
+            Sprite {
+                color: Color::srgb_u8(106, 122, 175),
+                custom_size: Some(Vec2::new(GUI_W * map.s, GUI_H * map.s)),
+                ..default()
+            },
+            Transform::from_xyz(c.x, c.y, -899.0),
+        ));
+    }
+    {
+        // 12x10 field (+1 ring) of 32 px tiles with the MenuGen jitter
+        // (mody = choose(32, 0, -32)) and the Floor frame weighting
+        // (mostly 0, sometimes 1/2, rarely 3).
+        let mut spawn_tile = |gx: f32, gy: f32| {
+            let mody = [(0.0_f32, 2i32), (-32.0, 1), (32.0, 1)];
+            let pick = |w: i32| rand::rng().random_range(0..w);
+            let total: i32 = mody.iter().map(|(_, w)| w).sum();
+            let mut r = pick(total);
+            let mut dy = 0.0;
+            for (v, w) in mody {
+                r -= w;
+                if r < 0 {
+                    dy = v;
+                    break;
+                }
+            }
+            let frame = if rand::random::<f32>() < 1.0 / 500.0 {
+                3usize
+            } else {
+                match pick(9) {
+                    0..=6 => 0,
+                    7 => 1,
+                    _ => 2,
+                }
+            };
+            let (spr, mut tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                "images/sprFloor0.png",
+                frame,
+                gx + dy,
+                gy + dy,
+                1.0,
+                1.0,
+                Color::WHITE,
+                -890.0,
+            );
+            tf.translation.z = -890.0;
+            commands.spawn((TitleArt, ChildOf(cam), spr, tf));
+        };
+        for j in -1..10i32 {
+            for i in -1..12i32 {
+                spawn_tile(i as f32 * 32.0 + 16.0, j as f32 * 32.0 + 16.0);
+            }
+        }
+    }
+
+    // Letterbox (scrDrawLetterbox): one 320x44 strip per edge, solid 36 px
+    // plus a ragged drip edge; yscale = 36/(44-9), top at y=-1, bottom
+    // mirrored at (320, 242) with both flips. Frame 0 (Menu/Create_0).
+    {
+        let yscale = LETTERBOX_SIZE / (44.0 - 9.0);
+        for (gui_x, gui_y, flip) in [(0.0_f32, -1.0_f32, false), (GUI_W, GUI_H + 2.0, true)] {
+            let (mut spr, tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                "images/sprLetterbox.png",
+                0,
+                gui_x,
+                gui_y,
+                1.0,
+                yscale,
+                Color::WHITE,
+                -850.0,
+            );
+            spr.flip_x = flip;
+            spr.flip_y = flip;
+            if flip {
+                // Negative scales would mirror about the origin; emulate with
+                // flips and keep custom_size positive.
+                if let Some(sz) = spr.custom_size.as_mut() {
+                    sz.y = sz.y.abs();
+                }
+            }
+            art.letterbox
+                .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        }
+    }
+
+    // Campfire scene (scrCampfireMenuCreate): the camera centres on the fire,
+    // so in GUI coords the fire sits at the screen centre with the log bench
+    // above it and the fixed four mutants around it.
+    {
+        // Campfire: image_speed 0.4 @ 30 fps, random horizontal flip.
+        let (mut spr, tf) = gm_sprite(
             &catalog,
             &asset_server,
             &map,
-            "images/sprLetterbox.png",
-            frame.min(3),
-            0.0,
-            gy,
+            "images/sprCampfire.png",
+            0,
+            GUI_W / 2.0,
+            GUI_H / 2.0,
             1.0,
-            LETTERBOX_SIZE / 44.0,
+            1.0,
             Color::WHITE,
-            -850.0,
+            -872.0,
         );
-        // Force full GUI width.
-        if let Some(sz) = spr.custom_size.as_mut() {
-            sz.x = GUI_W * map.s;
+        spr.flip_x = rand::random::<bool>();
+        art.campfire = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        // LogMenu bench at (0, -32) relative to the fire.
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLogMenu.png",
+            0,
+            GUI_W / 2.0,
+            GUI_H / 2.0 - 32.0,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -884.0,
+        );
+        art.log = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        // The fixed four: Fish (0,-32), Crystal (+32 below), Eyes (+40,0),
+        // Melting (-40,0). Everyone else scatters 40..110 px out.
+        use crate::game::content::RaceId;
+        let fixed: [(RaceId, f32, f32); 4] = [
+            (RaceId::Fish, 0.0, -32.0),
+            (RaceId::Crystal, 0.0, 32.0),
+            (RaceId::Eyes, 40.0, 0.0),
+            (RaceId::Melting, -40.0, 0.0),
+        ];
+        // Resolves the idle strip for a mutant (plain Menu sprite where the
+        // dump has it; frozen Deselect frame stands in otherwise) and builds
+        // its sprite centred on the GUI origin, ready to place.
+        let mut menu_sprite = |race: RaceId| -> Option<(Sprite, Transform, usize, f32, f32)> {
+            let (path, fallback): (&'static str, &'static str) = match race {
+                RaceId::Fish => ("images/sprFishMenu.png", "images/sprFishMenuDeselect.png"),
+                RaceId::Crystal => ("images/sprCrystalMenu.png", ""),
+                RaceId::Eyes => ("images/sprEyesMenu.png", ""),
+                RaceId::Melting => ("images/sprMeltingMenu.png", ""),
+                RaceId::Plant => ("images/sprPlantMenu.png", ""),
+                RaceId::Venuz => ("images/sprVenuzMenu.png", "images/sprVenuzMenuDeselect.png"),
+                RaceId::Steroids => (
+                    "images/sprSteroidsMenu.png",
+                    "images/sprSteroidsMenuDeselect.png",
+                ),
+                RaceId::Robot => ("images/sprRobotMenu.png", ""),
+                RaceId::Chicken => ("images/sprChickenMenu.png", ""),
+                RaceId::Rebel => ("images/sprRebelMenu.png", ""),
+                RaceId::Horror => ("images/sprHorrorMenu.png", ""),
+                RaceId::Rogue => ("images/sprRogueMenu.png", "images/sprRogueMenuDeselect.png"),
+                RaceId::BigDog => ("images/sprBigDogMenu.png", "images/sprDogMenu.png"),
+                RaceId::Skeleton => (
+                    "images/sprSkeletonMenu.png",
+                    "images/sprSkeletonMenuDeselect.png",
+                ),
+                RaceId::Frog => ("images/sprFrogMenu.png", "images/sprFrogMenuDeselect.png"),
+                RaceId::Cuz => ("images/sprCuzMenu.png", ""),
+                RaceId::Random => return None,
+            };
+            let chosen: &'static str = if catalog.anims.contains_key(path) {
+                path
+            } else if !fallback.is_empty() && catalog.anims.contains_key(fallback) {
+                fallback
+            } else {
+                return None;
+            };
+            let m = meta_of(&catalog, chosen);
+            let (frames, fw, fh) = (m[0].max(1.0), m[1].max(1.0), m[2].max(1.0));
+            let (mut spr, mut tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                chosen,
+                0,
+                GUI_W / 2.0,
+                GUI_H / 2.0,
+                1.0,
+                1.0,
+                Color::WHITE,
+                -866.0,
+            );
+            spr.flip_x = rand::random::<bool>();
+            Some((spr, tf, frames as usize, fw, fh))
+        };
+        let mut place =
+            |spr: Sprite, mut tf: Transform, dx: f32, dy: f32, frames: usize, fw: f32, fh: f32| {
+                let c = map.to_world(GUI_W / 2.0 + dx, GUI_H / 2.0 + dy);
+                tf.translation = c.extend(-866.0);
+                let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
+                art.chars.push((e, frames, fw, fh));
+            };
+
+        for (race, dx, dy) in fixed {
+            if let Some((spr, tf, frames, fw, fh)) = menu_sprite(race) {
+                place(spr, tf, dx, dy, frames, fw, fh);
+            }
         }
-        let center = map.to_world(GUI_W * 0.5, gy + LETTERBOX_SIZE * 0.5);
-        tf.translation = center.extend(-850.0);
-        art.letterbox
-            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        for race in [
+            RaceId::Plant,
+            RaceId::Venuz,
+            RaceId::Steroids,
+            RaceId::Robot,
+            RaceId::Chicken,
+            RaceId::Rebel,
+            RaceId::Horror,
+            RaceId::Rogue,
+            RaceId::BigDog,
+            RaceId::Skeleton,
+            RaceId::Frog,
+            RaceId::Cuz,
+        ] {
+            let ang = rand::random::<f32>() * std::f32::consts::TAU;
+            let dist = rand::random::<f32>() * 70.0 + 40.0;
+            let dx = ang.cos() * dist;
+            let dy = ang.sin() * dist * 0.75;
+            if let Some((spr, tf, frames, fw, fh)) = menu_sprite(race) {
+                place(spr, tf, dx, dy, frames, fw, fh);
+            }
+        }
     }
 
-    // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait).
+    // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait,
+    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64).
     {
         let (spr, tf) = gm_sprite(
             &catalog,
@@ -927,7 +1173,8 @@ fn spawn_char_select(
         art.splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
     }
 
-    // Big name plate (frame = race id). Hidden until a non-random pick.
+    // Big name plate (frame = race id), draw point (0, 137). Hidden until a
+    // non-random pick.
     {
         let (spr, tf) = gm_sprite(
             &catalog,
@@ -935,7 +1182,7 @@ fn spawn_char_select(
             &map,
             "images/sprBigName.png",
             1, // Fish default
-            2.0,
+            0.0,
             GUI_H - LETTERBOX_SIZE - 32.0 - 35.0,
             1.0,
             1.0,
@@ -947,6 +1194,129 @@ fn spawn_char_select(
                 .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
                 .id(),
         );
+    }
+
+    // Right-side loadout art (scrMenuDrawLoadout, closed state): splat pinned
+    // to the right edge, arrow above it, current crown and both weapons.
+    {
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLoadoutSplat.png",
+            0,
+            GUI_W + 2.0,
+            GUI_H - LETTERBOX_SIZE + 2.0,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -853.0,
+        );
+        art.loadout_splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLoadoutArrow.png",
+            0,
+            GUI_W + 2.0 - 16.0,
+            GUI_H - LETTERBOX_SIZE + 2.0 - 16.0,
+            1.0,
+            1.0,
+            C_UIGRAY,
+            -852.0,
+        );
+        art.arrow = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLoadoutCrown.png",
+            0,
+            GUI_W + 2.0 - 60.0,
+            GUI_H - LETTERBOX_SIZE + 2.0 - 40.0,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -852.0,
+        );
+        art.crown_icon = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        for slot in 0..2usize {
+            let wx = GUI_W + 2.0 - 60.0 + if slot == 0 { -8.0 } else { 16.0 };
+            let wy = GUI_H - LETTERBOX_SIZE + 2.0 - 15.0;
+            let (spr, tf) = gm_loadout_weapon(
+                &catalog,
+                &asset_server,
+                &map,
+                WeaponId::REVOLVER,
+                wx,
+                wy,
+                if slot == 0 {
+                    Color::WHITE
+                } else {
+                    Color::srgb_u8(192, 192, 192)
+                },
+                -851.0,
+            );
+            let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
+            art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
+        }
+
+        // Open panel (sprLoadoutOpen, bottom-right origin) + the crown grid
+        // layout from scrMenuDrawLoadout: start (248,48), step 28, wrap at
+        // the right edge back to x=220.
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLoadoutOpen.png",
+            0,
+            GUI_W,
+            GUI_H - LETTERBOX_SIZE + 4.0,
+            (GUI_W - 184.0) / (256.0 - 56.0),
+            (GUI_H - LETTERBOX_SIZE + 4.0 - LETTERBOX_SIZE) / 168.0 + 0.05,
+            Color::WHITE,
+            -849.0,
+        );
+        art.open_panel = Some(
+            commands
+                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .id(),
+        );
+
+        let mut crowns: Vec<(f32, f32)> = Vec::with_capacity(14);
+        let (mut cx, mut cy) = (248.0_f32, 48.0_f32);
+        for _ in 0..14 {
+            crowns.push((cx, cy));
+            cx += 28.0;
+            if cx >= 332.0 {
+                cx = 220.0;
+                cy += 28.0;
+            }
+        }
+        for (gx, gy) in crowns {
+            let (spr, tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                "images/sprLoadoutCrown.png",
+                0,
+                gx,
+                gy,
+                1.0,
+                1.0,
+                C_UIGRAY,
+                -848.0,
+            );
+            art.crown_grid.push((
+                commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                gx,
+                gy,
+            ));
+        }
     }
 
     // Menu/Create_0 spawns GoButton right of the last slot, hidden.
@@ -1052,6 +1422,8 @@ fn char_select_tick(
     cam_q: Query<(&Camera, &GlobalTransform, &Projection), With<Camera2d>>,
     mut art: ResMut<CharSelectArt>,
     bridge: Res<UiBridge>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut sprites: Query<&mut Sprite>,
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
@@ -1139,6 +1511,157 @@ fn char_select_tick(
             let fh = 35.0;
             let f = selected_race as f32;
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+        }
+    }
+
+    // Campfire scene animation: fire at 12 fps (image_speed 0.4 @ 30 tps),
+    // mutants idle-looping at 6 fps.
+    art.campfire_anim = (art.campfire_anim + 12.0 * time.delta_secs()) % 4.0;
+    if let Some(e) = art.campfire
+        && let Ok(mut spr) = sprites.get_mut(e)
+    {
+        let (fw, fh) = (52.0, 52.0);
+        let f = art.campfire_anim.floor().min(3.0);
+        spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+    }
+    art.char_anim += 6.0 * time.delta_secs();
+    for (e, frames, fw, fh) in &art.chars {
+        if let Ok(mut spr) = sprites.get_mut(*e) {
+            let f = art.char_anim.floor() as usize % (*frames).max(1);
+            let (fw, fh) = (*fw, *fh);
+            spr.rect = Some(Rect::new(f as f32 * fw, 0.0, (f + 1) as f32 * fw, fh));
+        }
+    }
+
+    // Right-side loadout (scrMenuDrawLoadout): the splat shows while closed,
+    // the panel opens through loadout_frame (approach()d in Other_11), and
+    // the closed crown/weapon row gives way to the grid + weapon slots.
+    let open = ui.loadout_open;
+    let target = if open { 4.0 } else { 0.0 };
+    let step = 15.0 * time.delta_secs();
+    art.loadout_anim = if art.loadout_anim < target {
+        (art.loadout_anim + step).min(target)
+    } else {
+        (art.loadout_anim - step).max(target)
+    };
+    let fullview = art.loadout_anim >= 2.0;
+
+    if let Some(e) = art.open_panel {
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if art.loadout_anim > 0.05 {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if let Ok(mut spr) = sprites.get_mut(e) {
+            let fw = 256.0;
+            let fh = 168.0;
+            let f = art.loadout_anim.floor().min(4.0);
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+        }
+    }
+    for (e, _, _) in &art.crown_grid {
+        if let Ok(mut vis) = visibility.get_mut(*e) {
+            *vis = if fullview {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if fullview && let Ok(mut spr) = sprites.get_mut(*e) {
+            let (fw, fh) = (32.0, 32.0);
+            let f = (ui.crown_id as f32).min(13.0);
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+            spr.color = C_UIGRAY;
+        }
+    }
+
+    if let Some(e) = art.arrow {
+        let pointed = cursor_gui.is_some_and(|m| {
+            m.x >= GUI_W - 28.0 && m.x <= GUI_W - 4.0 && m.y >= GUI_H - 54.0 && m.y <= GUI_H - 30.0
+        });
+        if let Ok(mut spr) = sprites.get_mut(e) {
+            spr.color = if show_name {
+                if pointed { Color::WHITE } else { C_UIGRAY }
+            } else {
+                Color::NONE
+            };
+            let (x0, x1) = if open { (24.0, 48.0) } else { (0.0, 24.0) };
+            spr.rect = Some(Rect::new(x0, 0.0, x1, 24.0));
+        }
+    }
+    if let Some(e) = art.loadout_splat
+        && let Ok(mut spr) = sprites.get_mut(e)
+    {
+        spr.color = if art.loadout_anim < 0.5 {
+            Color::WHITE
+        } else {
+            Color::NONE
+        };
+    }
+    if let Some(e) = art.crown_icon {
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if show_name && !fullview {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if show_name
+            && !fullview
+            && let Ok(mut spr) = sprites.get_mut(e)
+        {
+            let (fw, fh) = (32.0, 32.0);
+            let f = (ui.crown_id as f32).min(13.0);
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+        }
+    }
+    // Weapon icons: closed row at (254,190)/(278,190), open slots at
+    // (252,163)/(296,163); art swaps on equipment changes.
+    let wep_pos: [(f32, f32); 2] = if fullview {
+        [(252.0, 163.0), (296.0, 163.0)]
+    } else {
+        [(254.0, 190.0), (278.0, 190.0)]
+    };
+    for (slot, id) in [(0usize, ui.start_weapon_id), (1, ui.stored_weapon_id)] {
+        let Some((e, cur)) = art.wep_icons[slot] else {
+            continue;
+        };
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if show_name {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if !show_name {
+            continue;
+        }
+        if let Ok(mut tf) = transforms.get_mut(e) {
+            let c = map.to_world(wep_pos[slot].0, wep_pos[slot].1);
+            tf.translation.x = c.x;
+            tf.translation.y = c.y;
+        }
+        if cur != id {
+            art.wep_icons[slot] = Some((e, id));
+            if let Some(path) = crate::game::content::weapon_hud_sprite(id) {
+                let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+                let m = meta_of(&catalog, path);
+                let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+                if let Ok(mut spr) = sprites.get_mut(e) {
+                    spr.image = asset_server.load(path.to_string());
+                    spr.rect = Some(Rect::new(0.0, 0.0, fw, fh));
+                    spr.custom_size = Some(Vec2::new(fw * 2.0 * map.s, fh * 2.0 * map.s));
+                }
+            }
+        }
+        if let Ok(mut spr) = sprites.get_mut(e) {
+            spr.color = if slot == 0 {
+                Color::WHITE
+            } else {
+                Color::srgb_u8(192, 192, 192)
+            };
         }
     }
 
@@ -1414,6 +1937,37 @@ fn spawn_hud_art(
         wep,
         wep_ids: [WeaponId::REVOLVER.0, 0],
     });
+}
+
+/// Loadout weapon icon (scrLoadoutDrawWeapon fallback path): the weapon's
+/// regular sprite, centred on the draw point, scaled 2x and tilted 30°.
+#[allow(clippy::too_many_arguments)]
+fn gm_loadout_weapon(
+    catalog: &AssetCatalog,
+    assets: &AssetServer,
+    map: &GuiMap,
+    id: WeaponId,
+    gui_x: f32,
+    gui_y: f32,
+    tint: Color,
+    z: f32,
+) -> (Sprite, Transform) {
+    let path = crate::game::content::weapon_hud_sprite(id.0).unwrap_or("images/sprRevolver.png");
+    let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+    let m = meta_of(catalog, path);
+    let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+
+    let mut sprite = sprite_exact(catalog, assets, path);
+    sprite.rect = Some(Rect::new(0.0, 0.0, fw, fh));
+    sprite.color = tint;
+    sprite.custom_size = Some(Vec2::new(fw * 2.0 * map.s, fh * 2.0 * map.s));
+
+    let center = map.to_world(gui_x, gui_y);
+    (
+        sprite,
+        Transform::from_xyz(center.x, center.y, z)
+            .with_rotation(Quat::from_rotation_z(30.0f32.to_radians())),
+    )
 }
 
 /// A weapon HUD icon via draw_sprite_part_ext semantics (subimage 1 crop).

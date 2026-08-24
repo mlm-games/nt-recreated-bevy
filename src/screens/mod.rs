@@ -7,10 +7,7 @@ use crate::asset_tracking::AssetsLoading;
 pub struct ScreensPlugin;
 impl Plugin for ScreensPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::Splash), |mut c: Commands| {
-            c.insert_resource(SplashTimer(Timer::from_seconds(1.5, TimerMode::Once)));
-        })
-        .add_systems(
+        app.add_systems(
             OnEnter(AppState::Loading),
             (|mut c: Commands, asset_server: Res<AssetServer>| {
                 c.insert_resource(LoadingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
@@ -20,9 +17,6 @@ impl Plugin for ScreensPlugin {
                 .chain(),
         )
         .add_systems(Update, tick_loading)
-        .add_systems(OnExit(AppState::Splash), |mut c: Commands| {
-            c.remove_resource::<SplashTimer>()
-        })
         .add_systems(OnExit(AppState::Loading), |mut c: Commands| {
             c.remove_resource::<LoadingTimer>();
             c.remove_resource::<AssetsLoading>();
@@ -30,8 +24,6 @@ impl Plugin for ScreensPlugin {
     }
 }
 
-#[derive(Resource)]
-struct SplashTimer(Timer);
 #[derive(Resource)]
 struct LoadingTimer(Timer);
 

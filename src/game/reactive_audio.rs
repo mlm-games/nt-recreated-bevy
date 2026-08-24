@@ -369,6 +369,8 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
 
         UiAction::QuitToTitle | UiAction::QuitApp => Some(ReactiveCue::UiBack),
 
+        UiAction::ToggleLoadout => Some(ReactiveCue::UiBack),
+
         UiAction::OpenSettings
         | UiAction::OpenCredits
         | UiAction::CloseOverlay
