@@ -15918,5 +15918,149 @@
   "fps": 0.0,
   "xorigin": 24,
   "yorigin": 24
+ },
+ "sprBigNameFont": {
+  "frames": 74,
+  "w": 40,
+  "h": 40,
+  "fps": 0.0,
+  "xorigin": 5,
+  "yorigin": 7
+ },
+ "sprBigPortrait": {
+  "frames": 64,
+  "w": 240,
+  "h": 200,
+  "fps": 0.0,
+  "xorigin": 80,
+  "yorigin": 243
+ },
+ "sprButtonFont": {
+  "frames": 74,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 0,
+  "yorigin": 2
+ },
+ "sprCrystalMenuSelected": {
+  "frames": 36,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 11,
+  "yorigin": 12
+ },
+ "sprCuzIdle": {
+  "frames": 40,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprEGIconHUD": {
+  "frames": 52,
+  "w": 18,
+  "h": 18,
+  "fps": 0.0,
+  "xorigin": 8,
+  "yorigin": 9
+ },
+ "sprEGSkillIcon": {
+  "frames": 48,
+  "w": 24,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 16
+ },
+ "sprFishMenu": {
+  "frames": 48,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprJungleAssassinHide": {
+  "frames": 41,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprKeySmall": {
+  "frames": 256,
+  "w": 23,
+  "h": 8,
+  "fps": 0.0,
+  "xorigin": 0,
+  "yorigin": 0
+ },
+ "sprLoadoutSkin": {
+  "frames": 64,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprLoadoutSkinLocked": {
+  "frames": 64,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprMapIcon": {
+  "frames": 64,
+  "w": 20,
+  "h": 20,
+  "fps": 0.0,
+  "xorigin": 10,
+  "yorigin": 10
+ },
+ "sprPStatLights": {
+  "frames": 40,
+  "w": 64,
+  "h": 64,
+  "fps": 0.0,
+  "xorigin": 32,
+  "yorigin": 32
+ },
+ "sprRavenIdle": {
+  "frames": 33,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprRogueMenu": {
+  "frames": 48,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprSteroidsMenu": {
+  "frames": 38,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 18
+ },
+ "sprVenuzMenu": {
+  "frames": 33,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
  }
 }

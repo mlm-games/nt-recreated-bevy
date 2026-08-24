@@ -1298,6 +1298,7 @@ fn spawn_prop(
                     catalog,
                     asset_server,
                     &[
+                        "images/sprTrapFire.png",
                         "images/sprFireTrap.png",
                         "images/sprFireTrapIdle.png",
                         "images/sprTorchFire.png",

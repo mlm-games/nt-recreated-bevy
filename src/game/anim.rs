@@ -255,8 +255,8 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
 pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditIdle.png" => Some("images/sprBanditWalk.png"),
-        "images/sprMaggotIdle.png" => Some("images/sprMaggotWalk.png"),
-        "images/sprScorpionIdle.png" => Some("images/sprScorpionWalk.png"),
+        // Maggot and Scorpion have no walk strips in this WAD (idle-only);
+        // they simply fall through to None.
         "images/sprRatIdle.png" => Some("images/sprRatWalk.png"),
         "images/sprFreak1Idle.png" => Some("images/sprFreak1Walk.png"),
         "images/sprJungleAssassinIdle.png" => Some("images/sprJungleAssassinWalk.png"),
@@ -280,6 +280,7 @@ pub fn hurt_on_damage(
             Changed<Health>,
             With<crate::game::components::Enemy>,
             Without<HurtAnim>,
+            Without<crate::game::components::Player>,
         ),
     >,
     mut player_damaged: Query<
@@ -288,6 +289,7 @@ pub fn hurt_on_damage(
             Changed<Health>,
             With<crate::game::components::Player>,
             Without<HurtAnim>,
+            Without<crate::game::components::Enemy>,
         ),
     >,
 ) {

@@ -387,30 +387,56 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 # Find imageNumber by scanning for small int followed by valid offsets
                 img_num = None
                 img_off = None
-                # Scan from pos+40 to pos+120
-                for scan in range(pos + 40, min(pos + 200, len(data) - 4)):
-                    v = struct.unpack_from("<I", data, scan)[0]
-                    if 1 <= v <= 32:
-                        # Check if next v*4 bytes are plausible offsets
+                # This WAD's sprite struct stores the frame count at a fixed
+                # offset (pos+84), followed by that many TPEntry pointers.
+                # Read it directly; the old blind scan capped counts at 32 and
+                # silently skipped long strips (sprFishMenu=48,
+                # sprBigPortrait=64 skin subimages, sprLoadoutSkin, ...).
+                if pos + 88 <= len(data):
+                    cnt = struct.unpack_from("<I", data, pos + 84)[0]
+                    if 1 <= cnt <= 4096:
                         ok = True
-                        for k in range(v):
-                            if scan + 4 + k * 4 + 4 > len(data):
+                        for k in range(cnt):
+                            if pos + 88 + k * 4 + 4 > len(data):
                                 ok = False
                                 break
-                            off2 = struct.unpack_from("<I", data, scan + 4 + k * 4)[0]
+                            off2 = struct.unpack_from("<I", data, pos + 88 + k * 4)[0]
                             if off2 == 0 or off2 >= len(data) - 22:
                                 ok = False
                                 break
-                            # Check tPageItem has plausible sizes
                             sw = struct.unpack_from("<H", data, off2 + 4)[0]
                             sh = struct.unpack_from("<H", data, off2 + 6)[0]
                             if sw == 0 or sh == 0 or sw > 2048 or sh > 2048:
                                 ok = False
                                 break
                         if ok:
-                            img_num = v
-                            img_off = scan
-                            break
+                            img_num = cnt
+                            img_off = pos + 84
+                # Fallback: legacy heuristic scan for unusual entries.
+                if img_num is None:
+                    for scan in range(pos + 40, min(pos + 200, len(data) - 4)):
+                        v = struct.unpack_from("<I", data, scan)[0]
+                        if 1 <= v <= 32:
+                            # Check if next v*4 bytes are plausible offsets
+                            ok = True
+                            for k in range(v):
+                                if scan + 4 + k * 4 + 4 > len(data):
+                                    ok = False
+                                    break
+                                off2 = struct.unpack_from("<I", data, scan + 4 + k * 4)[0]
+                                if off2 == 0 or off2 >= len(data) - 22:
+                                    ok = False
+                                    break
+                                # Check tPageItem has plausible sizes
+                                sw = struct.unpack_from("<H", data, off2 + 4)[0]
+                                sh = struct.unpack_from("<H", data, off2 + 6)[0]
+                                if sw == 0 or sh == 0 or sw > 2048 or sh > 2048:
+                                    ok = False
+                                    break
+                            if ok:
+                                img_num = v
+                                img_off = scan
+                                break
                 if img_num is None or img_off is None:
                     continue
                 # First frame's tPageItem offset

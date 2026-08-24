@@ -845,6 +845,8 @@ struct CharSelectArt {
     letterbox: Vec<Entity>,
     /// sprCharSplat under the name area.
     splat: Option<Entity>,
+    /// sprBigPortrait (frame = race id), bottom-left.
+    big_portrait: Option<Entity>,
     /// sprBigName (frame = race id).
     big_name: Option<Entity>,
     splat_anim: f32,
@@ -1173,6 +1175,30 @@ fn spawn_char_select(
         art.splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
     }
 
+    // Big portrait (sprCampfireMenuDrawRacePortrait, fa_left): draw point
+    // (16, 240). Subimages are the per-race skin portraits; frame = race id.
+    // Hidden until a non-random pick.
+    {
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprBigPortrait.png",
+            1, // Fish default
+            16.0,
+            GUI_H,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -856.0,
+        );
+        art.big_portrait = Some(
+            commands
+                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .id(),
+        );
+    }
+
     // Big name plate (frame = race id), draw point (0, 137). Hidden until a
     // non-random pick.
     {
@@ -1497,6 +1523,22 @@ fn char_select_tick(
         let fh = 64.0;
         let f = art.splat_anim.floor().min(3.0);
         spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+    }
+    if let Some(e) = art.big_portrait {
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if show_name {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if show_name && let Ok(mut spr) = sprites.get_mut(e) {
+            // Subimages are per-race skin portraits; frame = race id.
+            let m = meta_of(&catalog, "images/sprBigPortrait.png");
+            let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+            let f = (selected_race as f32).min(m[0] - 1.0);
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+        }
     }
     if let Some(e) = art.big_name {
         if let Ok(mut vis) = visibility.get_mut(e) {
