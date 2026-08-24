@@ -236,6 +236,7 @@ impl Plugin for AppPlugin {
         let actions_ui = actions.clone();
 
         app.init_state::<AppState>()
+            .insert_resource(ClearColor(Color::BLACK))
             .insert_resource(Paused(false))
             .insert_resource(OverlayMenu::None)
             .insert_resource(PendingUnpause(None))

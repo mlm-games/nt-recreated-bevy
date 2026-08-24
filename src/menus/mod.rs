@@ -206,6 +206,7 @@ fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
 fn splash_ui(st: &SharedUi) -> View {
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
+
     let cy = GUI_H_F32 / 2.0;
 
     match st.boot_mode {
@@ -998,7 +999,7 @@ pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> 
     ))
 }
 
-fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {
+pub(crate) fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {
     if let Ok(mut q) = actions.lock() {
         q.push(a);
     }
@@ -1176,15 +1177,16 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
         true,
     ));
 
-    // Level number centred at gui (11, 16) until ultra.
+    // Level number centred at gui (11, 16) with fa_middle until ultra.
     if st.level < 99 {
-        layers.push(nt_text_at(
+        layers.push(nt_text_at_ex(
             st.level.to_string(),
             11.0,
             16.0,
             &v,
             col(255, 255, 255),
             true,
+            true, // middle_y
         ));
     }
 
@@ -1250,34 +1252,57 @@ pub(crate) fn nt_view(st: &SharedUi) -> NtView {
     }
 }
 
-/// One text layer anchored at NT GUI coords. Centred texts sit in a box
-/// whose centre is the anchor; left texts run out to the right.
+/// Anchor text at NT GUI coords.
+/// - `centered`: fa_center / horizontal centre on `gx` (fa_top vertically
+///   unless `middle_y`)
+/// - `middle_y`: fa_middle vertical (used for the level number at (11,16))
 fn nt_text_at(text: String, gx: f32, gy: f32, v: &NtView, color: RColor, centered: bool) -> View {
-    let box_w = if centered {
-        (2.0 * gx * v.s).max(1.0)
+    nt_text_at_ex(text, gx, gy, v, color, centered, false)
+}
+
+fn nt_text_at_ex(
+    text: String,
+    gx: f32,
+    gy: f32,
+    v: &NtView,
+    color: RColor,
+    centered: bool,
+    middle_y: bool,
+) -> View {
+    let font_px = (7.0 * v.s).clamp(8.0, 96.0);
+    // Approximate fntM1 glyph box; Silkscreen ~1 em tall.
+    let half_h = font_px * 0.5;
+    let top = if middle_y {
+        v.oy + gy * v.s - half_h
     } else {
-        200.0 * v.s
+        v.oy + gy * v.s
     };
+
+    let (left, box_w, align) = if centered {
+        // Width 2*gx so the box centre sits on gx (same trick as before),
+        // but clamp so very-left anchors still work.
+        let w = (2.0 * gx * v.s).max(font_px);
+        (v.ox + gx * v.s - w * 0.5, w, AlignItems::CENTER)
+    } else {
+        // LEFT-ALIGNED: must start at gx (this was the HUD bug).
+        (v.ox + gx * v.s, 200.0 * v.s, AlignItems::FLEX_START)
+    };
+
     Column(
         Modifier::new()
             .fill_max_size()
             .padding_values(PaddingValues {
-                left: v.ox,
+                left: left.max(0.0),
                 right: 0.0,
-                top: v.oy + gy * v.s,
+                top: top.max(0.0),
                 bottom: 0.0,
             })
             .align_items(AlignItems::FLEX_START),
     )
     .child(
-        Column(Modifier::new().width(box_w).align_items(if centered {
-            AlignItems::CENTER
-        } else {
-            AlignItems::FLEX_START
-        }))
-        .child(
+        Column(Modifier::new().width(box_w).align_items(align)).child(
             RText(text)
-                .size((7.0 * v.s).clamp(8.0, 96.0))
+                .size(font_px)
                 .font_family("Silkscreen")
                 .color(color)
                 .single_line(),

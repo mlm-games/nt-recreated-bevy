@@ -20,9 +20,69 @@ pub fn title_screen(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     ZStack(Modifier::new().fill_max_size()).child((
         char_select_layer(st, actions.clone(), &v),
-        go_button_layer(st, actions, &v),
+        go_button_layer(st, actions.clone(), &v),
         char_text_layer(st, &v),
+        loadout_layer(st, actions, &v),
         tooltip_layer(st, &v),
+    ))
+}
+
+/// Bottom-right loadout chips (start wep / stored / crown) — mirrors the
+/// Menu loadout row.
+fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) -> View {
+    if st.selected_character == 0 {
+        return Column(Modifier::new().width(0.001).height(0.001));
+    }
+
+    let a1 = actions.clone();
+    let a2 = actions.clone();
+    let a3 = actions;
+
+    let chip = |label: String, on: Box<dyn Fn() + 'static>| {
+        Column(
+            Modifier::new()
+                .padding_values(PaddingValues {
+                    left: 6.0 * v.s,
+                    right: 6.0 * v.s,
+                    top: 3.0 * v.s,
+                    bottom: 3.0 * v.s,
+                })
+                .background(RColor::from_rgba(12, 12, 16, 220))
+                .clip_rounded(3.0)
+                .clickable_ext(true, None, None, move || on()),
+        )
+        .child(
+            RText(label)
+                .size((7.0 * v.s).clamp(8.0, 96.0))
+                .font_family("Silkscreen")
+                .color(RColor::WHITE)
+                .single_line(),
+        )
+    };
+
+    Row(Modifier::new()
+        .fill_max_size()
+        .padding_values(PaddingValues {
+            left: v.ox + 160.0 * v.s,
+            right: 0.0,
+            top: v.oy + (240.0 - 36.0 - 28.0) * v.s,
+            bottom: 0.0,
+        })
+        .gap(6.0 * v.s)
+        .align_items(AlignItems::FLEX_START))
+    .child((
+        chip(
+            format!("WEP {}", st.start_weapon_name.to_ascii_uppercase()),
+            Box::new(move || push(&a1, UiAction::CycleStartWeapon(1))),
+        ),
+        chip(
+            format!("BWP {}", st.stored_weapon_name.to_ascii_uppercase()),
+            Box::new(move || push(&a2, UiAction::CycleStoredWeapon(1))),
+        ),
+        chip(
+            format!("CRN {}", st.crown.to_ascii_uppercase()),
+            Box::new(move || push(&a3, UiAction::CycleCrown(1))),
+        ),
     ))
 }
 

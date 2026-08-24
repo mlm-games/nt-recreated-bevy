@@ -354,6 +354,11 @@ fn boot_intro(
     if boot.mode == 4 {
         boot.t += dt;
 
+        // Keep UI text clear on the logo stage (prevents credits over logo).
+        if let Ok(mut ui) = bridge.shared.lock() {
+            ui.boot_mode = 4;
+        }
+
         // Spawn the NT logo once. Frame 0 is blank; it builds up per shot.
         if boot.spawned.is_empty()
             && let Some((cam, map)) = view_setup(&windows, &cam_q)
@@ -375,32 +380,42 @@ fn boot_intro(
                 .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
         }
 
-        // Logo/Alarm_0: frame steps at 0.5s then every 2 ticks; six
-        // machinegun shots, a 20-tick pause, then the assembled frame with
-        // the boom set + logo-loop ambience.
-        let gun_times = [0.5, 0.533, 0.566, 0.6, 0.633, 0.666];
-        if (boot.guns as usize) < gun_times.len() && boot.t >= gun_times[boot.guns as usize] {
-            play_cue(&mut commands, &catalog, &asset_server, "sndMachinegun", 0.5);
-            boot.shake += 0.5;
-            boot.guns += 1;
-        }
-        if !boot.booms && boot.t >= 1.0 {
-            if catalog.has_audio("audio/sndLogoLoop.wav") {
-                commands.spawn((
-                    SplashLoop,
-                    AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndLogoLoop.wav")),
-                    PlaybackSettings {
-                        mode: PlaybackMode::Loop,
-                        volume: Volume::Linear(0.6),
-                        ..default()
-                    },
-                ));
+        // Logo/Alarm_0 (30 TPS):
+        //   start alarm=30 -> index 1..6 every 2 ticks, wait 20 after 6,
+        //   then 7 + the boom set + logo-loop ambience.
+        // Times when image_index becomes 1,2,...,7:
+        const STEP_T: [f32; 7] = [
+            0.5,                             // -> 1
+            0.5 + 2.0 / 30.0,                // -> 2
+            0.5 + 4.0 / 30.0,                // -> 3
+            0.5 + 6.0 / 30.0,                // -> 4
+            0.5 + 8.0 / 30.0,                // -> 5
+            0.5 + 10.0 / 30.0,               // -> 6
+            0.5 + 10.0 / 30.0 + 20.0 / 30.0, // -> 7 boom
+        ];
+        while (boot.guns as usize) < STEP_T.len() && boot.t >= STEP_T[boot.guns as usize] {
+            boot.guns += 1; // guns == image_index after step
+            if boot.guns >= 7 {
+                if catalog.has_audio("audio/sndLogoLoop.wav") {
+                    commands.spawn((
+                        SplashLoop,
+                        AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndLogoLoop.wav")),
+                        PlaybackSettings {
+                            mode: PlaybackMode::Loop,
+                            volume: Volume::Linear(0.6),
+                            ..default()
+                        },
+                    ));
+                }
+                play_cue(&mut commands, &catalog, &asset_server, "sndShovel", 0.8);
+                play_cue(&mut commands, &catalog, &asset_server, "sndMeatExplo", 0.8);
+                play_cue(&mut commands, &catalog, &asset_server, "sndExplosion", 0.8);
+                boot.shake += 2.5;
+                boot.booms = true;
+            } else {
+                play_cue(&mut commands, &catalog, &asset_server, "sndMachinegun", 0.5);
+                boot.shake += 0.5;
             }
-            play_cue(&mut commands, &catalog, &asset_server, "sndShovel", 0.8);
-            play_cue(&mut commands, &catalog, &asset_server, "sndMeatExplo", 0.8);
-            play_cue(&mut commands, &catalog, &asset_server, "sndExplosion", 0.8);
-            boot.shake += 2.5;
-            boot.booms = true;
         }
 
         // Draw_0: the logo steps to the current frame and jitters by shake,
@@ -410,6 +425,7 @@ fn boot_intro(
             if let Ok(mut spr) = sprites.get_mut(logo) {
                 let m = meta_of(&catalog, "images/sprLogo.png");
                 let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+                // Final assembled frame is 7 (NUCLEAR + THRONE).
                 let f = (boot.guns as f32).min(7.0);
                 spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
             }
@@ -418,6 +434,7 @@ fn boot_intro(
             {
                 let jx = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
                 let jy = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
+                // True GM origin from meta (centre of the logo).
                 let c = map.to_world(GUI_W / 2.0 + jx, GUI_H / 2.0 + jy);
                 tf.translation = c.extend(-890.0);
             }
@@ -427,7 +444,7 @@ fn boot_intro(
         if pressed {
             if boot.guns == 0 {
                 // Before frame 1: speed the alarm up (min 10 ticks).
-                boot.t = boot.t.max(0.334);
+                boot.t = boot.t.max(0.5 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
             }
@@ -807,6 +824,13 @@ struct CharSelectArt {
     addy: f32,
     /// Accumulated animation clock for the hovered button.
     go_anim: f32,
+    /// Bottom letterbox + top letterbox.
+    letterbox: Vec<Entity>,
+    /// sprCharSplat under the name area.
+    splat: Option<Entity>,
+    /// sprBigName (frame = race id).
+    big_name: Option<Entity>,
+    splat_anim: f32,
 }
 
 const GO_W: f32 = 31.0;
@@ -859,6 +883,72 @@ fn spawn_char_select(
         art.pods.push((pod, race_id, x));
     }
 
+    // Letterboxes (scrLetterbox): top + bottom black bars on the GUI surface.
+    for (gy, frame) in [(0.0_f32, 0usize), (GUI_H - LETTERBOX_SIZE, 1usize)] {
+        // sprLetterbox is 320x44; we stretch height to LETTERBOX_SIZE.
+        let (mut spr, mut tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLetterbox.png",
+            frame.min(3),
+            0.0,
+            gy,
+            1.0,
+            LETTERBOX_SIZE / 44.0,
+            Color::WHITE,
+            -850.0,
+        );
+        // Force full GUI width.
+        if let Some(sz) = spr.custom_size.as_mut() {
+            sz.x = GUI_W * map.s;
+        }
+        let center = map.to_world(GUI_W * 0.5, gy + LETTERBOX_SIZE * 0.5);
+        tf.translation = center.extend(-850.0);
+        art.letterbox
+            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+    }
+
+    // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait).
+    {
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprCharSplat.png",
+            0,
+            0.0,
+            GUI_H - LETTERBOX_SIZE + 1.0,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -855.0,
+        );
+        art.splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+    }
+
+    // Big name plate (frame = race id). Hidden until a non-random pick.
+    {
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprBigName.png",
+            1, // Fish default
+            2.0,
+            GUI_H - LETTERBOX_SIZE - 32.0 - 35.0,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -854.0,
+        );
+        art.big_name = Some(
+            commands
+                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .id(),
+        );
+    }
+
     // Menu/Create_0 spawns GoButton right of the last slot, hidden.
     let (gx, gy) = go_button_pos(step, count);
     let (go_spr, go_tf) = gm_sprite(
@@ -874,7 +964,9 @@ fn spawn_char_select(
         C_UIGRAY,
         -856.0,
     );
-    let go = commands.spawn((TitleArt, ChildOf(cam), go_spr, go_tf)).id();
+    let go = commands
+        .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, go_spr, go_tf))
+        .id();
     art.go_button = Some((go, gx, gy));
     art.addy = 1.0;
 
@@ -962,6 +1054,7 @@ fn char_select_tick(
     bridge: Res<UiBridge>,
     mut sprites: Query<&mut Sprite>,
     mut transforms: Query<&mut Transform>,
+    mut visibility: Query<&mut Visibility>,
     time: Res<Time>,
 ) {
     let Ok(window) = windows.single() else {
@@ -1016,10 +1109,50 @@ fn char_select_tick(
         };
     }
 
+    // Big name + splat follow the selected mutant (not Random).
+    let show_name = selected_race > 0 && selected_race <= 16;
+
+    // Animate splat while a mutant is selected.
+    if show_name {
+        art.splat_anim = (art.splat_anim + 12.0 * time.delta_secs()).min(3.0);
+    } else {
+        art.splat_anim = 0.0;
+    }
+    if let Some(e) = art.splat
+        && let Ok(mut spr) = sprites.get_mut(e)
+    {
+        let fw = 154.0;
+        let fh = 64.0;
+        let f = art.splat_anim.floor().min(3.0);
+        spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+    }
+    if let Some(e) = art.big_name {
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if show_name {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if show_name && let Ok(mut spr) = sprites.get_mut(e) {
+            let fw = 180.0;
+            let fh = 35.0;
+            let f = selected_race as f32;
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+        }
+    }
+
     // GoButton/Draw_0: animate while pointed; pop in via `addy`; lift 1 px
     // while pointed; white when pointed, c_uigray otherwise. Hidden until a
     // mutant has been clicked (visible flag).
     if let Some((entity, gx, gy)) = art.go_button {
+        if let Ok(mut vis) = visibility.get_mut(entity) {
+            *vis = if ui.title_go_visible {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
         let top_base = gy - GO_YORIGIN;
         let pointed = ui.title_go_visible
             && cursor_gui.is_some_and(|m| {

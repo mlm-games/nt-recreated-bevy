@@ -89,12 +89,15 @@ pub fn player_aim(
     let Ok((ptf, mut aim)) = player_q.single_mut() else {
         return;
     };
+    let player_pos = ptf.translation.truncate();
 
     // Twin-stick aim (gamepad right stick / touch) takes precedence.
     if input.aim_axis != Vec2::ZERO {
         aim.0 = input.aim_axis.normalize_or_zero();
         if let Ok(mut follow) = follow_q.single_mut() {
-            follow.set_aim(ptf.translation.truncate() + aim.0 * 160.0);
+            // Clamp stick lookahead — no runaway.
+            const MAX_LOOK: f32 = 48.0;
+            follow.set_aim(player_pos + aim.0 * MAX_LOOK);
         }
         return;
     }
@@ -120,13 +123,22 @@ pub fn player_aim(
     if let Some(cursor) = window.cursor_position()
         && let Ok(world) = camera.viewport_to_world_2d(&rest_gt, cursor)
     {
-        let dir = (world - ptf.translation.truncate()).normalize_or_zero();
+        let dir = (world - player_pos).normalize_or_zero();
         if dir != Vec2::ZERO {
             aim.0 = dir;
         }
         if let Ok(mut follow) = follow_q.single_mut() {
-            follow.set_aim(world);
+            // CRITICAL: use offset from camera centre (screen-stable for
+            // ortho). Using raw `world` makes aim race the camera -> jitter
+            // when looking far.
+            const MAX_LOOK: f32 = 48.0;
+            let cam_xy = rest_gt.translation().truncate();
+            let screen_off = (world - cam_xy).clamp_length_max(MAX_LOOK);
+            follow.set_aim(player_pos + screen_off);
         }
+    } else if let Ok(mut follow) = follow_q.single_mut() {
+        // Cursor left the window — stop pulling.
+        follow.aim_point = None;
     }
 }
 

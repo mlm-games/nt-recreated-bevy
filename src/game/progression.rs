@@ -170,9 +170,9 @@ pub fn setup_run(
     if let Ok(camera) = camera_q.single() {
         commands.entity(camera).insert(CameraFollow {
             target: Some(player),
-            follow_weight: 0.18,
-            aim_weight: 0.12,
-            aim_pull: 0.28,
+            follow_weight: 0.20,
+            aim_weight: 0.10,
+            aim_pull: 0.16, // high pull + raw mouse world aim = jitter
             base_scale: 0.45,
             zoom_speed: 0.08,
             ..default()
