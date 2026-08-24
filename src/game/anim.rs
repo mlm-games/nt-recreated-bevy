@@ -3,9 +3,8 @@
 //! strip and we slice one frame per tick via `Sprite::rect`.
 
 use bevy::prelude::*;
-use std::collections::HashMap;
 
-use crate::game::components::Velocity;
+use crate::game::components::{EnemySprites, Health, HurtAnim, Velocity};
 use crate::game::content::AssetCatalog;
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +23,9 @@ pub struct SpriteAnim {
     pub def: AnimDef,
     pub frame: u32,
     pub timer: Timer,
+    /// When true, play once then stop (hurt / chest open / one-shots).
+    pub oneshot: bool,
+    pub finished: bool,
 }
 
 impl SpriteAnim {
@@ -33,14 +35,30 @@ impl SpriteAnim {
             def,
             frame: 0,
             timer: Timer::from_seconds(1.0 / def.fps.max(0.1), TimerMode::Repeating),
+            oneshot: false,
+            finished: false,
         }
     }
 
-    /// Rect for the current frame inside the strip.
+    pub fn oneshot(path: &'static str, def: AnimDef) -> Self {
+        let mut a = Self::new(path, def);
+        a.oneshot = true;
+        a
+    }
+
     pub fn rect(&self) -> Rect {
         let w = self.def.frame_px as f32;
         let h = self.def.height as f32;
         Rect::new(self.frame as f32 * w, 0.0, self.frame as f32 * w + w, h)
+    }
+
+    pub fn set_path(&mut self, path: &'static str, def: AnimDef, oneshot: bool) {
+        self.path = path;
+        self.def = def;
+        self.frame = 0;
+        self.oneshot = oneshot;
+        self.finished = false;
+        self.timer = Timer::from_seconds(1.0 / def.fps.max(0.1), TimerMode::Repeating);
     }
 }
 
@@ -64,9 +82,21 @@ pub fn sprite_anim(
 /// Advance every animation and slice its current frame.
 pub fn animate_sprites(time: Res<Time<Fixed>>, mut q: Query<(&mut SpriteAnim, &mut Sprite)>) {
     for (mut anim, mut sprite) in &mut q {
+        if anim.finished {
+            continue;
+        }
         anim.timer.tick(time.delta());
         if anim.timer.just_finished() {
-            anim.frame = (anim.frame + 1) % anim.def.frames.max(1);
+            if anim.oneshot {
+                if anim.frame + 1 >= anim.def.frames.max(1) {
+                    anim.frame = anim.def.frames.saturating_sub(1);
+                    anim.finished = true;
+                } else {
+                    anim.frame += 1;
+                }
+            } else {
+                anim.frame = (anim.frame + 1) % anim.def.frames.max(1);
+            }
             sprite.rect = Some(anim.rect());
         }
     }
@@ -77,18 +107,23 @@ pub fn animate_sprites(time: Res<Time<Fixed>>, mut q: Query<(&mut SpriteAnim, &m
 pub struct PlayerAnim {
     pub idle: &'static str,
     pub walk: &'static str,
+    pub hurt: &'static str,
     pub moving: bool,
 }
 
-/// Swap the player's strip when movement state changes.
+/// Swap the player's strip when movement state changes (skipped during hurt).
 pub fn player_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
-    mut q: Query<(&Velocity, &mut PlayerAnim, &mut SpriteAnim, &mut Sprite)>,
+    mut q: Query<(&Velocity, &mut PlayerAnim, &mut SpriteAnim, &mut Sprite), Without<HurtAnim>>,
 ) {
     for (vel, mut pa, mut anim, mut sprite) in &mut q {
+        // Don't interrupt a oneshot (portal suck uses oneshot too).
+        if anim.oneshot && !anim.finished {
+            continue;
+        }
         let moving = vel.0.length_squared() > 100.0;
-        if moving == pa.moving {
+        if moving == pa.moving && !anim.oneshot {
             continue;
         }
         pa.moving = moving;
@@ -96,11 +131,174 @@ pub fn player_anim_switch(
         let Some(def) = catalog.anim_def(path) else {
             continue;
         };
-        anim.path = path;
-        anim.def = def;
-        anim.frame = 0;
-        anim.timer = Timer::from_seconds(1.0 / def.fps.max(0.1), TimerMode::Repeating);
+        anim.set_path(path, def, false);
         sprite.image = asset_server.load(path.to_string());
         sprite.rect = Some(anim.rect());
+    }
+}
+
+/// Begin hurt strip on an entity that has SpriteAnim + optional HurtAnim paths.
+pub fn play_hurt(
+    commands: &mut Commands,
+    entity: Entity,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    anim: &mut SpriteAnim,
+    sprite: &mut Sprite,
+    hurt_path: &'static str,
+    idle: &'static str,
+    walk: Option<&'static str>,
+) {
+    let Some(def) = catalog
+        .anim_def(hurt_path)
+        .or_else(|| catalog.anim_def(idle))
+    else {
+        return;
+    };
+    // Prefer real hurt strip; fall back to a short freeze on idle frame 0.
+    let path = if catalog.anim_def(hurt_path).is_some() {
+        hurt_path
+    } else {
+        idle
+    };
+    let def = catalog.anim_def(path).unwrap_or(def);
+    anim.set_path(path, def, true);
+    sprite.image = asset_server.load(path.to_string());
+    sprite.rect = Some(anim.rect());
+
+    // ~3 frames at typical NT hurt fps (~15) ≈ 0.2s
+    let secs = (def.frames as f32 / def.fps.max(1.0)).max(0.12);
+    commands.entity(entity).insert(HurtAnim {
+        idle,
+        walk,
+        hurt: path,
+        timer: Timer::from_seconds(secs, TimerMode::Once),
+        was_moving: false,
+    });
+}
+
+/// Restore idle/walk after hurt oneshot finishes.
+pub fn tick_hurt_anims(
+    time: Res<Time<Fixed>>,
+    asset_server: Res<AssetServer>,
+    catalog: Res<AssetCatalog>,
+    mut commands: Commands,
+    mut q: Query<(
+        Entity,
+        &mut HurtAnim,
+        &mut SpriteAnim,
+        &mut Sprite,
+        Option<&Velocity>,
+        Option<&mut PlayerAnim>,
+    )>,
+) {
+    for (e, mut hurt, mut anim, mut sprite, vel, mut pa) in &mut q {
+        hurt.timer.tick(time.delta());
+        if !(hurt.timer.just_finished() || (anim.oneshot && anim.finished)) {
+            continue;
+        }
+        let moving = vel.map(|v| v.0.length_squared() > 100.0).unwrap_or(false);
+        let path = if moving {
+            hurt.walk.unwrap_or(hurt.idle)
+        } else {
+            hurt.idle
+        };
+        if let Some(def) = catalog.anim_def(path) {
+            anim.set_path(path, def, false);
+            sprite.image = asset_server.load(path.to_string());
+            sprite.rect = Some(anim.rect());
+        }
+        if let Some(ref mut pa) = pa {
+            pa.moving = moving;
+        }
+        commands.entity(e).remove::<HurtAnim>();
+    }
+}
+
+/// Map idle sprite path → conventional hurt/walk names used by NT art.
+pub fn derive_hurt_path(idle: &'static str) -> &'static str {
+    // Static table — keep in sync with imported spr*Hurt.png names.
+    match idle {
+        "images/sprBanditIdle.png" => "images/sprBanditHurt.png",
+        "images/sprMaggotIdle.png" => "images/sprMaggotHurt.png",
+        "images/sprScorpionIdle.png" => "images/sprScorpionHurt.png",
+        "images/sprRatIdle.png" => "images/sprRatHurt.png",
+        "images/sprRatkingIdle.png" => "images/sprRatkingHurt.png",
+        "images/sprFreak1Idle.png" => "images/sprFreak1Hurt.png",
+        "images/sprJungleAssassinIdle.png" => "images/sprJungleAssassinHurt.png",
+        "images/sprSnowBotIdle.png" => "images/sprSnowBotHurt.png",
+        "images/sprTurretIdle.png" => "images/sprTurretHurt.png",
+        "images/sprSnowBanditIdle.png" => "images/sprSnowBanditHurt.png",
+        "images/sprWolfIdle.png" => "images/sprWolfHurt.png",
+        "images/sprBanditBossIdle.png" => "images/sprBanditBossHurt.png",
+        // Mutants
+        "images/sprMutant1Idle.png" => "images/sprMutant1Hurt.png",
+        "images/sprMutant2Idle.png" => "images/sprMutant2Hurt.png",
+        "images/sprMutant3Idle.png" => "images/sprMutant3Hurt.png",
+        "images/sprMutant4Idle.png" => "images/sprMutant4Hurt.png",
+        "images/sprMutant5Idle.png" => "images/sprMutant5Hurt.png",
+        "images/sprMutant6Idle.png" => "images/sprMutant6Hurt.png",
+        "images/sprMutant7Idle.png" => "images/sprMutant7Hurt.png",
+        "images/sprMutant8Idle.png" => "images/sprMutant8Hurt.png",
+        "images/sprMutant9Idle.png" => "images/sprMutant9Hurt.png",
+        "images/sprMutant10Idle.png" => "images/sprMutant10Hurt.png",
+        "images/sprMutant11Idle.png" => "images/sprMutant11Hurt.png",
+        "images/sprMutant12Idle.png" => "images/sprMutant12Hurt.png",
+        "images/sprMutant13Idle.png" => "images/sprMutant13Hurt.png",
+        "images/sprMutant14Idle.png" => "images/sprMutant14Hurt.png",
+        "images/sprMutant15Idle.png" => "images/sprMutant15Hurt.png",
+        "images/sprMutant16Idle.png" => "images/sprMutant16Hurt.png",
+        _ => idle, // fallback: replay idle as freeze
+    }
+}
+
+pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
+    match idle {
+        "images/sprBanditIdle.png" => Some("images/sprBanditWalk.png"),
+        "images/sprMaggotIdle.png" => Some("images/sprMaggotWalk.png"),
+        "images/sprScorpionIdle.png" => Some("images/sprScorpionWalk.png"),
+        "images/sprRatIdle.png" => Some("images/sprRatWalk.png"),
+        "images/sprFreak1Idle.png" => Some("images/sprFreak1Walk.png"),
+        "images/sprJungleAssassinIdle.png" => Some("images/sprJungleAssassinWalk.png"),
+        "images/sprSnowBotIdle.png" => Some("images/sprSnowBotWalk.png"),
+        "images/sprSnowBanditIdle.png" => Some("images/sprSnowBanditWalk.png"),
+        "images/sprWolfIdle.png" => Some("images/sprWolfWalk.png"),
+        _ => None,
+    }
+}
+
+/// Play the hurt strip on any enemy whose Health just dropped. Watches
+/// `Changed<Health>` so every damage source (projectiles, beams, melee,
+/// explosions, hazards) gets the one-shot for free.
+pub fn hurt_on_damage(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut damaged: Query<
+        (Entity, &Health, &EnemySprites, &mut SpriteAnim, &mut Sprite),
+        (
+            Changed<Health>,
+            With<crate::game::components::Enemy>,
+            Without<HurtAnim>,
+        ),
+    >,
+) {
+    for (e, health, sprites, mut anim, mut sprite) in &mut damaged {
+        // Spawning writes Health too; only react to actual damage, and let
+        // resolve_deaths own the lethal case.
+        if health.hp >= health.max || health.hp <= 0 {
+            continue;
+        }
+        play_hurt(
+            &mut commands,
+            e,
+            &catalog,
+            &asset_server,
+            &mut anim,
+            &mut sprite,
+            sprites.hurt,
+            sprites.idle,
+            sprites.walk,
+        );
     }
 }

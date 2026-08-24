@@ -901,6 +901,47 @@ impl From<WeaponKind> for PickupKind {
 pub struct Portal;
 
 #[derive(Component)]
+pub struct HurtAnim {
+    pub idle: &'static str,
+    pub walk: Option<&'static str>,
+    pub hurt: &'static str,
+    pub timer: Timer,
+    pub was_moving: bool,
+}
+
+#[derive(Component)]
+pub struct ChestOpening {
+    pub kind: ChestKind,
+    pub timer: Timer,
+    pub granted: bool,
+}
+
+#[derive(Component)]
+pub struct PortalSucking {
+    pub portal: Entity,
+    pub timer: Timer,
+    pub start_pos: Vec2,
+    pub target_pos: Vec2,
+}
+
+#[derive(Component)]
+pub struct WeaponVisual {
+    pub owner: Entity,
+    pub wkick: f32,
+    pub wep_id: WeaponId,
+}
+
+#[derive(Component, Clone, Copy)]
+pub struct WeaponVisualOwner;
+
+#[derive(Component, Clone, Copy)]
+pub struct EnemySprites {
+    pub idle: &'static str,
+    pub walk: Option<&'static str>,
+    pub hurt: &'static str,
+}
+
+#[derive(Component)]
 pub struct Prop {
     pub size: Vec2,
     pub hp: i32,

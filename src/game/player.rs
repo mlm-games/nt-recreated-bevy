@@ -28,6 +28,7 @@ pub fn player_move(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     input: Res<NtInput>,
+    mask: Res<FloorMask>,
     mut q: Query<
         (
             Entity,
@@ -35,14 +36,19 @@ pub fn player_move(
             &mut Velocity,
             &mut Transform,
             Option<&mut Dash>,
+            Option<&PortalSucking>,
         ),
         (With<Player>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
 ) {
-    let Ok((entity, player, mut vel, mut tf, dash)) = q.single_mut() else {
+    let Ok((entity, player, mut vel, mut tf, dash, sucking)) = q.single_mut() else {
         return;
     };
+    if sucking.is_some() {
+        vel.0 = Vec2::ZERO;
+        return;
+    }
 
     let dt = time.delta_secs();
 
@@ -68,6 +74,7 @@ pub fn player_move(
 
     // Order: props (walls) first, then snap onto floor mask, then outer AABB.
     resolve_prop_collision(&mut tf.translation, PLAYER_RADIUS, &props);
+    mask.resolve_circle(&mut tf.translation, PLAYER_RADIUS);
     clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
 }
 
@@ -753,7 +760,17 @@ pub fn player_fire(
     _flash: ResMut<FlashWhite>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
-    mut player_q: Query<(Entity, &Transform, &AimDir, &mut Player, &mut Health), With<Player>>,
+    mut player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &AimDir,
+            &mut Player,
+            &mut Health,
+            Option<&PortalSucking>,
+        ),
+        With<Player>,
+    >,
     mut fire_q: Query<(&mut FireCooldown, &mut Inventory, &mut Velocity), With<Player>>,
     mut pop_q: Query<&mut PopPopCharges>,
     mut enemies: Query<
@@ -769,9 +786,12 @@ pub fn player_fire(
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
-    let Ok((player_ent, tf, aim, mut player, mut health)) = player_q.single_mut() else {
+    let Ok((player_ent, tf, aim, mut player, mut health, sucking)) = player_q.single_mut() else {
         return;
     };
+    if sucking.is_some() {
+        return;
+    }
     let Ok((mut cooldown, mut inv, mut vel)) = fire_q.single_mut() else {
         return;
     };
@@ -1632,5 +1652,113 @@ pub fn ally_ai(
                 audio.play_bolt(&mut commands);
             }
         }
+    }
+}
+
+pub fn ensure_weapon_visual(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    player_q: Query<
+        (Entity, &Inventory, &Transform, &AimDir),
+        (With<Player>, Without<WeaponVisualOwner>),
+    >,
+) {
+    let Ok((player_e, inv, tf, aim)) = player_q.single() else {
+        return;
+    };
+    let id = inv.weapons[inv.current];
+    if id == WeaponId::NONE {
+        return;
+    }
+    let path = weapon_world_sprite(id, &catalog);
+    let (mut spr, _) = crate::game::anim::sprite_anim(&catalog, &asset_server, path);
+    spr.custom_size = spr.custom_size.or(Some(Vec2::new(24.0, 12.0)));
+    let angle = aim.0.y.atan2(aim.0.x);
+    let pos = tf.translation.truncate() + aim.0 * 14.0;
+    commands.entity(player_e).insert(WeaponVisualOwner);
+    commands.spawn((
+        GameCleanup,
+        WeaponVisual {
+            owner: player_e,
+            wkick: 0.0,
+            wep_id: id,
+        },
+        spr,
+        Transform::from_translation(pos.extend(21.0)).with_rotation(Quat::from_rotation_z(angle)),
+    ));
+}
+
+pub fn tick_weapon_visuals(
+    time: Res<Time<Fixed>>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &AimDir,
+            &Inventory,
+            Option<&PortalSucking>,
+        ),
+        With<Player>,
+    >,
+    mut vis_q: Query<(Entity, &mut WeaponVisual, &mut Transform, &mut Sprite), Without<Player>>,
+) {
+    let dt = time.delta_secs();
+    let Ok((player_e, ptf, aim, inv, sucking)) = player_q.single() else {
+        for (e, _, _, _) in &vis_q {
+            commands.entity(e).despawn();
+        }
+        return;
+    };
+    if sucking.is_some() {
+        for (e, _, _, _) in &vis_q {
+            commands.entity(e).despawn();
+        }
+        commands.entity(player_e).remove::<WeaponVisualOwner>();
+        return;
+    }
+    let id = inv.weapons[inv.current];
+    for (_e, mut wv, mut tf, mut sprite) in &mut vis_q {
+        if wv.owner != player_e {
+            continue;
+        }
+        wv.wkick *= 0.6_f32.powf(dt * 30.0);
+        if wv.wkick.abs() < 0.15 {
+            wv.wkick = 0.0;
+        }
+        if wv.wep_id != id {
+            wv.wep_id = id;
+            let path = weapon_world_sprite(id, &catalog);
+            sprite.image = asset_server.load(path.to_string());
+            if let Some(def) = catalog.anim_def(path) {
+                sprite.rect = Some(Rect::new(0.0, 0.0, def.frame_px as f32, def.height as f32));
+            } else {
+                sprite.rect = None;
+            }
+        }
+        let angle = aim.0.y.atan2(aim.0.x);
+        let forward = aim.0.normalize_or_zero();
+        let hold = ptf.translation.truncate() + forward * (12.0 - wv.wkick);
+        tf.translation = hold.extend(21.0);
+        tf.rotation = Quat::from_rotation_z(angle);
+        sprite.flip_y = aim.0.x < 0.0;
+    }
+}
+
+fn weapon_world_sprite(id: WeaponId, _catalog: &AssetCatalog) -> &'static str {
+    match id.0 {
+        1 => "images/sprRevolver.png",
+        4 => "images/sprMachinegun.png",
+        5 => "images/sprShotgun.png",
+        6 => "images/sprCrossbow.png",
+        7 => "images/sprNader.png",
+        16 => "images/sprSmg.png",
+        17 => "images/sprARifle.png",
+        3 => "images/sprWrench.png",
+        88 => "images/sprHammer.png",
+        _ => "images/sprRevolver.png",
     }
 }

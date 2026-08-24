@@ -155,6 +155,7 @@ pub fn setup_run(
         crate::game::anim::PlayerAnim {
             idle: def.sprite,
             walk: def.walk_sprite,
+            hurt: crate::game::anim::derive_hurt_path(def.sprite),
             moving: false,
         },
         player_sprite,
@@ -929,6 +930,47 @@ pub fn portal_check(
 
 pub fn portal_enter(
     mut commands: Commands,
+    run: Res<Run>,
+    portal_q: Query<(Entity, &Transform), With<Portal>>,
+    player_q: Query<(Entity, &Transform), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
+) {
+    if run.game_over {
+        return;
+    }
+
+    let Ok((portal_e, portal_tf)) = portal_q.single() else {
+        return;
+    };
+
+    let Ok((player_e, player_tf)) = player_q.single() else {
+        return;
+    };
+
+    let ppos = player_tf.translation.truncate();
+    let tpos = portal_tf.translation.truncate();
+    if ppos.distance(tpos) > 40.0 {
+        return;
+    }
+
+    // Begin suck-in (NT Portal/Collision pulls the player over ~16 frames
+    // @30fps); tick_portal_suck finishes the floor transition.
+    commands.entity(player_e).insert(PortalSucking {
+        portal: portal_e,
+        timer: Timer::from_seconds(0.55, TimerMode::Once),
+        start_pos: ppos,
+        target_pos: tpos,
+    });
+    commands.spawn((
+        GameCleanup,
+        crate::game::reactive_audio::QueuedReactiveCue(
+            crate::game::reactive_audio::ReactiveCue::PortalEnter,
+        ),
+    ));
+}
+
+pub fn tick_portal_suck(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
@@ -940,31 +982,63 @@ pub fn portal_enter(
     mut triggers: ResMut<SecretTriggers>,
     mut loop_transition: ResMut<LoopTransition>,
     mut floor_started: MessageWriter<FloorStarted>,
-    portal_q: Query<(Entity, &Transform), With<Portal>>,
     level_q: Query<Entity, With<LevelCleanup>>,
     mut player_q: Query<
-        (&mut Transform, &mut Health, &mut Player, &RaceState),
-        (With<Player>, Without<Portal>),
+        (
+            Entity,
+            &mut Transform,
+            &mut Health,
+            &mut Player,
+            &RaceState,
+            &mut PortalSucking,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut Sprite>,
+        ),
+        With<Player>,
     >,
 ) {
-    if run.game_over {
+    let Ok((
+        player_e,
+        mut player_tf,
+        mut health,
+        mut player,
+        race_state,
+        mut suck,
+        mut anim,
+        mut sprite,
+    )) = player_q.single_mut()
+    else {
+        return;
+    };
+
+    suck.timer.tick(time.delta());
+    let t = suck.timer.fraction().clamp(0.0, 1.0);
+    // Ease-in toward the portal + spin + shrink (vortex look).
+    let ease = t * t;
+    let pos = suck.start_pos.lerp(suck.target_pos, ease);
+    player_tf.translation.x = pos.x;
+    player_tf.translation.y = pos.y;
+    player_tf.rotation = Quat::from_rotation_z(t * std::f32::consts::TAU * 2.0);
+    let scale = 1.0 - ease * 0.85;
+    player_tf.scale = Vec3::splat(scale.max(0.08));
+
+    if let (Some(anim), Some(sprite)) = (anim.as_mut(), sprite.as_mut()) {
+        anim.oneshot = true;
+        anim.finished = true;
+        sprite.color.set_alpha(1.0 - ease * 0.5);
+    }
+
+    ScreenEffects::add_trauma(&mut trauma, 0.02);
+    if !suck.timer.just_finished() {
         return;
     }
 
-    let Ok((portal_e, portal_tf)) = portal_q.single() else {
-        return;
-    };
-
-    let Ok((mut player_tf, mut health, mut player, race_state)) = player_q.single_mut() else {
-        return;
-    };
-
-    let dist = player_tf
-        .translation
-        .truncate()
-        .distance(portal_tf.translation.truncate());
-    if dist > 40.0 {
-        return;
+    let portal_e = suck.portal;
+    commands.entity(player_e).remove::<PortalSucking>();
+    player_tf.rotation = Quat::IDENTITY;
+    player_tf.scale = Vec3::ONE;
+    if let Some(sprite) = sprite.as_mut() {
+        sprite.color.set_alpha(1.0);
     }
 
     // Clean current floor.

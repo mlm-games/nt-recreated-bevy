@@ -90,6 +90,8 @@ pub fn spawn_enemy(
     };
 
     let (sprite, strip) = crate::game::anim::sprite_anim(catalog, asset_server, def.sprite);
+    let hurt = crate::game::anim::derive_hurt_path(def.sprite);
+    let walk = crate::game::anim::derive_walk_path(def.sprite);
     let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -100,6 +102,11 @@ pub fn spawn_enemy(
             rad_drop: def.rad_drop,
             drop_chance: def.drop_chance,
             weapon_chance,
+        },
+        EnemySprites {
+            idle: def.sprite,
+            walk,
+            hurt,
         },
         EnemyBrain {
             speed,
@@ -265,6 +272,7 @@ pub fn enemy_ai(
         }
 
         resolve_prop_collision(&mut tf.translation, def.radius, &props);
+        mask.resolve_circle(&mut tf.translation, def.radius);
         clamp_to_arena(&mut tf.translation, def.radius);
         sprite.flip_x = dir.x < 0.0;
 

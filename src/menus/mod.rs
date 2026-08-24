@@ -767,67 +767,118 @@ fn mutation_choice_card(
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let metrics = hud_metrics(st.hud_compact);
-
+    let v = nt_view(st);
     let is_ultra = st
         .mutation_choices
         .iter()
         .any(|choice| choice.trim().starts_with("ULTRA:"));
 
-    let cards = st
-        .mutation_choices
-        .iter()
-        .enumerate()
-        .map(|(index, choice)| mutation_choice_card(index, choice, actions.clone(), metrics))
-        .collect::<Vec<_>>();
+    let accent = if is_ultra {
+        col(255, 221, 0)
+    } else {
+        col(72, 202, 96)
+    };
 
-    let rows = cards
-        .chunks(2)
-        .map(|chunk| {
-            Row(Modifier::new()
-                .gap(metrics.mutation_gap)
-                .justify_content(JustifyContent::CENTER)
-                .align_items(AlignItems::CENTER))
-            .children(chunk.to_vec())
-        })
-        .collect::<Vec<_>>();
+    // NT GUI is 320x240 — skill picks sit mid-screen as a horizontal row.
+    let n = st.mutation_choices.len().max(1);
+    let card_w = if n >= 4 { 70.0 } else { 88.0 };
+    let gap = 6.0;
+    let total_w = n as f32 * card_w + (n.saturating_sub(1) as f32) * gap;
+    let start_x = (160.0 - total_w * 0.5).max(4.0);
 
-    let accent = if is_ultra { NT_GOLD } else { NT_GREEN };
+    let mut layers: Vec<View> = Vec::new();
 
-    let panel = Column(
-        Modifier::new()
-            .width(metrics.mutation_panel_width)
-            .padding(if st.hud_compact { 14.0 } else { 20.0 })
-            .gap(10.0)
-            .background(RColor(6, 7, 10, 244))
-            .border(2.0, accent, 4.0)
-            .clip_rounded(4.0)
-            .align_items(AlignItems::CENTER),
-    )
-    .child((
-        RText(if is_ultra {
-            "CHOOSE ULTRA MUTATION"
-        } else {
-            "CHOOSE MUTATION"
-        })
-        .size(if st.hud_compact { 20.0 } else { 27.0 })
-        .color(accent)
-        .single_line(),
-        RText("PRESS 1 / 2 / 3 / 4 OR SELECT A CARD")
-            .size(metrics.small_text)
-            .color(NT_MUTED)
-            .single_line(),
-        Column(Modifier::new().gap(metrics.mutation_gap)).children(rows),
-    ));
-
-    Column(
+    // Dim the whole GUI.
+    layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor(0, 0, 0, 188)),
-    )
-    .child(nt_surface_wrap(st, panel))
+            .background(RColor::from_rgba(0, 0, 0, 160)),
+    ));
+
+    layers.push(nt_text_at(
+        if is_ultra {
+            "LEVEL ULTRA".into()
+        } else {
+            "LEVEL UP".into()
+        },
+        160.0,
+        70.0,
+        &v,
+        accent,
+        true,
+    ));
+    layers.push(nt_text_at(
+        "CHOOSE A MUTATION".into(),
+        160.0,
+        84.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+
+    for (i, choice) in st.mutation_choices.iter().enumerate() {
+        let (ultra, name, desc) = mutation_choice_parts(choice);
+        let x = start_x + i as f32 * (card_w + gap);
+        let y = 110.0;
+        let a = actions.clone();
+        let idx = i;
+        let border = if ultra {
+            col(255, 221, 0)
+        } else {
+            col(238, 239, 225)
+        };
+
+        layers.push(
+            Column(
+                Modifier::new()
+                    .fill_max_size()
+                    .padding_values(PaddingValues {
+                        left: v.ox + x * v.s,
+                        right: 0.0,
+                        top: v.oy + y * v.s,
+                        bottom: 0.0,
+                    })
+                    .align_items(AlignItems::FLEX_START),
+            )
+            .child(
+                Column(
+                    Modifier::new()
+                        .width(card_w * v.s)
+                        .height(96.0 * v.s)
+                        .padding(4.0 * v.s)
+                        .gap(3.0 * v.s)
+                        .background(RColor::from_rgba(12, 12, 16, 230))
+                        .border((1.0 * v.s).max(1.0), border, 0.0)
+                        .clickable()
+                        .on_click(move || push(&a, UiAction::PickMutation(idx))),
+                )
+                .child((
+                    RText(format!("{}", i + 1))
+                        .size((10.0 * v.s).max(10.0))
+                        .color(accent),
+                    RText(name.to_ascii_uppercase())
+                        .size((11.0 * v.s).max(11.0))
+                        .color(col(238, 239, 225))
+                        .single_line()
+                        .overflow_ellipsize(),
+                    RText(desc)
+                        .size((9.0 * v.s).max(9.0))
+                        .color(col(160, 160, 168)),
+                )),
+            ),
+        );
+    }
+
+    layers.push(nt_text_at(
+        "1  2  3  4".into(),
+        160.0,
+        220.0,
+        &v,
+        col(128, 128, 128),
+        true,
+    ));
+
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
 fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {

@@ -352,10 +352,12 @@ fn populate(
 ) {
     let area = gml_area(run.floor);
     let boss_sub = is_boss_subarea(run.floor);
-    let world_n = world_of(run.floor);
 
-    // Enemy cap: upstream 3 + difficulty/1.5; difficulty scales with worlds/loops.
-    let enemy_cap = (3.0 + (world_n as f32 - 1.0) * 1.5 + run.loop_count as f32 * 1.5) as usize;
+    // GameCont.hard: +1 per area cleared, +loops. NTT: min enemies = 3 + hard/1.5; per-tile chance = hard / (10 + hard).
+    let hard = game_hard(run);
+    let enemy_min = (3.0 + hard / 1.5).floor().max(3.0) as usize;
+    // Soft ceiling so huge floors don't spawn hundreds on loop 10.
+    let enemy_soft_max = (enemy_min * 4).max(24).min(80);
 
     let mut prop_tiles: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
 
@@ -513,9 +515,10 @@ fn populate(
         plan.props.push((kind, Vec2::new(px, py)));
     }
 
-    // --- Enemy pass (scrPopEnemies, RNGStates.Enemies) ---
+    // --- Enemy pass (scrPopEnemies) ---
+    let mut enemy_tiles: Vec<(EnemyKind, Vec2)> = Vec::new();
     for &(cx, cy) in floors {
-        if plan.enemies.len() >= enemy_cap || boss_sub {
+        if boss_sub {
             break;
         }
         let (px, py) = cell_center_i(cx, cy);
@@ -531,6 +534,14 @@ fn populate(
         {
             continue;
         }
+        // Upstream: if (random(10 + hard) < hard) area_pop_enemies();
+        let chance = hard / (10.0 + hard);
+        if rng.random::<f32>() >= chance && enemy_tiles.len() >= enemy_min {
+            continue;
+        }
+        if enemy_tiles.len() >= enemy_soft_max {
+            break;
+        }
 
         let center = Vec2::new(px, py);
         let pick_kind = |rng: &mut StdRng, w: &[EnemyKind]| w[rng.random_range(0..w.len())];
@@ -539,11 +550,11 @@ fn populate(
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
                     let k = pick_kind(&mut rng, &[EnemyKind::Maggot, EnemyKind::Scorpion]);
-                    plan.enemies.push((k, center));
+                    enemy_tiles.push((k, center));
                 } else if rng.random::<f32>() * 30.0 < 1.0 {
                     plan.props.push((PropKind::Barrel, center));
                     for _ in 0..3 {
-                        plan.enemies.push((
+                        enemy_tiles.push((
                             EnemyKind::Bandit,
                             center
                                 + Vec2::new(
@@ -565,7 +576,7 @@ fn populate(
                     ];
                     cands.extend(loop_extras.iter().copied());
                     let k = pick_kind(&mut rng, &cands);
-                    plan.enemies.push((k, center));
+                    enemy_tiles.push((k, center));
                 }
             }
             2 => {
@@ -580,7 +591,7 @@ fn populate(
                             EnemyKind::Scorpion,
                         ],
                     );
-                    plan.enemies.push((k, center));
+                    enemy_tiles.push((k, center));
                 } else {
                     let mut cands = vec![
                         EnemyKind::Rat,
@@ -592,7 +603,7 @@ fn populate(
                     ];
                     cands.extend(loop_extras.iter().copied());
                     let k = pick_kind(&mut rng, &cands);
-                    plan.enemies.push((k, center));
+                    enemy_tiles.push((k, center));
                 }
             }
             3 => {
@@ -606,7 +617,7 @@ fn populate(
                 ];
                 cands.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &cands);
-                plan.enemies.push((k, center));
+                enemy_tiles.push((k, center));
             }
             4 => {
                 // Crystal Caves: reuse assassin/freak/scorpion until crystal
@@ -614,7 +625,7 @@ fn populate(
                 let mut cands = vec![EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion];
                 cands.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &cands);
-                plan.enemies.push((k, center));
+                enemy_tiles.push((k, center));
             }
             5 => {
                 // Frozen City: snow bandits and wolves; IDPD scouts on loops.
@@ -632,7 +643,7 @@ fn populate(
                 }
                 frozen.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &frozen);
-                plan.enemies.push((k, center));
+                enemy_tiles.push((k, center));
             }
             6 | 7 => {
                 // Labs / Palace: mixed late-game garrisons; IDPD squads scale
@@ -656,11 +667,44 @@ fn populate(
                 }
                 late.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &late);
-                plan.enemies.push((k, center));
+                enemy_tiles.push((k, center));
             }
             _ => {}
         }
     }
+
+    // Guarantee minimum enemy count by filling from distant floor cells.
+    if !boss_sub {
+        let mut extras = floors
+            .iter()
+            .copied()
+            .filter(|(cx, cy)| {
+                let (px, py) = cell_center_i(*cx, *cy);
+                let d = px * px + py * py;
+                d >= 120.0 * 120.0 && !prop_tiles.contains(&(*cx, *cy))
+            })
+            .collect::<Vec<_>>();
+        extras.sort_by_key(|&(cx, cy)| {
+            let (px, py) = cell_center_i(cx, cy);
+            -((px * px + py * py) as i32)
+        });
+        let mut ei = 0;
+        while enemy_tiles.len() < enemy_min && ei < extras.len() {
+            let (cx, cy) = extras[ei];
+            ei += 1;
+            let center = cell_center_px(cx, cy);
+            if enemy_tiles.iter().any(|(_, p)| p.distance(center) < 8.0) {
+                continue;
+            }
+            let cands = default_area_enemies(area, run.loop_count);
+            if cands.is_empty() {
+                break;
+            }
+            let k = cands[rng.random_range(0..cands.len())];
+            enemy_tiles.push((k, center));
+        }
+    }
+    plan.enemies = enemy_tiles;
 
     // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
     // quiet single-floor stop.
@@ -746,6 +790,53 @@ fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
         }
     }
     out
+}
+
+/// Upstream GameCont.hard approximation.
+pub fn game_hard(run: &Run) -> f32 {
+    // +1 per area finished (each multi-floor world step), +1 per loop.
+    let areas_done = (run.floor.max(1) - 1) as f32;
+    // Desert1 starts hard≈1 after first clear; seed at least 1 so floor 1 has enemies.
+    (1.0 + areas_done * 0.55 + run.loop_count as f32 * 2.0).max(1.0)
+}
+
+fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
+    let mut c = match area {
+        1 => vec![
+            EnemyKind::Bandit,
+            EnemyKind::Bandit,
+            EnemyKind::Bandit,
+            EnemyKind::Maggot,
+            EnemyKind::Scorpion,
+        ],
+        2 => vec![
+            EnemyKind::Rat,
+            EnemyKind::Rat,
+            EnemyKind::Maggot,
+            EnemyKind::Freak,
+        ],
+        3 => vec![
+            EnemyKind::RobotGuard,
+            EnemyKind::Assassin,
+            EnemyKind::Turret,
+            EnemyKind::Bandit,
+        ],
+        4 => vec![EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion],
+        5 => vec![
+            EnemyKind::SnowBandit,
+            EnemyKind::SnowBandit,
+            EnemyKind::Wolf,
+            EnemyKind::Assassin,
+        ],
+        _ => vec![
+            EnemyKind::RobotGuard,
+            EnemyKind::Assassin,
+            EnemyKind::Freak,
+            EnemyKind::Turret,
+        ],
+    };
+    c.extend(loop_elite_candidates(area, loop_count));
+    c
 }
 
 fn walls_cover_tile_with_smalls(plan: &LevelPlan, cx: i32, cy: i32) -> bool {
@@ -877,6 +968,60 @@ pub fn spawn_level(
         cols,
         rows,
     };
+
+    // Outside / void ring beyond walls (upstream Outside + floorex).
+    // Fill a bounding pad around the level with dark exterior tiles so the
+    // area beyond walls matches the GM rewrite instead of empty camera void.
+    {
+        let (min_c, max_c) = {
+            let mut minx = i32::MAX;
+            let mut miny = i32::MAX;
+            let mut maxx = i32::MIN;
+            let mut maxy = i32::MIN;
+            for &(cx, cy) in &plan.floor_cells {
+                minx = minx.min(cx);
+                miny = miny.min(cy);
+                maxx = maxx.max(cx);
+                maxy = maxy.max(cy);
+            }
+            ((minx - 6, miny - 6), (maxx + 6, maxy + 6))
+        };
+        let floor_set: std::collections::HashSet<(i32, i32)> =
+            plan.floor_cells.iter().copied().collect();
+        let outside_png = match ((run.floor.max(1) - 1) % 15) + 1 {
+            4 => "images/sprFloor2.png",
+            5..=7 => "images/sprFloor3.png",
+            8 => "images/sprFloor4.png",
+            9..=11 => "images/sprFloor5.png",
+            12 => "images/sprFloor6.png",
+            13..=15 => "images/sprFloor7.png",
+            3 => "images/sprFloor0.png",
+            _ => "images/sprFloor1.png",
+        };
+        // Prefer dedicated exterior if imported.
+        let outside_png = if catalog.has("images/sprFloorEx1.png") {
+            "images/sprFloorEx1.png"
+        } else {
+            outside_png
+        };
+        for cy in min_c.1..=max_c.1 {
+            for cx in min_c.0..=max_c.0 {
+                if floor_set.contains(&(cx, cy)) {
+                    continue;
+                }
+                let (wx, wy) = cell_center_i(cx, cy);
+                let mut spr = sprite_exact(catalog, asset_server, outside_png);
+                // Dim exterior so walls read clearly (GM draws Outside darker).
+                spr.color = Color::srgb(0.45, 0.45, 0.48);
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    spr,
+                    Transform::from_xyz(wx, wy, -60.0),
+                ));
+            }
+        }
+    }
 
     // Floors.
     for &(cx, cy) in &plan.floor_cells {

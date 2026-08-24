@@ -52,17 +52,20 @@ pub fn spawn_chest(
         ChestKind::Ammo => "images/sprAmmoChest.png",
         ChestKind::Rad => "images/sprRadChest.png",
     };
-    let e = commands
-        .spawn((
-            GameCleanup,
-            LevelCleanup,
-            Pickup {
-                kind: PickupKind::Chest(kind),
-            },
-            sprite_exact(catalog, asset_server, path),
-            Transform::from_translation(pos.extend(8.0)),
-        ))
-        .id();
+    let (sprite, strip) = crate::game::anim::sprite_anim(catalog, asset_server, path);
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Pickup {
+            kind: PickupKind::Chest(kind),
+        },
+        sprite,
+        Transform::from_translation(pos.extend(8.0)),
+    ));
+    if let Some(strip) = strip {
+        ec.insert(strip);
+    }
+    let e = ec.id();
     Juice::pop_in(commands, e, 0.14);
 }
 
@@ -126,6 +129,8 @@ pub fn collect_pickups(
         (With<Player>, Without<Pickup>),
     >,
     mut pickups: Query<(Entity, &mut Transform, &Pickup), Without<Player>>,
+    mut anims: Query<&mut crate::game::anim::SpriteAnim>,
+    mut sprites: Query<&mut Sprite>,
     mut toast: ResMut<Toast>,
 ) {
     let Ok((player_e, player_tf, mut player, mut health, mut inv, race_state, telek)) =
@@ -167,6 +172,59 @@ pub fn collect_pickups(
         }
 
         if dist > 20.0 {
+            continue;
+        }
+
+        // Chests: play the open strip first; loot grants when it finishes
+        // (tick_chest_opening). The entity stops being a Pickup so it can't
+        // re-trigger while opening.
+        if let PickupKind::Chest(chest) = pickup.kind {
+            let open_path = match chest {
+                ChestKind::Weapon => "images/sprWeaponChestOpen.png",
+                ChestKind::Ammo => "images/sprAmmoChestOpen.png",
+                ChestKind::Rad => "images/sprRadChestOpen.png",
+            };
+            let closed_path = match chest {
+                ChestKind::Weapon => "images/sprWeaponChest.png",
+                ChestKind::Ammo => "images/sprAmmoChest.png",
+                ChestKind::Rad => "images/sprRadChest.png",
+            };
+            let path = if catalog.has(open_path) {
+                open_path
+            } else {
+                closed_path
+            };
+            if let Some(def) = catalog.anim_def(path) {
+                if let Ok(mut anim) = anims.get_mut(pickup_e) {
+                    anim.set_path(path, def, true);
+                    anim.frame = 0;
+                    anim.finished = false;
+                    anim.timer = Timer::from_seconds(1.0 / def.fps.max(0.1), TimerMode::Repeating);
+                } else {
+                    commands
+                        .entity(pickup_e)
+                        .insert(crate::game::anim::SpriteAnim::oneshot(path, def));
+                }
+                if let Ok(mut sprite) = sprites.get_mut(pickup_e) {
+                    sprite.image = asset_server.load(path.to_string());
+                    sprite.rect = Some(Rect::new(0.0, 0.0, def.frame_px as f32, def.height as f32));
+                }
+            }
+            commands.entity(pickup_e).remove::<Pickup>();
+            commands.entity(pickup_e).insert(ChestOpening {
+                kind: chest,
+                timer: Timer::from_seconds(0.35, TimerMode::Once),
+                granted: false,
+            });
+            commands.spawn((
+                GameCleanup,
+                crate::game::reactive_audio::QueuedReactiveCue(
+                    crate::game::reactive_audio::ReactiveCue::ChestOpen,
+                ),
+            ));
+            ScreenEffects::add_trauma(&mut trauma, 0.15);
+            GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
+            audio.play_chest(&mut commands);
             continue;
         }
 
@@ -293,91 +351,124 @@ pub fn collect_pickups(
                 audio.play_chest(&mut commands);
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
             }
-            PickupKind::Chest(chest) => {
-                commands.spawn((
-                    GameCleanup,
-                    crate::game::reactive_audio::QueuedReactiveCue(
-                        crate::game::reactive_audio::ReactiveCue::ChestOpen,
-                    ),
-                ));
-                ScreenEffects::add_trauma(&mut trauma, 0.15);
-                GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
-                audio.play_chest(&mut commands);
-                VfxSpawner::spawn_burst(
-                    &mut commands,
-                    player_pos,
-                    24,
-                    Color::srgb(1.0, 0.8, 0.3),
-                    (100.0, 300.0),
-                );
-                match chest {
-                    ChestKind::Weapon => {
-                        let weapon = random_weapon(&mut rand::rng());
-                        equip_weapon(
-                            &mut commands,
-                            &catalog,
-                            &asset_server,
-                            &mut inv,
-                            weapon,
-                            player_pos,
-                        );
-                        toast.show(&format!("Opened chest: {}", weapon_id_name(weapon)));
-                    }
-                    ChestKind::Ammo => {
-                        // AmmoChest: a bundle of every carried ammo type.
-                        let mut total = 0i32;
-                        for ammo in [
-                            AmmoKind::Bullets,
-                            AmmoKind::Shells,
-                            AmmoKind::Bolts,
-                            AmmoKind::Explosives,
-                            AmmoKind::Energy,
-                        ] {
-                            let cap = ammo_max(ammo)
-                                + if player.back_muscle > 0 {
-                                    match ammo {
-                                        AmmoKind::Bullets => (300 * player.back_muscle) as i32,
-                                        _ => (44 * player.back_muscle) as i32,
-                                    }
-                                } else {
-                                    0
-                                };
-                            let slot = inv.ammo_mut(ammo);
-                            if *slot < cap {
-                                *slot = (*slot + ammo_pickup_amount(ammo) * 3).min(cap);
-                                total += 1;
-                            }
-                        }
-                        // Robot FreeAmmo: a lighter heal from ammo chests.
-                        if player.free_ammo && total > 0 {
-                            health.hp = (health.hp + 2).min(health.max);
-                        }
-                        toast.show(if total > 0 {
-                            "Ammo refilled"
-                        } else {
-                            "Ammo already full"
-                        });
-                    }
-                    ChestKind::Rad => {
-                        // RadChest: burst of rads toward the next mutation.
-                        player.rads += 30;
-                        audio.play_pickup(&mut commands);
-                        progression::check_level_up(
-                            &mut commands,
-                            &mut trauma,
-                            &mut flash,
-                            &mut player,
-                            &mut health,
-                            &mut inv,
-                            &mut toast,
-                            &audio,
-                            player_pos,
-                            race_state.race,
-                        );
-                    }
-                }
+            PickupKind::Chest(_) => {
+                // Handled above via ChestOpening; unreachable here because
+                // chests convert before the despawn.
             }
         }
+    }
+}
+
+/// Grants the chest loot once its open strip has played (ChestOpening).
+#[allow(clippy::too_many_arguments)]
+pub fn tick_chest_opening(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut trauma: ResMut<Trauma>,
+    mut flash: ResMut<FlashWhite>,
+    mut _chroma: ResMut<ChromaticAberration>,
+    audio: Res<GameAudio>,
+    mut player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Player,
+            &mut Health,
+            &mut Inventory,
+            &RaceState,
+        ),
+        With<Player>,
+    >,
+    mut q: Query<(Entity, &mut ChestOpening, &Transform)>,
+    mut toast: ResMut<Toast>,
+) {
+    let Ok((player_e, player_tf, mut player, mut health, mut inv, race_state)) =
+        player_q.single_mut()
+    else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    for (e, mut opening, tf) in &mut q {
+        opening.timer.tick(time.delta());
+        if !opening.timer.just_finished() || opening.granted {
+            continue;
+        }
+        opening.granted = true;
+        let pos = tf.translation.truncate();
+        VfxSpawner::spawn_burst(
+            &mut commands,
+            pos,
+            24,
+            Color::srgb(1.0, 0.8, 0.3),
+            (100.0, 300.0),
+        );
+        match opening.kind {
+            ChestKind::Weapon => {
+                let weapon = random_weapon(&mut rand::rng());
+                equip_weapon(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    &mut inv,
+                    weapon,
+                    player_pos,
+                );
+                toast.show(&format!("Opened chest: {}", weapon_id_name(weapon)));
+            }
+            ChestKind::Ammo => {
+                let mut total = 0i32;
+                for ammo in [
+                    AmmoKind::Bullets,
+                    AmmoKind::Shells,
+                    AmmoKind::Bolts,
+                    AmmoKind::Explosives,
+                    AmmoKind::Energy,
+                ] {
+                    let cap = ammo_max(ammo)
+                        + if player.back_muscle > 0 {
+                            match ammo {
+                                AmmoKind::Bullets => (300 * player.back_muscle) as i32,
+                                _ => (44 * player.back_muscle) as i32,
+                            }
+                        } else {
+                            0
+                        };
+                    let slot = inv.ammo_mut(ammo);
+                    if *slot < cap {
+                        *slot = (*slot + ammo_pickup_amount(ammo) * 3).min(cap);
+                        total += 1;
+                    }
+                }
+                if player.free_ammo && total > 0 {
+                    health.hp = (health.hp + 2).min(health.max);
+                }
+                toast.show(if total > 0 {
+                    "Ammo refilled"
+                } else {
+                    "Ammo already full"
+                });
+            }
+            ChestKind::Rad => {
+                player.rads += 30;
+                audio.play_pickup(&mut commands);
+                progression::check_level_up(
+                    &mut commands,
+                    &mut trauma,
+                    &mut flash,
+                    &mut player,
+                    &mut health,
+                    &mut inv,
+                    &mut toast,
+                    &audio,
+                    player_pos,
+                    race_state.race,
+                );
+            }
+        }
+        commands.entity(e).despawn();
     }
 }
 
