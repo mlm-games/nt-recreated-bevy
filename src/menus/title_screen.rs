@@ -21,8 +21,52 @@ pub fn title_screen(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ZStack(Modifier::new().fill_max_size()).child((
         char_select_layer(st, actions.clone(), &v),
         go_button_layer(st, actions, &v),
+        char_text_layer(st, &v),
         tooltip_layer(st, &v),
     ))
+}
+
+/// scrCampfireMenuDrawCharText: the chosen mutant's big name plus their
+/// passive/active skill lines, anchored to the bottom-left letterbox.
+fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
+    let race = crate::game::content::race_from_gml_id(st.selected_character);
+    let Some(race) = race.filter(|r| *r != crate::game::content::RaceId::Random) else {
+        return Column(Modifier::new().width(0.001).height(0.001));
+    };
+
+    let name = character_def(race).name.to_ascii_uppercase();
+    let passive = crate::game::content::race_passive_text(race);
+    let active =
+        crate::game::content::ability_name(crate::game::content::character_def(race).ability);
+
+    Row(Modifier::new()
+        .fill_max_size()
+        .padding_values(PaddingValues {
+            left: v.ox + 2.0 * v.s,
+            right: 0.0,
+            top: v.oy + (240.0 - 36.0 - 32.0) * v.s,
+            bottom: 0.0,
+        })
+        .align_items(AlignItems::FLEX_START))
+    .child(
+        Column(Modifier::new().gap(2.0 * v.s)).child((
+            RText(name)
+                .size((14.0 * v.s).clamp(10.0, 160.0))
+                .font_family("Silkscreen")
+                .color(RColor::WHITE)
+                .single_line(),
+            RText(format!("PASSIVE: {passive}"))
+                .size((7.0 * v.s).clamp(8.0, 96.0))
+                .font_family("Silkscreen")
+                .color(RColor::WHITE)
+                .single_line(),
+            RText(format!("ACTIVE: {active}"))
+                .size((7.0 * v.s).clamp(8.0, 96.0))
+                .font_family("Silkscreen")
+                .color(RColor::WHITE)
+                .single_line(),
+        )),
+    )
 }
 
 /// One invisible click target per `CharSelect` instance (CharSelect/Mouse_4).

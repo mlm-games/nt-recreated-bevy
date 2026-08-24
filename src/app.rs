@@ -60,6 +60,10 @@ const LOCALES: &[(&str, &str)] = &[
 pub enum AppState {
     #[default]
     Splash,
+    /// Logo intro done: the five big main-menu buttons (nt-rewrite
+    /// `MainMenuButton`).
+    MainMenu,
+    /// Char-select campfire row (`Menu`/`CharSelect`).
     Loading,
     Title,
     InGame,
@@ -126,6 +130,10 @@ pub struct SharedUi {
     pub title_go_visible: bool,
     /// Race id currently hovered in the char-select row (-1 = none).
     pub title_hover_race: i32,
+    /// Main-menu button index currently hovered (-1 = none).
+    pub main_menu_hover: i32,
+    /// Vlambeer boot card index (0..=4; 4 = NT logo stage).
+    pub boot_mode: u8,
     /// Ammo count of each equipped weapon's type (HUD text).
     pub weapon_ammo: [i32; 2],
     pub best_floor: u32,
@@ -185,6 +193,8 @@ impl Default for SharedUi {
             selected_character: 1,
             title_go_visible: false,
             title_hover_race: -1,
+            main_menu_hover: -1,
+            boot_mode: 0,
             weapon_ammo: [0, 0],
             best_floor: 0,
             total_kills: 0,
@@ -367,6 +377,9 @@ fn sync_shared_ui(
         ui.title_go_visible = false;
         ui.title_hover_race = -1;
     }
+    if state.is_changed() && *state.get() == AppState::MainMenu {
+        ui.main_menu_hover = -1;
+    }
     ui.paused = paused.0;
     ui.overlay = *overlay;
     ui.high_score = save.high_score;
@@ -469,6 +482,11 @@ fn process_ui_actions(
             UiAction::StartGame => {
                 transition.begin_to_state(AppState::Loading);
             }
+            UiAction::MainMenuPlay => {
+                // MainMenuButton/Other_10 case 0: straight into the campfire
+                // char select (daily/weekly sub-menu not ported).
+                transition.begin_to_state(AppState::Title);
+            }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.saved_language = locale.current.clone();
@@ -503,7 +521,9 @@ fn process_ui_actions(
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;
-                transition.begin_to_state(AppState::Title);
+                // Upstream quit-to-menu lands on the main-menu buttons
+                // (Vlambeer/Create_0 want_quit_to_menu path).
+                transition.begin_to_state(AppState::MainMenu);
             }
             UiAction::QuitApp => {
                 exit.write(AppExit::Success);

@@ -223,6 +223,29 @@ pub const CHAR_SELECT_RACES: [RaceId; 17] = [
     RaceId::Cuz,
 ];
 
+/// `scrRaceGetPassiveSkillDescription` stand-ins for the char-select text.
+pub fn race_passive_text(race: RaceId) -> &'static str {
+    match race {
+        RaceId::Fish => "Kills drop extra ammo",
+        RaceId::Crystal => "Gains a shield when hurt",
+        RaceId::Eyes => "Sees far, eyes aim with you",
+        RaceId::Melting => "Frail, but kills give max HP",
+        RaceId::Plant => "Attacks snare nearby prey",
+        RaceId::Venuz => "Ultra mutation is random",
+        RaceId::Steroids => "Wields two weapons at once",
+        RaceId::Robot => "Eats ammo to repair itself",
+        RaceId::Chicken => "Cheats death once per floor",
+        RaceId::Rebel => "Allies cost HP to call",
+        RaceId::Horror => "Fires a piercing radiation beam",
+        RaceId::Rogue => "Carries rogue ammo for strikes",
+        RaceId::BigDog => "A very good dog",
+        RaceId::Skeleton => "Bones rattle menacingly",
+        RaceId::Frog => "Ribbit.",
+        RaceId::Cuz => "Bumbles with random guns",
+        RaceId::Random => "A surprise mutant",
+    }
+}
+
 /// Inverse of `race as usize` for the nt-rewrite `enum Race` values.
 pub fn race_from_gml_id(id: usize) -> Option<RaceId> {
     CHAR_SELECT_RACES

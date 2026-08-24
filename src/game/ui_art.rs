@@ -5,6 +5,7 @@
 
 use bevy::audio::AudioSource;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings, Volume};
+use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 
 use crate::app::AppState;
@@ -12,6 +13,7 @@ use crate::game::components::{Health, Inventory, Player};
 use crate::game::content::AmmoKind;
 use crate::game::content::{AssetCatalog, CHAR_SELECT_RACES, WeaponId, sprite_exact};
 use crate::menus::UiBridge;
+use game_utils_bevy::transitions::Transition;
 
 /// Marker for menu art (title backdrop); despawned on state exit.
 #[derive(Component)]
@@ -177,80 +179,112 @@ fn gm_sprite(
 // Boot logo (nt-rewrite object `Logo`: sprLogo centred on the GUI)
 // ---------------------------------------------------------------------------
 
-/// Boot audio sequence (Logo/Alarm_0 + Draw_0): machinegun rattle per intro
-/// frame, the meat-explosion set at frame 7, then the logo-loop ambience.
+/// The full Vlambeer boot sequence (objects `Vlambeer` + `Logo`):
+///
+/// mode 0: sprSaving icon + "do not turn off" note      (120 ticks)
+/// mode 1: "MADE IN GAMEMAKER"                          (60 ticks)
+/// mode 2: sprVlambeer card + additive glow            (120 ticks)
+/// mode 3: team credits                                 (60 ticks)
+/// mode 4: NT logo — frame-stepped machinegun intro,    (input)
+///         then any key/click -> main menu buttons.
 #[derive(Resource)]
-struct BootSfx {
+struct BootState {
+    mode: u8,
     t: f32,
-    guns_fired: u8,
-    booms_fired: bool,
-    loop_started: bool,
+    da: f32,
+    shake: f32,
+    guns: u8,
+    booms: bool,
+    rendered_mode: i8,
+    spawned: Vec<Entity>,
 }
 
-fn splash_boot_audio(
+impl Default for BootState {
+    fn default() -> Self {
+        Self {
+            mode: 0,
+            t: 0.0,
+            da: 0.0,
+            shake: 0.0,
+            guns: 0,
+            booms: false,
+            rendered_mode: -1,
+            spawned: Vec::new(),
+        }
+    }
+}
+
+fn reset_boot(mut boot: ResMut<BootState>) {
+    *boot = BootState::default();
+}
+
+fn despawn_boot_art(mut commands: Commands, q: Query<Entity, With<BootArt>>) {
+    for e in &q {
+        commands.entity(e).despawn();
+    }
+}
+
+/// Quit-to-menu path: SpiralCont was destroyed with the run, rebuild it.
+#[allow(clippy::type_complexity)]
+fn spawn_spiral_field(
     mut commands: Commands,
-    time: Res<Time>,
-    mut boot: Option<ResMut<BootSfx>>,
+    state: Res<State<AppState>>,
+    ctl: Option<Res<SpiralCtl>>,
+    portal: Query<(), With<PortalLoop>>,
     catalog: Option<Res<AssetCatalog>>,
     asset_server: Res<AssetServer>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
 ) {
-    let (Some(catalog), Some(boot)) = (catalog, boot.as_mut()) else {
+    if *state.get() != AppState::MainMenu || ctl.is_some() {
+        return;
+    }
+    let Some(catalog) = catalog else {
         return;
     };
-
-    boot.t += time.delta_secs();
-
-    let play = |commands: &mut Commands, asset_server: &AssetServer, name: &str, volume: f32| {
-        let path = format!("audio/{name}.wav");
-        if !catalog.has_audio(&path) {
-            return;
-        }
+    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+        return;
+    };
+    commands.insert_resource(SpiralCtl {
+        angle: rand::random::<f32>() * 360.0,
+    });
+    for _ in 0..150 {
+        spawn_spiral_wisp(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            cam,
+            &map,
+            SpiralCtl {
+                angle: rand::random::<f32>() * 360.0,
+            },
+            Some(rand::random::<f32>() * 1.2),
+        );
+    }
+    if catalog.has_audio("audio/sndPortalLoop.wav") && portal.is_empty() {
         commands.spawn((
-            AudioPlayer::<AudioSource>::new(asset_server.load(path)),
+            PortalLoop,
+            AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndPortalLoop.wav")),
             PlaybackSettings {
-                mode: PlaybackMode::Despawn,
-                volume: Volume::Linear(volume),
+                mode: PlaybackMode::Loop,
+                volume: Volume::Linear(0.5),
                 ..default()
             },
         ));
-    };
-
-    // alarm[0] = 30 ticks (0.5s), then one frame every 2 ticks (33ms).
-    let gun_times = [0.5, 0.533, 0.566, 0.6, 0.633];
-    while (boot.guns_fired as usize) < gun_times.len()
-        && boot.t >= gun_times[boot.guns_fired as usize]
-    {
-        play(&mut commands, &asset_server, "sndMachinegun", 0.5);
-        boot.guns_fired += 1;
-    }
-
-    if !boot.booms_fired && boot.t >= 0.7 {
-        play(&mut commands, &asset_server, "sndShovel", 0.8);
-        play(&mut commands, &asset_server, "sndMeatExplo", 0.8);
-        play(&mut commands, &asset_server, "sndExplosion", 0.8);
-        boot.booms_fired = true;
-    }
-
-    if !boot.loop_started && boot.t >= 0.8 {
-        let path = "audio/sndLogoLoop.wav";
-        if catalog.has_audio(path) {
-            commands.spawn((
-                SplashLoop,
-                AudioPlayer::<AudioSource>::new(asset_server.load(path)),
-                PlaybackSettings {
-                    mode: PlaybackMode::Loop,
-                    volume: Volume::Linear(0.6),
-                    ..default()
-                },
-            ));
-        }
-        boot.loop_started = true;
     }
 }
 
-/// Looping logo ambience; despawned when the splash ends.
+/// Marker for all boot-sequence sprites (rebuilt per mode).
+#[derive(Component)]
+struct BootArt;
+
+/// Looping logo ambience; stops when the logo is dismissed (Logo/Destroy_0).
 #[derive(Component)]
 struct SplashLoop;
+
+/// Looping portal drone started with SpiralCont; lives until the run starts.
+#[derive(Component)]
+struct PortalLoop;
 
 fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>>) {
     for e in &q {
@@ -258,49 +292,299 @@ fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>
     }
 }
 
+fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>>) {
+    for e in &q {
+        commands.entity(e).despawn();
+    }
+}
+
+fn play_cue(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    name: &str,
+    volume: f32,
+) {
+    let path = format!("audio/{name}.wav");
+    if !catalog.has_audio(&path) {
+        return;
+    }
+    commands.spawn((
+        AudioPlayer::<AudioSource>::new(asset_server.load(path)),
+        PlaybackSettings {
+            mode: PlaybackMode::Despawn,
+            volume: Volume::Linear(volume),
+            ..default()
+        },
+    ));
+}
+
+const MODE_SECS: [f32; 4] = [2.0, 1.0, 2.0, 1.0];
+
+/// The boot driver: mode timers, input skipping, per-mode sprites, the logo
+/// sound script, and the transition to the main-menu buttons.
 #[allow(clippy::type_complexity)]
-fn spawn_splash_art(
+fn boot_intro(
     mut commands: Commands,
+    time: Res<Time>,
+    state: Res<State<AppState>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut transition: ResMut<Transition<AppState>>,
     catalog: Option<Res<AssetCatalog>>,
     asset_server: Res<AssetServer>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
-    existing: Query<(), With<TitleArt>>,
+    cam_q: Query<(Entity, &Transform, &Projection), (With<Camera2d>, Without<BootArt>)>,
+    bridge: Res<UiBridge>,
+    mut boot: ResMut<BootState>,
+    mut sprites: Query<&mut Sprite, With<BootArt>>,
+    mut transforms: Query<&mut Transform, With<BootArt>>,
 ) {
-    let Some(catalog) = catalog else {
-        return; // catalog scan may land a frame after state entry
-    };
-    if !existing.is_empty() {
+    if *state.get() != AppState::Splash {
         return;
     }
-    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+    let Some(catalog) = catalog else {
         return;
     };
+    let dt = time.delta_secs();
+    let pressed =
+        mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
-    // draw_sprite(sprLogo, image_index, view_width/2, view_height/2).
-    // The assembled logo is the LAST frame of the strip.
-    let m = meta_of(&catalog, "images/sprLogo.png");
-    let frame = (m[0] as usize).saturating_sub(1);
-    let (logo_spr, logo_tf) = gm_sprite(
-        &catalog,
-        &asset_server,
-        &map,
-        "images/sprLogo.png",
-        frame,
-        GUI_W / 2.0,
-        GUI_H / 2.0,
-        1.0,
-        1.0,
-        Color::WHITE,
-        -890.0,
-    );
-    commands.spawn((TitleArt, ChildOf(cam), logo_spr, logo_tf));
-    commands.insert_resource(BootSfx {
-        t: 0.0,
-        guns_fired: 0,
-        booms_fired: false,
-        loop_started: false,
-    });
+    // ----- Logo stage (mode 4) -----
+    if boot.mode == 4 {
+        boot.t += dt;
+
+        // Spawn the NT logo once. Frame 0 is blank; it builds up per shot.
+        if boot.spawned.is_empty()
+            && let Some((cam, map)) = view_setup(&windows, &cam_q)
+        {
+            let (spr, tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                "images/sprLogo.png",
+                0,
+                GUI_W / 2.0,
+                GUI_H / 2.0,
+                1.0,
+                1.0,
+                Color::WHITE,
+                -890.0,
+            );
+            boot.spawned
+                .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
+        }
+
+        // Logo/Alarm_0: frame steps at 0.5s then every 2 ticks; six
+        // machinegun shots, a 20-tick pause, then the assembled frame with
+        // the boom set + logo-loop ambience.
+        let gun_times = [0.5, 0.533, 0.566, 0.6, 0.633, 0.666];
+        if (boot.guns as usize) < gun_times.len() && boot.t >= gun_times[boot.guns as usize] {
+            play_cue(&mut commands, &catalog, &asset_server, "sndMachinegun", 0.5);
+            boot.shake += 0.5;
+            boot.guns += 1;
+        }
+        if !boot.booms && boot.t >= 1.0 {
+            if catalog.has_audio("audio/sndLogoLoop.wav") {
+                commands.spawn((
+                    SplashLoop,
+                    AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndLogoLoop.wav")),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Loop,
+                        volume: Volume::Linear(0.6),
+                        ..default()
+                    },
+                ));
+            }
+            play_cue(&mut commands, &catalog, &asset_server, "sndShovel", 0.8);
+            play_cue(&mut commands, &catalog, &asset_server, "sndMeatExplo", 0.8);
+            play_cue(&mut commands, &catalog, &asset_server, "sndExplosion", 0.8);
+            boot.shake += 2.5;
+            boot.booms = true;
+        }
+
+        // Draw_0: the logo steps to the current frame and jitters by shake,
+        // which decays one unit per tick.
+        boot.shake = (boot.shake - dt * 60.0).max(0.0);
+        if let Some(logo) = boot.spawned.first().copied() {
+            if let Ok(mut spr) = sprites.get_mut(logo) {
+                let m = meta_of(&catalog, "images/sprLogo.png");
+                let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+                let f = (boot.guns as f32).min(7.0);
+                spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+            }
+            if let (Ok(mut tf), Some((_, map))) =
+                (transforms.get_mut(logo), view_setup(&windows, &cam_q))
+            {
+                let jx = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
+                let jy = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
+                let c = map.to_world(GUI_W / 2.0 + jx, GUI_H / 2.0 + jy);
+                tf.translation = c.extend(-890.0);
+            }
+        }
+
+        // Logo/Mouse_53.
+        if pressed {
+            if boot.guns == 0 {
+                // Before frame 1: speed the alarm up (min 10 ticks).
+                boot.t = boot.t.max(0.334);
+            } else {
+                transition.begin_to_state(AppState::MainMenu);
+            }
+        }
+        return;
+    }
+
+    // ----- Card modes 0..3 -----
+    if pressed || boot.t >= MODE_SECS[boot.mode as usize] {
+        boot.mode += 1;
+        boot.t = 0.0;
+        boot.rendered_mode = -1;
+        if boot.mode == 4 {
+            // Drop any card sprites before the logo stage.
+            for e in boot.spawned.drain(..) {
+                commands.entity(e).despawn();
+            }
+            // Vlambeer/Alarm_0 mode >= 3: SpiralCont + Logo (no jingle).
+            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
+                commands.insert_resource(SpiralCtl {
+                    angle: rand::random::<f32>() * 360.0,
+                });
+                for _ in 0..150 {
+                    spawn_spiral_wisp(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        cam,
+                        &map,
+                        SpiralCtl {
+                            angle: rand::random::<f32>() * 360.0,
+                        },
+                        Some(rand::random::<f32>() * 1.2),
+                    );
+                }
+                if catalog.has_audio("audio/sndPortalLoop.wav") {
+                    commands.spawn((
+                        PortalLoop,
+                        AudioPlayer::<AudioSource>::new(
+                            asset_server.load("audio/sndPortalLoop.wav"),
+                        ),
+                        PlaybackSettings {
+                            mode: PlaybackMode::Loop,
+                            volume: Volume::Linear(0.5),
+                            ..default()
+                        },
+                    ));
+                }
+            }
+        } else {
+            play_cue(&mut commands, &catalog, &asset_server, "sndRestart", 0.7);
+        }
+    } else {
+        boot.t += dt;
+    }
+
+    if boot.mode >= 4 {
+        return;
+    }
+    boot.da += dt * 30.0;
+
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.boot_mode = boot.mode;
+    }
+
+    // Rebuild sprites when the mode changes.
+    if boot.rendered_mode != boot.mode as i8 {
+        boot.rendered_mode = boot.mode as i8;
+        for e in boot.spawned.drain(..) {
+            commands.entity(e).despawn();
+        }
+        let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+            return;
+        };
+        match boot.mode {
+            0 => {
+                // Vlambeer/Create_0: the jingle plays as the first card shows.
+                play_cue(&mut commands, &catalog, &asset_server, "sndVlambeer", 0.7);
+                let (spr, tf) = gm_sprite(
+                    &catalog,
+                    &asset_server,
+                    &map,
+                    "images/sprSaving.png",
+                    0,
+                    GUI_W / 2.0,
+                    GUI_H / 2.0 - 16.0,
+                    1.0,
+                    1.0,
+                    Color::WHITE,
+                    -890.0,
+                );
+                boot.spawned
+                    .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
+            }
+            2 => {
+                let (spr, tf) = gm_sprite(
+                    &catalog,
+                    &asset_server,
+                    &map,
+                    "images/sprVlambeer.png",
+                    0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    1.0,
+                    Color::WHITE,
+                    -890.0,
+                );
+                boot.spawned
+                    .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
+                // Draw_0 adds ten additive jittered copies; four static ones
+                // approximate the glow.
+                for k in 0..4usize {
+                    let (g, gtf) = gm_sprite(
+                        &catalog,
+                        &asset_server,
+                        &map,
+                        "images/sprVlambeer.png",
+                        0,
+                        if k & 1 != 0 { 2.0 } else { -2.0 },
+                        if k & 2 != 0 { 2.0 } else { -2.0 },
+                        1.0,
+                        1.0,
+                        Color::srgba(1.0, 1.0, 1.0, 0.1),
+                        -889.0,
+                    );
+                    boot.spawned
+                        .push(commands.spawn((BootArt, ChildOf(cam), g, gtf)).id());
+                }
+            }
+            _ => {}
+        }
+    } else if boot.mode == 0
+        && let Some(e) = boot.spawned.first().copied()
+        && let Ok(mut spr) = sprites.get_mut(e)
+    {
+        // Saving icon animates at 30 fps (da += 0.5 per tick).
+        let m = meta_of(&catalog, "images/sprSaving.png");
+        let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+        let frame = (boot.da.floor() as usize) % 31;
+        spr.rect = Some(Rect::new(
+            frame as f32 * fw,
+            0.0,
+            (frame + 1) as f32 * fw,
+            fh,
+        ));
+    }
+}
+
+/// Gameplay zoom (CameraFollow) must not leak into the menu screens: the
+/// Repose hitbox layer is zoom-independent, so restore the base scale.
+fn reset_camera_view(mut proj: Query<&mut Projection, With<Camera2d>>) {
+    for mut p in &mut proj {
+        if let Projection::Orthographic(o) = p.as_mut() {
+            o.scale = CAM_SCALE;
+        }
+    }
 }
 
 pub struct UiArtPlugin;
@@ -308,27 +592,42 @@ pub struct UiArtPlugin;
 impl Plugin for UiArtPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CharSelectArt>()
-            .add_systems(OnEnter(AppState::Splash), spawn_splash_art)
-            .add_systems(OnExit(AppState::Splash), despawn_title_art)
+            .init_resource::<BootState>()
+            .add_systems(OnEnter(AppState::Splash), (reset_camera_view, reset_boot))
+            .add_systems(
+                OnEnter(AppState::MainMenu),
+                (reset_camera_view, spawn_spiral_field),
+            )
+            .add_systems(
+                OnExit(AppState::Splash),
+                (despawn_boot_art, despawn_splash_loop),
+            )
             .add_systems(
                 OnEnter(AppState::Title),
-                (spawn_title_art, spawn_char_select),
+                (reset_camera_view, spawn_char_select),
             )
             .add_systems(
                 OnExit(AppState::Title),
                 (despawn_title_art, despawn_hud_art),
             )
-            .add_systems(Update, char_select_tick.run_if(in_state(AppState::Title)))
+            .add_systems(
+                Update,
+                (char_select_tick.run_if(in_state(AppState::Title))).chain(),
+            )
+            .add_systems(Update, main_menu_hover)
+            .add_systems(Update, boot_intro)
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
+            .add_systems(OnEnter(AppState::Loading), despawn_portal_loop)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
-            .add_systems(FixedUpdate, (spiral_field, sync_hud_art));
+            .add_systems(FixedUpdate, spiral_field)
+            .add_systems(FixedUpdate, sync_hud_art);
     }
 }
 
 /// (camera entity, GUI map for the current window + live ortho zoom).
-fn view_setup(
+fn view_setup<F: QueryFilter>(
     windows: &Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: &Query<(Entity, &Transform, &Projection), With<Camera2d>>,
+    cam_q: &Query<(Entity, &Transform, &Projection), F>,
 ) -> Option<(Entity, GuiMap)> {
     let win = windows.iter().next()?;
     let (_, _tf, proj) = cam_q.iter().next()?;
@@ -345,38 +644,6 @@ fn view_setup(
 // ---------------------------------------------------------------------------
 // Title: rotating spiral field + logo
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::type_complexity)]
-fn spawn_title_art(
-    mut commands: Commands,
-    catalog: Res<AssetCatalog>,
-    asset_server: Res<AssetServer>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
-) {
-    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
-        return;
-    };
-
-    commands.insert_resource(SpiralCtl {
-        angle: rand::random::<f32>() * 360.0,
-    });
-
-    // SpiralCont/Create_0 warm start: 150 pre-ticked emissions.
-    for _ in 0..150 {
-        spawn_spiral_wisp(
-            &mut commands,
-            &catalog,
-            &asset_server,
-            cam,
-            &map,
-            SpiralCtl {
-                angle: rand::random::<f32>() * 360.0,
-            },
-            Some(rand::random::<f32>() * 1.2),
-        );
-    }
-}
 
 /// One growing spiral wisp (nt-rewrite object `Spiral`).
 #[derive(Component)]
@@ -445,6 +712,7 @@ fn spawn_spiral_wisp(
 /// SpiralCont/Step_0 + Spiral/Step_0: orbit, emit, grow, dissolve.
 #[allow(clippy::type_complexity)]
 fn spiral_field(
+    state: Res<State<AppState>>,
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
@@ -453,6 +721,12 @@ fn spiral_field(
     mut ctl: Option<ResMut<SpiralCtl>>,
     mut wisps: Query<(Entity, &mut SpiralWisp, &mut Sprite)>,
 ) {
+    if !matches!(
+        state.get(),
+        AppState::Splash | AppState::MainMenu | AppState::Title
+    ) {
+        return;
+    }
     let Some((cam, map)) = view_setup(&windows, &cam_q) else {
         return;
     };
@@ -605,6 +879,77 @@ fn spawn_char_select(
     art.addy = 1.0;
 
     commands.insert_resource(art);
+}
+
+/// MainMenuButton/Step_0 hover: point-in-rect over the five labels; plays
+/// sndHover on change.
+#[allow(clippy::type_complexity)]
+fn main_menu_hover(
+    mut commands: Commands,
+    state: Res<State<AppState>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(&Camera, &GlobalTransform, &Projection), With<Camera2d>>,
+    bridge: Res<UiBridge>,
+    catalog: Option<Res<AssetCatalog>>,
+    asset_server: Res<AssetServer>,
+) {
+    if *state.get() != AppState::MainMenu {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let (Some(scale), Ok(gt)) = (
+        cam_q.iter().next().map(|(_, _, p)| match p {
+            Projection::Orthographic(o) => o.scale,
+            _ => CAM_SCALE,
+        }),
+        cam_q.single().map(|(_, gt, _)| gt.clone()),
+    ) else {
+        return;
+    };
+    let map = gui_map(window.width(), window.height(), scale);
+    let Ok(mut ui) = bridge.shared.lock() else {
+        return;
+    };
+
+    let mut hovered = -1_i32;
+    if let Some(cursor) = window.cursor_position() {
+        if let Ok(world) = cam_q
+            .iter()
+            .next()
+            .unwrap()
+            .0
+            .viewport_to_world_2d(&gt, cursor)
+        {
+            let g = map.to_gui(world);
+            // Label strip: x centred on 160, each row 20 px tall.
+            if g.x >= 60.0 && g.x <= 260.0 {
+                let row = ((g.y - 62.0) / 24.0).floor();
+                if (0.0..5.0).contains(&row) {
+                    hovered = row as i32;
+                }
+            }
+        }
+    }
+
+    if ui.main_menu_hover != hovered {
+        ui.main_menu_hover = hovered;
+        // sndHover fires only for available rows (0, 2, 4).
+        if matches!(hovered, 0 | 2 | 4)
+            && let Some(catalog) = catalog
+            && catalog.has_audio("audio/sndHover.wav")
+        {
+            commands.spawn((
+                AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndHover.wav")),
+                PlaybackSettings {
+                    mode: PlaybackMode::Despawn,
+                    volume: Volume::Linear(0.5),
+                    ..default()
+                },
+            ));
+        }
+    }
 }
 
 /// Per-frame hover/tint/animation, mirroring CharSelect/Draw_0 and

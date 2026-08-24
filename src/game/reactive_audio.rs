@@ -363,7 +363,9 @@ pub fn observe_kill_audio_state(
 /// Maps the tree's real UiAction variants onto reactive UI cues.
 pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
     match action {
-        UiAction::StartGame | UiAction::Resume => Some(ReactiveCue::UiConfirm),
+        UiAction::StartGame | UiAction::MainMenuPlay | UiAction::Resume => {
+            Some(ReactiveCue::UiConfirm)
+        }
 
         UiAction::QuitToTitle | UiAction::QuitApp => Some(ReactiveCue::UiBack),
 

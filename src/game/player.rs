@@ -20,6 +20,7 @@ use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
 use game_utils_bevy::hit_flash::HitFlash;
 use game_utils_bevy::hitstop::HitStop;
 use game_utils_bevy::juice::Juice;
+use game_utils_bevy::screen_effects::CameraBase;
 use game_utils_bevy::screen_effects::{ChromaticAberration, FlashWhite, ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
@@ -81,7 +82,7 @@ pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
 pub fn player_aim(
     input: Res<NtInput>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    camera_q: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    camera_q: Query<(&Camera, &GlobalTransform, Option<&CameraBase>), With<Camera2d>>,
     mut player_q: Query<(&Transform, &mut AimDir), With<Player>>,
     mut follow_q: Query<&mut CameraFollow>,
 ) {
@@ -101,12 +102,23 @@ pub fn player_aim(
     let Ok(window) = windows.single() else {
         return;
     };
-    let Ok((camera, cam_gt)) = camera_q.single() else {
+    let Ok((camera, cam_gt, cam_base)) = camera_q.single() else {
         return;
     };
 
+    // Convert the cursor with the camera's REST transform (pre-shake), otherwise the
+    // per-frame shake offset feeds back into the aim point and wobbles the camera.
+    let rest_gt = match cam_base {
+        Some(base) => {
+            let mut t = Transform::from_translation(base.translation);
+            t.rotation = Quat::from_rotation_z(base.rotation);
+            GlobalTransform::from(t)
+        }
+        None => *cam_gt,
+    };
+
     if let Some(cursor) = window.cursor_position()
-        && let Ok(world) = camera.viewport_to_world_2d(cam_gt, cursor)
+        && let Ok(world) = camera.viewport_to_world_2d(&rest_gt, cursor)
     {
         let dir = (world - ptf.translation.truncate()).normalize_or_zero();
         if dir != Vec2::ZERO {

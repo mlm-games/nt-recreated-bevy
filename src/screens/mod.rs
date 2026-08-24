@@ -19,7 +19,7 @@ impl Plugin for ScreensPlugin {
             },)
                 .chain(),
         )
-        .add_systems(Update, (tick_splash, tick_loading))
+        .add_systems(Update, tick_loading)
         .add_systems(OnExit(AppState::Splash), |mut c: Commands| {
             c.remove_resource::<SplashTimer>()
         })
@@ -34,17 +34,6 @@ impl Plugin for ScreensPlugin {
 struct SplashTimer(Timer);
 #[derive(Resource)]
 struct LoadingTimer(Timer);
-
-fn tick_splash(
-    time: Res<Time<Real>>,
-    mut tr: ResMut<Transition<AppState>>,
-    timer: Option<ResMut<SplashTimer>>,
-) {
-    let Some(mut timer) = timer else { return };
-    if timer.0.tick(time.delta()).just_finished() {
-        tr.begin_to_state(AppState::Title);
-    }
-}
 
 fn tick_loading(
     time: Res<Time<Real>>,

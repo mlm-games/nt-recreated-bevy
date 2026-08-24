@@ -40,6 +40,8 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 #[derive(Clone, Debug)]
 pub enum UiAction {
     StartGame,
+    /// Main-menu PLAY: into the char-select campfire.
+    MainMenuPlay,
     OpenSettings,
     OpenCredits,
     CloseOverlay,
@@ -90,6 +92,14 @@ pub fn compose_root(
     let content = match st.phase {
         AppState::Splash => splash_ui(&st),
         AppState::Loading => loading_ui(&st),
+        AppState::MainMenu => ZStack(Modifier::new().fill_max_size()).child((
+            main_menu_ui(&st, actions.clone()),
+            AnimatedVisibility(
+                st.overlay == OverlayMenu::Settings,
+                settings_view.clone(),
+                popup_anim_config("menu_settings"),
+            ),
+        )),
         AppState::Title => ZStack(Modifier::new().fill_max_size()).child((
             title_screen::title_screen(&st, actions.clone()),
             AnimatedVisibility(
@@ -191,19 +201,108 @@ fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
 
 /// Boot screen: the original `Logo` object draws sprLogo dead-centre on a
 /// black GUI; the sprite itself is spawned by ui_art.rs.
+/// The Vlambeer boot cards (Vlambeer/Draw_0), rendered per boot mode. The
+/// sprites (saving icon, Vlambeer card, NT logo) live in ui_art.rs.
 fn splash_ui(st: &SharedUi) -> View {
     let v = nt_view(st);
-    // No background: the world behind (black clear + boot logo sprite) must
-    // stay visible through the transparent UI surface.
-    Column(Modifier::new().fill_max_size()).child(nt_text_at(
-        "PRESS ANY KEY".to_string(),
-        160.0,
-        192.0,
-        &v,
-        col(255, 255, 255),
-        true,
-    ))
+    let mut layers: Vec<View> = Vec::new();
+    let cy = GUI_H_F32 / 2.0;
+
+    match st.boot_mode {
+        0 => {
+            layers.push(nt_text_at(
+                "DO NOT TURN OFF NUCLEAR THRONE".to_string(),
+                160.0,
+                cy + 20.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "WHILE THIS SAVING ICON IS DISPLAYED.".to_string(),
+                160.0,
+                cy + 30.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+        }
+        1 => {
+            layers.push(nt_text_at(
+                "MADE IN GAMEMAKER".to_string(),
+                160.0,
+                cy,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+        }
+        3 => {
+            // Team credits: VLAMBEER in yellow, the rest white.
+            layers.push(nt_text_at(
+                "VLAMBEER".to_string(),
+                160.0,
+                cy - 24.0,
+                &v,
+                col(255, 221, 0),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "PAUL VEER".to_string(),
+                160.0,
+                cy - 8.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "JUKIO KALLIO".to_string(),
+                160.0,
+                cy + 2.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "JOONAS TURNER".to_string(),
+                160.0,
+                cy + 12.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "JUSTIN CHAN".to_string(),
+                160.0,
+                cy + 22.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "YELLOWAFTERLIFE".to_string(),
+                160.0,
+                cy + 32.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "PRESENT".to_string(),
+                160.0,
+                cy + 48.0,
+                &v,
+                col(255, 255, 255),
+                true,
+            ));
+        }
+        _ => {}
+    }
+
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
+
+const GUI_H_F32: f32 = 240.0;
 
 /// Loading pass rendered on the NT surface: centred label plus a thin
 /// white progress bar (original NT shows nothing; kept minimal).
@@ -994,6 +1093,70 @@ mod nt_ui_tests {
         assert!(metrics.player_width + metrics.run_width + metrics.margin * 2.0 < 1280.0);
         assert!(metrics.boss_width < 1280.0);
     }
+}
+
+/// The five big main-menu buttons (nt-rewrite `MainMenuButton`): PLAY,
+/// CO-OP, SETTINGS, STATS, QUIT — big pixel text centred at gui x=160,
+/// stacked 24 px apart from y=72. Hover tints c_uigray -> white.
+fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let v = nt_view(st);
+    const LABELS: [(&str, i32); 5] = [
+        ("PLAY", 0),
+        ("CO-OP", 1),
+        ("SETTINGS", 2),
+        ("STATS", 3),
+        ("QUIT", 4),
+    ];
+
+    let mut layers: Vec<View> = Vec::new();
+    for (label, index) in LABELS {
+        let gy = 72.0 + index as f32 * 24.0;
+        // CO-OP and STATS have no backend in this port yet: c_uidark, inert.
+        let available = matches!(index, 0 | 2 | 4);
+        let color = if !available {
+            col(64, 64, 64)
+        } else if st.main_menu_hover == index {
+            col(255, 255, 255)
+        } else {
+            col(153, 153, 153)
+        };
+
+        let a = actions.clone();
+        layers.push(
+            Row(Modifier::new()
+                .fill_max_size()
+                .padding_values(PaddingValues {
+                    left: v.ox,
+                    right: 0.0,
+                    top: v.oy + (gy - 10.0) * v.s,
+                    bottom: 0.0,
+                })
+                .align_items(AlignItems::FLEX_START))
+            .child(
+                Column(
+                    Modifier::new()
+                        .width(320.0 * v.s)
+                        .height(20.0 * v.s)
+                        .align_items(AlignItems::CENTER)
+                        .clickable_ext(available, None, None, move || match index {
+                            0 => push(&a, UiAction::MainMenuPlay),
+                            2 => push(&a, UiAction::OpenSettings),
+                            4 => push(&a, UiAction::QuitApp),
+                            _ => {}
+                        }),
+                )
+                .child(
+                    RText(label)
+                        .size((14.0 * v.s).clamp(10.0, 160.0))
+                        .font_family("Silkscreen")
+                        .color(color)
+                        .single_line(),
+                ),
+            ),
+        );
+    }
+
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
 /// Original HUD text pass — everything scrDrawPlayerHUD draws as text,

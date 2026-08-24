@@ -37,6 +37,7 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::player as player_sys;
 use crate::game::progression as progress_sys;
+use game_utils_bevy::screen_effects::ScreenEffectsConfig;
 use game_utils_bevy::transitions::Transition;
 
 pub use crate::game::components::{MutationChoice, Score, SelectedCharacter};
@@ -69,6 +70,13 @@ impl Plugin for GamePlugin {
             .add_message::<FloorStarted>()
             .add_systems(Startup, load_game_audio)
             .add_systems(Startup, scan_assets)
+            // Nuclear Throne's shake is positional-only: rotation jitter pivots on the
+            // camera center, so it reads as near-zero when the player is centered and
+            // increasingly violent toward screen edges. Disable it.
+            .insert_resource(ScreenEffectsConfig {
+                rotation_jitter_2d: 0.0,
+                ..Default::default()
+            })
             .add_systems(PreUpdate, input::sample_input.run_if(gameplay_active))
             .add_plugins(ui_art::UiArtPlugin)
             .add_systems(OnEnter(AppState::InGame), setup_game)
