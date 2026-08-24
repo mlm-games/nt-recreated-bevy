@@ -282,6 +282,14 @@ pub fn hurt_on_damage(
             Without<HurtAnim>,
         ),
     >,
+    mut player_damaged: Query<
+        (Entity, &Health, &PlayerAnim, &mut SpriteAnim, &mut Sprite),
+        (
+            Changed<Health>,
+            With<crate::game::components::Player>,
+            Without<HurtAnim>,
+        ),
+    >,
 ) {
     for (e, health, sprites, mut anim, mut sprite) in &mut damaged {
         // Spawning writes Health too; only react to actual damage, and let
@@ -299,6 +307,22 @@ pub fn hurt_on_damage(
             sprites.hurt,
             sprites.idle,
             sprites.walk,
+        );
+    }
+    for (e, health, pa, mut anim, mut sprite) in &mut player_damaged {
+        if health.hp >= health.max || health.hp <= 0 {
+            continue;
+        }
+        play_hurt(
+            &mut commands,
+            e,
+            &catalog,
+            &asset_server,
+            &mut anim,
+            &mut sprite,
+            pa.hurt,
+            pa.idle,
+            Some(pa.walk),
         );
     }
 }
