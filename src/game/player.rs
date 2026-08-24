@@ -136,9 +136,6 @@ pub fn player_aim(
             let screen_off = (world - cam_xy).clamp_length_max(MAX_LOOK);
             follow.set_aim(player_pos + screen_off);
         }
-    } else if let Ok(mut follow) = follow_q.single_mut() {
-        // Cursor left the window — stop pulling.
-        follow.aim_point = None;
     }
 }
 
