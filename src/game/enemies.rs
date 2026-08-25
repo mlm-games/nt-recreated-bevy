@@ -188,7 +188,7 @@ pub fn enemy_ai(
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
-    mut corpses: Query<(Entity, &Corpse, &Transform)>,
+    corpses: Query<(Entity, &Corpse, &Transform), (With<Corpse>, Without<Enemy>)>,
 ) {
     let Ok((player_tf, player)) = player_q.single() else {
         return;

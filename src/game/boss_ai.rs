@@ -33,7 +33,7 @@ pub fn boss_ai(
             &mut Health,
             &mut Sprite,
         ),
-        With<Enemy>,
+        (With<Enemy>, Without<WallTile>),
     >,
     props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
