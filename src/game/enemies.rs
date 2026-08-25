@@ -225,6 +225,12 @@ pub fn enemy_ai(
             continue;
         }
 
+        // Emplacements (turrets / crystals) hold position but still fire.
+        let emplacement = matches!(
+            enemy.kind,
+            EnemyKind::Turret | EnemyKind::Crystal | EnemyKind::LaserCrystal
+        );
+
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
@@ -259,8 +265,11 @@ pub fn enemy_ai(
         }
 
         let target = (desired + strafe).normalize_or_zero();
-        // Stationary emplacements (Turret) never move but still fire below.
-        if brain.speed > 0.0 {
+        // Emplacements never move but still fire below.
+        if emplacement {
+            vel.0 = Vec2::ZERO;
+            sprite.flip_x = dir.x < 0.0;
+        } else if brain.speed > 0.0 {
             vel.0 += target * brain.accel * dt;
 
             if vel.0.length() > speed {

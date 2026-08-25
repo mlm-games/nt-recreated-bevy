@@ -83,10 +83,35 @@ fn gml_area(floor: u32) -> i32 {
     }
 }
 
+/// Secret areas keep their own visual/spawn families by mapping to the GML
+/// area id of the region they borrow tiles from.
+fn gml_area_from_run(run: &Run) -> i32 {
+    use crate::game::areas::AreaId;
+    match run.area {
+        AreaId::Desert | AreaId::Oasis => 1,
+        AreaId::Sewers | AreaId::PizzaSewers => 2,
+        AreaId::Scrapyards | AreaId::City => 3,
+        AreaId::CrystalCaves | AreaId::CursedCaves | AreaId::Vault | AreaId::CrownVault => 4,
+        AreaId::FrozenCity | AreaId::Jungle => 5,
+        AreaId::Labs | AreaId::HQ => 6,
+        AreaId::Palace | AreaId::Campfire => 7,
+        _ => gml_area(run.floor),
+    }
+}
+
 fn is_boss_subarea(floor: u32) -> bool {
     let rf = ((floor.max(1) - 1) % 15) + 1;
     // End of each multi-floor world: Desert 3, Scrapyards 7, Frozen 11, Palace 15
     matches!(rf, 3 | 7 | 11 | 15)
+}
+
+/// Boss-subarea check that never treats a secret area as the route floor's
+/// boss stage (secrets get their own boss assignment below).
+fn is_boss_subarea_run(run: &Run) -> bool {
+    if crate::game::secret_areas::is_secret_area(run.area) {
+        return false;
+    }
+    is_boss_subarea(run.floor)
 }
 
 pub fn generation_goal(floor: u32) -> usize {
@@ -95,6 +120,20 @@ pub fn generation_goal(floor: u32) -> usize {
         return if rf == 15 { 48 } else { 60 };
     }
     110
+}
+
+/// Secret areas get tighter or roomier layouts per their upstream feel.
+fn generation_goal_for_run(run: &Run) -> usize {
+    use crate::game::areas::AreaId;
+    if crate::game::secret_areas::is_secret_area(run.area) {
+        return match run.area {
+            AreaId::CrownVault | AreaId::Vault => 40,
+            AreaId::HQ => 70,
+            AreaId::CursedCaves => 100,
+            _ => 90,
+        };
+    }
+    generation_goal(run.floor)
 }
 
 // ---------------------------------------------------------------------------
@@ -141,8 +180,8 @@ fn turn_table(rng: &mut StdRng, area: i32) -> i32 {
 }
 
 pub fn generate_level(run: &Run) -> LevelPlan {
-    let area = gml_area(run.floor);
-    let goal = generation_goal(run.floor);
+    let area = gml_area_from_run(run);
+    let goal = generation_goal_for_run(run);
     let mut rng = StdRng::seed_from_u64(run.gen_seed);
 
     let mut plan = LevelPlan {
@@ -350,8 +389,8 @@ fn populate(
     plan: &mut LevelPlan,
     mut rng: &mut StdRng,
 ) {
-    let area = gml_area(run.floor);
-    let boss_sub = is_boss_subarea(run.floor);
+    let area = gml_area_from_run(run);
+    let boss_sub = is_boss_subarea_run(run);
 
     // GameCont.hard: +1 per area cleared, +loops. NTT: min enemies = 3 + hard/1.5; per-tile chance = hard / (10 + hard).
     let hard = game_hard(run);
@@ -550,6 +589,86 @@ fn populate(
         let center = Vec2::new(px, py);
         let pick_kind = |rng: &mut StdRng, w: &[EnemyKind]| w[rng.random_range(0..w.len())];
         let loop_extras = loop_elite_candidates(area, run.loop_count);
+
+        // --- Secret areas first: each keeps its upstream spawn table ---
+        {
+            use crate::game::areas::AreaId;
+            let secret_kind = match run.area {
+                AreaId::Oasis => Some(pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::Bandit,
+                        EnemyKind::Bandit,
+                        EnemyKind::Scorpion,
+                        EnemyKind::Maggot,
+                        EnemyKind::Crab,
+                    ],
+                )),
+                AreaId::PizzaSewers => Some(pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::Rat,
+                        EnemyKind::Rat,
+                        EnemyKind::BigRat,
+                        EnemyKind::Freak,
+                        EnemyKind::Ballguy,
+                    ],
+                )),
+                AreaId::Jungle => Some(pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::Assassin,
+                        EnemyKind::Assassin,
+                        EnemyKind::Freak,
+                        EnemyKind::Bandit,
+                        EnemyKind::Spider,
+                    ],
+                )),
+                AreaId::CursedCaves => Some(pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::Spider,
+                        EnemyKind::LaserCrystal,
+                        EnemyKind::Crystal,
+                        EnemyKind::Freak,
+                        EnemyKind::Assassin,
+                    ],
+                )),
+                AreaId::City => {
+                    // Y.V. Mansion — light popo / bandits.
+                    Some(pick_kind(
+                        &mut rng,
+                        &[EnemyKind::Bandit, EnemyKind::IdpdGrunt, EnemyKind::Assassin],
+                    ))
+                }
+                AreaId::Vault | AreaId::CrownVault => {
+                    // Guardians are the boss; keep trash sparse and elite.
+                    Some(pick_kind(
+                        &mut rng,
+                        &[
+                            EnemyKind::RobotGuard,
+                            EnemyKind::Turret,
+                            EnemyKind::IdpdElite,
+                        ],
+                    ))
+                }
+                AreaId::HQ => Some(pick_kind(
+                    &mut rng,
+                    &[
+                        EnemyKind::IdpdGrunt,
+                        EnemyKind::IdpdGrunt,
+                        EnemyKind::IdpdShield,
+                        EnemyKind::IdpdElite,
+                    ],
+                )),
+                _ => None,
+            };
+            if let Some(k) = secret_kind {
+                enemy_tiles.push((k, center));
+                continue;
+            }
+        }
+
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
@@ -636,19 +755,25 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             4 => {
-                // Crystal Caves: reuse assassin/freak/scorpion until crystal
-                // sprites are wired into the catalog.
-                let mut cands = vec![EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion];
+                // Crystal Caves: spiders, crystals, and laser crystals.
+                let mut cands = vec![
+                    EnemyKind::Spider,
+                    EnemyKind::Spider,
+                    EnemyKind::Crystal,
+                    EnemyKind::LaserCrystal,
+                    EnemyKind::Freak,
+                ];
                 cands.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &cands);
                 enemy_tiles.push((k, center));
             }
             5 => {
-                // Frozen City: snow bandits and wolves; IDPD scouts on loops.
+                // Frozen City: snow bandits, wolves, snipers; IDPD on loops.
                 let mut frozen = vec![
                     EnemyKind::SnowBandit,
                     EnemyKind::SnowBandit,
                     EnemyKind::Wolf,
+                    EnemyKind::Sniper,
                     EnemyKind::Assassin,
                 ];
                 if run.loop_count > 0 {
@@ -662,10 +787,11 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             6 | 7 => {
-                // Labs / Palace: mixed late-game garrisons; IDPD squads scale
-                // with loop count.
+                // Labs / Palace: mixed late-game garrisons with necromancers;
+                // IDPD squads scale with loop count.
                 let mut late = vec![
                     EnemyKind::RobotGuard,
+                    EnemyKind::Necromancer,
                     EnemyKind::Assassin,
                     EnemyKind::Freak,
                     EnemyKind::Turret,
@@ -724,19 +850,22 @@ fn populate(
 
     // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
     // quiet single-floor stop. Loop Sewers gets Mom, loop Labs the
-    // Technomancer; HQ runs host the IDPD Captain.
+    // Technomancer; HQ runs and the Crown Vault host their own bosses.
     if boss_sub {
         plan.boss = Some(boss_for_floor_and_loop(run.floor, run.loop_count));
-    } else if area == 2 && run.loop_count >= 1 {
-        // Loop Sewers 2-1 → Mom
-        plan.boss = Some(EnemyKind::Mom);
-    } else if area == 4 && run.loop_count >= 1 {
-        plan.boss = Some(EnemyKind::Hyper);
-    } else if area == 6 && run.loop_count >= 1 {
-        // Loop Labs → Technomancer (upstream has three stations; one core here)
-        plan.boss = Some(EnemyKind::Technomancer);
-    } else if run.area == AreaId::HQ {
-        plan.boss = Some(EnemyKind::Captain);
+    } else {
+        match run.area {
+            AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
+            AreaId::Labs if run.loop_count >= 1 => {
+                plan.boss = Some(EnemyKind::Technomancer)
+            }
+            AreaId::CrystalCaves if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Hyper),
+            AreaId::CrownVault | AreaId::Vault => {
+                plan.boss = Some(EnemyKind::OldGuardian)
+            }
+            AreaId::HQ => plan.boss = Some(EnemyKind::Captain),
+            _ => {}
+        }
     }
 
     // Chest trimming (scrPopChests): keep the furthest of each kind.
@@ -846,11 +975,18 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
             EnemyKind::Turret,
             EnemyKind::Bandit,
         ],
-        4 => vec![EnemyKind::Assassin, EnemyKind::Freak, EnemyKind::Scorpion],
+        4 => vec![
+            EnemyKind::Spider,
+            EnemyKind::Spider,
+            EnemyKind::Crystal,
+            EnemyKind::LaserCrystal,
+            EnemyKind::Freak,
+        ],
         5 => vec![
             EnemyKind::SnowBandit,
             EnemyKind::SnowBandit,
             EnemyKind::Wolf,
+            EnemyKind::Sniper,
             EnemyKind::Assassin,
         ],
         _ => vec![
@@ -1047,6 +1183,86 @@ fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'stat
     }
 }
 
+/// Secret areas use their own tile families (100-series art); any slot whose
+/// PNG was not imported falls back to the route family so `sprite_exact`
+/// never hits its missing-asset panic.
+fn area_sprites_for_run(
+    run: &Run,
+    catalog: &AssetCatalog,
+) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+    use crate::game::areas::AreaId;
+    let route = area_sprites(run.floor);
+    let is_secret_tile_family = matches!(
+        run.area,
+        AreaId::Oasis
+            | AreaId::PizzaSewers
+            | AreaId::City
+            | AreaId::CursedCaves
+            | AreaId::Vault
+            | AreaId::CrownVault
+            | AreaId::Jungle
+            | AreaId::HQ
+    );
+    if !is_secret_tile_family {
+        return route;
+    }
+
+    let (floor, bot, top, out) = match run.area {
+        AreaId::Oasis => (
+            "images/sprFloor101.png",
+            "images/sprWall101Bot.png",
+            "images/sprWall101Top.png",
+            "images/sprWall101Out.png",
+        ),
+        AreaId::PizzaSewers => (
+            "images/sprFloor102.png",
+            "images/sprWall102Bot.png",
+            "images/sprWall102Top.png",
+            "images/sprWall102Out.png",
+        ),
+        AreaId::City => (
+            "images/sprFloor103.png",
+            "images/sprWall103Bot.png",
+            "images/sprWall103Top.png",
+            "images/sprWall103Out.png",
+        ),
+        AreaId::CursedCaves | AreaId::Vault | AreaId::CrownVault => (
+            "images/sprFloor104.png",
+            "images/sprWall104Bot.png",
+            "images/sprWall104Top.png",
+            "images/sprWall104Out.png",
+        ),
+        AreaId::Jungle => (
+            "images/sprFloor105.png",
+            "images/sprWall105Bot.png",
+            "images/sprWall105Top.png",
+            "images/sprWall105Out.png",
+        ),
+        _ => (
+            "images/sprFloor106.png",
+            "images/sprWall106Bot.png",
+            "images/sprWall106Top.png",
+            "images/sprWall106Out.png",
+        ),
+    };
+
+    let slot = |secret: &'static str, fallback: &'static str| {
+        if catalog.has(secret) {
+            secret
+        } else {
+            fallback
+        }
+    };
+
+    (
+        slot(floor, route.0),
+        slot(bot, route.1),
+        slot(top, route.2),
+        slot(out, route.3),
+        route.4,
+    )
+}
+
 pub fn spawn_level(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -1056,7 +1272,7 @@ pub fn spawn_level(
     mask: &mut FloorMask,
 ) {
     let (floor_png, wall_bot_png, wall_top_png, wall_out_png, decal_prop_png) =
-        area_sprites(run.floor);
+        area_sprites_for_run(run, catalog);
 
     let cols = (ARENA_W / TILE) as i32;
     let rows = (ARENA_H / TILE) as i32;
@@ -1288,6 +1504,7 @@ pub fn spawn_level(
                     EnemyKind::Mom => Vec2::new(0.0, -40.0),
                     EnemyKind::Technomancer => Vec2::new(0.0, 0.0),
                     EnemyKind::Captain => Vec2::new(0.0, 80.0),
+                    EnemyKind::OldGuardian => Vec2::new(0.0, 60.0),
                     EnemyKind::Hyper => Vec2::new(0.0, 0.0),
                     _ => Vec2::new(320.0, -160.0),
                 };
@@ -1303,6 +1520,35 @@ pub fn spawn_level(
                 );
             }
         }
+    }
+
+    // Crown Vault: a crown pedestal near the center (pick on contact).
+    if run.area == AreaId::CrownVault {
+        let pool = [
+            CrownKind::Life,
+            CrownKind::Haste,
+            CrownKind::Guns,
+            CrownKind::Blood,
+            CrownKind::Luck,
+            CrownKind::Protection,
+            CrownKind::Love,
+            CrownKind::Risk,
+            CrownKind::Destiny,
+            CrownKind::Curses,
+            CrownKind::Hatred,
+        ];
+        let kind = pool[rand::rng().random_range(0..pool.len())];
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            CrownPedestal { kind },
+            Sprite {
+                color: Color::srgb(1.0, 0.85, 0.25),
+                custom_size: Some(Vec2::splat(28.0)),
+                ..default()
+            },
+            Transform::from_translation(Vec2::new(0.0, 40.0).extend(14.0)),
+        ));
     }
 }
 
@@ -1832,12 +2078,13 @@ mod tests {
     use crate::game::areas::AreaId;
 
     fn run_for(floor: u32) -> Run {
+        let loop_count = (floor.max(1) - 1) / 15;
         Run {
             floor,
-            world: 1,
-            area: AreaId::Desert,
-            loop_count: 0,
-            floor_in_area: 1,
+            world: world_of(floor),
+            area: AreaId::from_route_floor(floor),
+            loop_count,
+            floor_in_area: floor_in_world(floor),
             gen_seed: 0xDEAD_BEEF,
             portal_open: false,
             game_over: false,
@@ -1910,6 +2157,58 @@ mod tests {
                 "floor {floor}: boss floor should have trash mobs"
             );
         }
+    }
+
+    #[test]
+    fn secret_area_uses_own_gml_area() {
+        let mut run = run_for(4);
+        run.area = AreaId::Oasis;
+        assert_eq!(gml_area_from_run(&run), 1);
+
+        let mut run = run_for(4);
+        run.area = AreaId::HQ;
+        assert_eq!(gml_area_from_run(&run), 6);
+
+        let mut run = run_for(9);
+        run.area = AreaId::Jungle;
+        assert_eq!(gml_area_from_run(&run), 5);
+    }
+
+    #[test]
+    fn crown_vault_gets_guardian_boss() {
+        let mut run = run_for(2);
+        run.area = crate::game::areas::AreaId::CrownVault;
+        let plan = generate_level(&run);
+        assert_eq!(plan.boss, Some(EnemyKind::OldGuardian));
+    }
+
+    #[test]
+    fn crystal_caves_spawn_the_real_roster() {
+        let mut spiders = false;
+        let mut crystals = false;
+        for seed in 0..64u64 {
+            let mut run = run_for(8); // Crystal Caves
+            run.gen_seed = seed;
+            let plan = generate_level(&run);
+            for (kind, _) in &plan.enemies {
+                if *kind == EnemyKind::Spider {
+                    spiders = true;
+                }
+                if matches!(*kind, EnemyKind::Crystal | EnemyKind::LaserCrystal) {
+                    crystals = true;
+                }
+            }
+        }
+        assert!(spiders, "no spiders across 64 caves seeds");
+        assert!(crystals, "no crystals across 64 caves seeds");
+    }
+
+    #[test]
+    fn vault_goal_is_tighter_than_route_floors() {
+        let mut run = run_for(8);
+        run.area = crate::game::areas::AreaId::Vault;
+        assert_eq!(generation_goal_for_run(&run), 40);
+        assert_eq!(generation_goal_for_run(&run_for(5)), 110);
     }
 
     #[test]
@@ -2012,8 +2311,13 @@ mod environment_gen_tests {
     use super::*;
 
     fn run_for_floor(floor: u32) -> Run {
+        let loop_count = (floor.max(1) - 1) / 15;
         Run {
             floor,
+            world: world_of(floor),
+            area: AreaId::from_route_floor(floor),
+            loop_count,
+            floor_in_area: floor_in_world(floor),
             ..Default::default()
         }
     }

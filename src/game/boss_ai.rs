@@ -186,6 +186,20 @@ pub fn boss_ai(
                 dt,
                 &props,
             ),
+            EnemyKind::OldGuardian => old_guardian_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dir,
+                dt,
+                &props,
+            ),
             _ => {}
         }
 
@@ -1443,6 +1457,70 @@ fn captain_ai(
             boss.set_phase(BossPhase::Idle, 0.1);
             tf.scale = Vec3::ONE;
         }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Old Guardian — Crown Vault boss: slow advance, aimed fans + radial bursts
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn old_guardian_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dir: Vec2,
+    dt: f32,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+) {
+    // Slow advance toward the intruder.
+    let desired = if pos.distance(player_pos) < 90.0 { -dir } else { dir };
+    vel.0 += desired * def.accel * 0.55 * dt;
+    limit_velocity(vel, def.speed);
+    tf.translation += (vel.0 * dt).extend(0.0);
+    resolve_prop_collision(&mut tf.translation, def.radius, props);
+
+    if boss.attack_timer.just_finished() {
+        fire_fan(
+            commands,
+            owner,
+            pos,
+            dir,
+            Team::Enemy,
+            def.bullets_per_shot.max(4),
+            def.fan_spread,
+            def.projectile_speed,
+            def.projectile_damage,
+            def.projectile_lifetime,
+            def.projectile_radius,
+            def.projectile_color,
+            def.projectile_size,
+        );
+    }
+
+    if boss.special_timer.just_finished() {
+        fire_ring(
+            commands,
+            owner,
+            pos,
+            Team::Enemy,
+            10 + usize::from(boss.enraged) * 4,
+            boss.pattern_index as f32 * 0.19,
+            120.0,
+            3,
+            2.2,
+            4.0,
+            Color::srgb(0.95, 0.9, 0.55),
+            8.0,
+        );
+        boss.pattern_index += 1;
+        ScreenEffects::add_trauma(trauma, 0.16);
     }
 }
 

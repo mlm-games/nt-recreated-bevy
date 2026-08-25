@@ -306,6 +306,37 @@ pub fn crown_name_for_toast(crown: CrownKind) -> &'static str {
     crown_name(crown.to_u8())
 }
 
+/// Crown Vault pedestal: touching it swaps the player's active crown.
+pub fn tick_crown_pedestal(
+    mut commands: Commands,
+    mut toast: ResMut<Toast>,
+    mut q_player: Query<
+        (
+            &Transform,
+            &mut Player,
+            &mut Health,
+            &mut Inventory,
+            &mut CrownState,
+        ),
+        With<Player>,
+    >,
+    pedestals: Query<(Entity, &Transform, &CrownPedestal)>,
+) {
+    let Ok((ptf, mut player, mut health, mut inv, mut state)) = q_player.single_mut() else {
+        return;
+    };
+    let p = ptf.translation.truncate();
+    for (e, tf, ped) in &pedestals {
+        if tf.translation.truncate().distance(p) > 28.0 {
+            continue;
+        }
+        apply_crown_to_spawn(ped.kind, &mut player, &mut health, &mut inv);
+        *state = CrownState::new(ped.kind);
+        toast.show(&format!("{} TAKEN", crown_name_for_toast(ped.kind).to_ascii_uppercase()));
+        commands.entity(e).despawn();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

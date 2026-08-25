@@ -870,6 +870,7 @@ impl BossBrain {
             EnemyKind::Mom => (1.0, 2.4),
             EnemyKind::Technomancer => (2.0, 3.5),
             EnemyKind::Captain => (0.7, 2.0),
+            EnemyKind::OldGuardian => (0.9, 2.2),
             _ => (1.2, 3.0),
         };
 
@@ -1073,6 +1074,12 @@ pub struct HazardCloud {
 /// Chicken headless grace (one lethal soak per floor).
 #[derive(Component, Default)]
 pub struct HeadlessReady(pub bool);
+
+/// Vault reward: touching the pedestal swaps the player's active crown.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct CrownPedestal {
+    pub kind: CrownKind,
+}
 
 #[cfg(test)]
 mod loop_boss_brain_tests {

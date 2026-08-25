@@ -28,6 +28,14 @@ impl Default for AreaId {
     }
 }
 
+impl AreaId {
+    /// Route area for a one-based global floor (loop derived from the floor).
+    pub fn from_route_floor(floor: u32) -> AreaId {
+        let loop_count = (floor.max(1) - 1) / 15;
+        area_for_floor(floor, loop_count)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AreaTransition {
     pub from: AreaId,

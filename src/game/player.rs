@@ -250,6 +250,7 @@ pub fn player_ability(
     mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
     mut save: ResMut<crate::save::SaveData>,
     mut dirty: ResMut<SaveDirty>,
+    mut toast: ResMut<Toast>,
 ) {
     let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, shield, telek)) =
         q.single_mut()
@@ -462,8 +463,20 @@ pub fn player_ability(
                 .rads
                 .saturating_add(if regurgitate { 40 } else { 20 });
             // Robot's unlock: eat a weapon.
-            if crate::game::generated::unlocks::try_unlock_race(&mut save, RaceId::Robot) {
+            let unlocked = crate::game::generated::unlocks::check_progress_unlocks(
+                &mut save,
+                0,
+                0,
+                false,
+                true,
+                false,
+            );
+            for race in unlocked {
                 dirty.0 = true;
+                toast.show(&format!(
+                    "UNLOCKED {}",
+                    character_def(race).name.to_ascii_uppercase()
+                ));
             }
             VfxSpawner::spawn_burst(
                 &mut commands,

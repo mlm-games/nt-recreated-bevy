@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use crate::game::areas::{AreaId, area_for_floor, route_coordinates};
 use crate::game::components::*;
+use crate::game::content::WeaponId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SecretTarget {
@@ -347,9 +348,9 @@ pub fn tick_oasis_bandit_window(
     }
 }
 
-/// Cursed Caves: carry an endgame/cursed-tier weapon (interim hook on generated
-/// IDs 100..=127 until a proper cursed flag exists in weapon data) in the
-/// Crystal Caves.
+/// Cursed Caves: carry an endgame/cursed-tier weapon into the Crystal Caves.
+/// Interim rule until weapon tables carry a cursed bit: the golden/endgame
+/// family (generated IDs 90..=127) counts as cursed.
 pub fn detect_cursed_caves(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -363,19 +364,38 @@ pub fn detect_cursed_caves(
         return;
     };
 
-    let current = inv.weapons[inv.current];
-    if (100..=127).contains(&current.0) {
+    if inv.weapons.iter().any(|&w| is_cursed_weapon(w)) {
         triggers.queue(SecretTarget::CursedCaves);
     }
 }
 
-/// I.D.P.D. HQ: late loops in the Labs, deterministic per-floor pseudo roll so
-/// manual repros and tests stay stable for a given seed/floor pair.
-pub fn detect_hq(run: Res<Run>, mut triggers: ResMut<SecretTriggers>) {
+fn is_cursed_weapon(w: WeaponId) -> bool {
+    (90..=127).contains(&w.0)
+}
+
+/// I.D.P.D. HQ: Rogue can force a strike from late Labs/Palace on loop;
+/// everyone else needs a rare seeded portal roll from Labs on loop 2+.
+pub fn detect_hq(
+    run: Res<Run>,
+    mut triggers: ResMut<SecretTriggers>,
+    player_q: Query<&RaceState, With<Player>>,
+) {
+    let is_rogue = player_q
+        .single()
+        .map(|r| r.race == crate::game::content::RaceId::Rogue)
+        .unwrap_or(false);
+
+    if is_rogue && run.loop_count >= 1 && matches!(run.area, AreaId::Labs | AreaId::Palace) {
+        triggers.queue(SecretTarget::Hq);
+        return;
+    }
+
+    // Non-Rogue: rare portal after loop 2 in the Labs, deterministic per-floor
+    // pseudo roll so manual repros and tests stay stable for a seed/floor pair.
     if run.area == AreaId::Labs && run.loop_count >= 2 {
         let roll =
             ((run.gen_seed ^ run.floor as u64).wrapping_mul(6364136223846793005) >> 56) as u8;
-        if roll < 18 {
+        if roll < 12 {
             triggers.queue(SecretTarget::Hq);
         }
     }

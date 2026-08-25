@@ -1140,22 +1140,35 @@ pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<
     }
 }
 
-/// Canonical floor-reach unlocks, applied once per newly reached floor and
+/// Canonical unlock awards, applied once per newly reached floor and
 /// persisted through the throttled save flush.
 pub fn apply_floor_reach_unlocks(
     mut applied: Local<u32>,
     run: Res<Run>,
     mut dirty: ResMut<SaveDirty>,
+    mut toast: ResMut<Toast>,
     mut save: ResMut<SaveData>,
 ) {
     if run.floor <= *applied {
         return;
     }
     *applied = run.floor;
-    let before = save.unlocked_characters.len();
-    crate::game::generated::unlocks::apply_floor_unlocks(&mut save, run.floor);
-    if save.unlocked_characters.len() != before {
+    let unlocked = crate::game::generated::unlocks::check_progress_unlocks(
+        &mut save,
+        run.floor,
+        run.loop_count,
+        false,
+        false,
+        false,
+    );
+    if !unlocked.is_empty() {
         dirty.0 = true;
+        for race in unlocked {
+            toast.show(&format!(
+                "UNLOCKED {}",
+                character_def(race).name.to_ascii_uppercase()
+            ));
+        }
     }
 }
 
