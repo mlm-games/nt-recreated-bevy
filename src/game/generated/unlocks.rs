@@ -1,5 +1,3 @@
-//! GENERATED FROM toarch7/nt-recreated-public@06a2e3e
-//! Do not edit by hand.
 //! Unlock table + award hooks (canonical NT conditions).
 use crate::game::content::{RaceId, SkinLetter, character_def};
 use crate::save::SaveData;
@@ -13,7 +11,6 @@ pub fn is_race_unlocked(save: &SaveData, race: RaceId) -> bool {
 
 pub fn is_skin_unlocked(save: &SaveData, race: RaceId, skin: SkinLetter) -> bool {
     if skin as u8 <= 1 {
-        // A/B skins come free once the race itself is unlocked.
         return is_race_unlocked(save, race);
     }
     save.races
@@ -39,8 +36,8 @@ pub fn try_unlock_race(save: &mut SaveData, race: RaceId) -> bool {
     true
 }
 
-/// Canonical NT unlock awards; call on floor enter / death / special events.
-/// Returns the races newly unlocked by this event so callers can toast.
+/// Floor / death / eat-weapon / throne progress awards.
+/// Returns newly unlocked races so callers can toast.
 pub fn check_progress_unlocks(
     save: &mut SaveData,
     floor: u32,
@@ -92,34 +89,65 @@ pub fn check_progress_unlocks(
     if floor >= 15 || cleared_throne {
         award(save, RaceId::Horror);
     }
-    // Rebel + Rogue: reach a loop (Rogue's full condition is an IDPD loop
-    // escape; reaching any loop is the interim proxy).
+    // Rebel + Rogue: reach a loop
     if loop_count >= 1 {
         award(save, RaceId::Rebel);
         award(save, RaceId::Rogue);
     }
-    // Skeleton / Frog / BigDog / Cuz stay achievement-gated for later.
+    // Cuz: deep loop / hard-mode stand-in (Throne II path)
+    if loop_count >= 2 || cleared_throne {
+        award(save, RaceId::Cuz);
+    }
 
     got
 }
 
-// Bespoke unlock hooks (call sites outside this helper):
-// - Robot eat-weapon path passes `ate_weapon: true`
-// - Throne II death passes `cleared_throne: true`
+/// Kill-based unlocks (call from resolve_deaths on boss kills).
+pub fn check_kill_unlocks(
+    save: &mut SaveData,
+    kind: crate::game::content::EnemyKind,
+) -> Vec<RaceId> {
+    use crate::game::content::EnemyKind;
+    let mut got = Vec::new();
+    let mut award = |save: &mut SaveData, r: RaceId| {
+        if try_unlock_race(save, r) {
+            got.push(r);
+        }
+    };
+
+    match kind {
+        // Big Dog playable after defeating Big Dog (base or loop).
+        EnemyKind::BigDog | EnemyKind::BigDogLoop => {
+            award(save, RaceId::BigDog);
+        }
+        EnemyKind::Mom => {
+            award(save, RaceId::Frog);
+        }
+        _ => {}
+    }
+    got
+}
+
+/// Skeleton: Melting dies inside a living Necromancer's circle → unlock + mid-run transform.
+pub fn try_unlock_skeleton(save: &mut SaveData) -> bool {
+    try_unlock_race(save, RaceId::Skeleton)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::content::EnemyKind;
 
     #[test]
     fn floor_reach_unlocks_fire_in_order() {
         let mut save = SaveData::default();
-
-        assert!(check_progress_unlocks(&mut save, 4, 0, false, false, false).contains(&RaceId::Crystal));
+        assert!(
+            check_progress_unlocks(&mut save, 4, 0, false, false, false).contains(&RaceId::Crystal)
+        );
         assert!(!save.race_unlocked(RaceId::Eyes));
-        assert!(check_progress_unlocks(&mut save, 5, 0, false, false, false).contains(&RaceId::Eyes));
-
-        // Reaching the same floor again awards nothing new.
+        assert!(
+            check_progress_unlocks(&mut save, 5, 0, false, false, false).contains(&RaceId::Eyes)
+        );
         assert!(check_progress_unlocks(&mut save, 5, 0, false, false, false).is_empty());
     }
 
@@ -143,12 +171,18 @@ mod tests {
     }
 
     #[test]
+    fn big_dog_and_mom_kill_unlocks() {
+        let mut save = SaveData::default();
+        assert!(check_kill_unlocks(&mut save, EnemyKind::BigDog).contains(&RaceId::BigDog));
+        assert!(check_kill_unlocks(&mut save, EnemyKind::Mom).contains(&RaceId::Frog));
+    }
+
+    #[test]
     fn skins_ab_are_free_once_race_is_unlocked() {
         let mut save = SaveData::default();
         check_progress_unlocks(&mut save, 4, 0, false, false, false);
         assert!(is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::A));
         assert!(is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::B));
-        // C/D stay locked until their own conditions fire.
         assert!(!is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::C));
     }
 }

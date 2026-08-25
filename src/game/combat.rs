@@ -1415,7 +1415,15 @@ pub fn resolve_deaths(
     mut rumble: MessageWriter<GamepadRumbleRequest>,
     transition: ResMut<Transition<AppState>>,
     mut player_q: Query<
-        (Entity, &Transform, &mut Health, &mut Inventory, &mut Player),
+        (
+            Entity,
+            &Transform,
+            &mut Health,
+            &mut Inventory,
+            &mut Player,
+            &mut RaceState,
+            Option<&mut Sprite>,
+        ),
         (With<Player>, Without<Enemy>),
     >,
     mut fire_q: Query<&mut FireCooldown, (With<Player>, Without<Enemy>)>,
@@ -1439,7 +1447,9 @@ pub fn resolve_deaths(
         return;
     }
 
-    let Ok((player_e, player_tf, mut phealth, mut pinv, mut player)) = player_q.single_mut() else {
+    let Ok((player_e, player_tf, mut phealth, mut pinv, mut player, mut race_state, mut player_sprite)) =
+        player_q.single_mut()
+    else {
         return;
     };
 
@@ -1528,6 +1538,18 @@ pub fn resolve_deaths(
                 "{} DEFEATED",
                 enemy_def(enemy.kind).name.to_ascii_uppercase()
             ));
+        }
+
+        // Kill-gated unlocks (Big Dog, Frog/Mom, …)
+        let newly = crate::game::generated::unlocks::check_kill_unlocks(&mut save, enemy.kind);
+        if !newly.is_empty() {
+            dirty.0 = true;
+            for r in newly {
+                toast.show(&format!(
+                    "{} UNLOCKED",
+                    crate::game::content::character_def(r).name.to_ascii_uppercase()
+                ));
+            }
         }
 
         let burst_count = if def.boss {
@@ -1680,7 +1702,7 @@ pub fn resolve_deaths(
         );
         return;
     }
-    // Player death (with Strong Spirit / Last Wish revives).
+    // Player death (Strong Spirit / Last Wish / Melting→Skeleton).
     if phealth.hp <= 0 && !run.game_over {
         if player.strong_spirit_ready {
             player.strong_spirit_ready = false;
@@ -1693,18 +1715,6 @@ pub fn resolve_deaths(
         if !player.last_wish_used {
             player.last_wish_used = true;
             phealth.hp = phealth.max;
-            for (slot, kind) in pinv.ammo.iter_mut().zip([
-                AmmoKind::Bullets,
-                AmmoKind::Shells,
-                AmmoKind::Bolts,
-                AmmoKind::Explosives,
-                AmmoKind::Energy,
-            ]) {
-                // ammo array is 6 with index 0 unused; zip handles first 5 slots
-                let _ = slot;
-                let _ = kind;
-            }
-            // Refill all ammo types properly
             for kind in [
                 AmmoKind::Bullets,
                 AmmoKind::Shells,
@@ -1717,6 +1727,57 @@ pub fn resolve_deaths(
             HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
             audio.play_pickup(&mut commands);
             return;
+        }
+
+        // Melting → Skeleton: die within ~96px of a living Necromancer.
+        if race_state.race == RaceId::Melting {
+            let ppos = player_tf.translation.truncate();
+            let near_necro = q.iter().any(|(_, ntf, team, health, enemy)| {
+                *team == Team::Enemy
+                    && health.hp > 0
+                    && enemy.map(|e| e.kind == EnemyKind::Necromancer).unwrap_or(false)
+                    && ntf.translation.truncate().distance(ppos) <= 96.0
+            });
+            if near_necro {
+                let unlocked = crate::game::generated::unlocks::try_unlock_skeleton(&mut save);
+                if unlocked {
+                    dirty.0 = true;
+                }
+
+                let sk = crate::game::content::character_def(RaceId::Skeleton);
+                race_state.race = RaceId::Skeleton;
+                player.ability = sk.ability;
+                player.chain_explosions = false;
+                player.shield_on_hit = false;
+                player.headless_ready = false;
+                // Skeleton is frail.
+                phealth.max = sk.max_hp.max(2);
+                phealth.hp = phealth.max;
+                phealth.invuln = Timer::from_seconds(1.25, TimerMode::Once);
+                player.ability_cooldown = Timer::from_seconds(0.0, TimerMode::Once);
+
+                if let Some(ref mut spr) = player_sprite {
+                    spr.color = sk.color;
+                }
+
+                toast.show(if unlocked {
+                    "SKELETON UNLOCKED"
+                } else {
+                    "BACK FROM THE DEAD"
+                });
+                HitFlash::apply(&mut commands, player_e, Color::srgb(0.95, 0.95, 1.0), 0.35);
+                ScreenEffects::flash_white(&mut flash, 0.08);
+                ScreenEffects::add_trauma(&mut trauma, 0.35);
+                audio.play_portal(&mut commands);
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    ppos,
+                    28,
+                    Color::srgb(0.9, 0.9, 1.0),
+                    (80.0, 220.0),
+                );
+                return;
+            }
         }
 
         run.game_over = true;
@@ -1757,7 +1818,6 @@ pub fn resolve_deaths(
         }
         save.total_runs += 1;
         save.total_kills = save.total_kills.saturating_add(run.total_kills);
-        // Melting's unlock: die once.
         crate::game::generated::unlocks::check_progress_unlocks(
             &mut save,
             run.floor,
