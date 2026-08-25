@@ -188,6 +188,7 @@ pub fn enemy_ai(
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
+    mut corpses: Query<(Entity, &Corpse, &Transform)>,
 ) {
     let Ok((player_tf, player)) = player_q.single() else {
         return;
@@ -312,12 +313,28 @@ pub fn enemy_ai(
             }
         }
 
-        // Necromancer revive pulse: periodically spawn a Freak.
+        // Necromancer revive pulse: revive nearest corpse or spawn a Freak.
         if enemy.kind == EnemyKind::Necromancer {
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
                 brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
-                if (positions.len() as u32) < 40 {
+                let mut best: Option<(Entity, Vec2)> = None;
+                let mut best_d = 160.0;
+                for (ce, _corpse, ctf) in &corpses {
+                    let d = ctf.translation.truncate().distance(pos);
+                    if d < best_d {
+                        best_d = d;
+                        best = Some((ce, ctf.translation.truncate()));
+                    }
+                }
+                if let Some((ce, cpos)) = best {
+                    commands.entity(ce).despawn();
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::Freak,
+                        pos: cpos,
+                        difficulty: 1.0,
+                    });
+                } else if (positions.len() as u32) < 40 {
                     let ang = rng.random_range(0.0..std::f32::consts::TAU);
                     let p = pos + Vec2::new(ang.cos(), ang.sin()) * 40.0;
                     commands.spawn(PendingEnemySpawn {
@@ -598,6 +615,19 @@ pub fn tick_boss_intro(
     for (e, mut intro) in &mut q {
         intro.timer.tick(time.delta());
         if intro.timer.just_finished() {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
+pub fn tick_corpses(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Corpse)>,
+) {
+    for (e, mut c) in &mut q {
+        c.life.tick(time.delta());
+        if c.life.just_finished() {
             commands.entity(e).despawn();
         }
     }

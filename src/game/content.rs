@@ -1198,6 +1198,8 @@ pub enum EnemyKind {
     Crab,
     // Vault
     OldGuardian,
+    /// Palace guardian spawned by Throne statues.
+    PalaceGuardian,
 }
 
 /// `size`/`color` are presentation-parity fields retained from the reference
@@ -2316,6 +2318,36 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_color: Color::srgb(0.9, 0.85, 0.5),
             projectile_size: 8.0,
             boss: true,
+        },
+        EnemyKind::PalaceGuardian => EnemyDef {
+            name: "Palace Guardian",
+            hp: 45,
+            speed: 95.0,
+            accel: 2800.0,
+            radius: 14.0,
+            size: 28.0,
+            color: Color::srgb(0.85, 0.75, 0.45),
+            sprite: "images/sprGuardianIdle.png",
+            score: 40,
+            touch_damage: 4,
+            rad_drop: 10,
+            drop_chance: 40,
+            weapon_chance: 6,
+            preferred_range: 80.0,
+            shoot_range: 420.0,
+            attack_cooldown: 0.9,
+            bullets_per_shot: 3,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.12,
+            projectile_speed: 200.0,
+            projectile_spread: 0.04,
+            projectile_damage: 3,
+            projectile_radius: 4.0,
+            projectile_lifetime: 2.2,
+            projectile_color: Color::srgb(1.0, 0.85, 0.4),
+            projectile_size: 7.0,
+            boss: false,
         },
     }
 }

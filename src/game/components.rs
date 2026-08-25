@@ -908,6 +908,7 @@ pub enum BossPhase {
     // Mom / Captain extras
     Spawning,
     Teleport,
+    CarpetBeam,
 }
 
 /// Phase state machine driving the bespoke boss behaviors in `boss_ai`.
@@ -1163,6 +1164,75 @@ pub struct HeadlessReady(pub bool);
 pub struct CrownPedestal {
     pub kind: CrownKind,
 }
+
+/// Palace loop-gate state (floor 7-3 / Throne room).
+#[derive(Resource, Debug, Clone)]
+pub struct ThroneRoomState {
+    pub generators_total: u8,
+    pub generators_destroyed: u8,
+    pub all_generators_down: bool,
+    /// When true, Throne death opens campfire/loop path.
+    pub loop_eligible: bool,
+    /// Player is standing on the red carpet this tick.
+    pub player_on_carpet: bool,
+    pub halved_throne: bool,
+}
+
+impl Default for ThroneRoomState {
+    fn default() -> Self {
+        Self {
+            generators_total: 4,
+            generators_destroyed: 0,
+            all_generators_down: false,
+            loop_eligible: false,
+            player_on_carpet: false,
+            halved_throne: false,
+        }
+    }
+}
+
+impl ThroneRoomState {
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn note_generator_destroyed(&mut self) {
+        self.generators_destroyed = self.generators_destroyed.saturating_add(1);
+        if self.generators_destroyed >= self.generators_total {
+            self.all_generators_down = true;
+            self.loop_eligible = true;
+        }
+    }
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BigGenerator {
+    pub index: u8,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ThroneStatueProp {
+    /// Guardians to spawn on break (1 + loop_count).
+    pub guardian_count: u8,
+}
+
+/// Red carpet volume in the Throne room (axis-aligned).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ThroneCarpet {
+    pub half_extents: Vec2,
+}
+
+/// Enemy corpse for necromancy / gore linger.
+#[derive(Component, Debug)]
+pub struct Corpse {
+    pub kind: EnemyKind,
+    pub life: Timer,
+    pub pos: Vec2,
+}
+
+/// Marks a wall lattice cell as a "screen end" (preferentially broken by bosses).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct ScreenEnd;
 
 #[cfg(test)]
 mod loop_boss_brain_tests {

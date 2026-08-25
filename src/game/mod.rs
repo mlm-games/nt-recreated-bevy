@@ -65,6 +65,7 @@ impl Plugin for GamePlugin {
             .init_resource::<LoopTransition>()
             .init_resource::<HammerheadBudget>()
             .init_resource::<LastDamageTaken>()
+            .init_resource::<ThroneRoomState>()
             .init_resource::<ambience::AreaAudioState>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
             .add_message::<reactive_audio::UiBridgeAction>()
@@ -149,6 +150,7 @@ impl Plugin for GamePlugin {
                         enemies::tick_frog_eggs,
                         enemies::tick_delayed_boss_spawns,
                         enemies::tick_boss_intro,
+                        enemies::tick_corpses,
                         boss_ai::boss_ai,
                         boss_ai::tick_hyper_orbit_crystals,
                         walls::apply_pending_wall_breaks,

@@ -34,6 +34,8 @@ pub struct LevelPlan {
     pub chests: Vec<ChestSpawn>,
     pub enemies: Vec<(EnemyKind, Vec2)>,
     pub boss: Option<EnemyKind>,
+    /// How many of `boss` to spawn (multi-Bandit). Other bosses ignore >1.
+    pub boss_count: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,6 +60,10 @@ pub enum PropKind {
     IcePatch,
     FireTrap,
     Mine,
+
+    // Palace throne-room set pieces
+    BigGenerator,
+    ThroneStatue,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -194,6 +200,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
         chests: Vec::new(),
         enemies: Vec::new(),
         boss: None,
+        boss_count: 1,
     };
 
     let mut seen = std::collections::HashSet::new();
@@ -852,7 +859,11 @@ fn populate(
     // quiet single-floor stop. Loop Sewers gets Mom, loop Labs the
     // Technomancer; HQ runs and the Crown Vault host their own bosses.
     if boss_sub {
-        plan.boss = Some(boss_for_floor_and_loop(run.floor, run.loop_count));
+        let kind = boss_for_floor_and_loop(run.floor, run.loop_count);
+        plan.boss = Some(kind);
+        if matches!(kind, EnemyKind::BigBandit | EnemyKind::BigBanditLoop) {
+            plan.boss_count = big_bandit_count(run.loop_count);
+        }
     } else {
         match run.area {
             AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
@@ -866,6 +877,12 @@ fn populate(
             AreaId::HQ => plan.boss = Some(EnemyKind::Captain),
             _ => {}
         }
+    }
+
+    // Palace throne room set piece (route floor 15)
+    let rf = ((run.floor.max(1) - 1) % 15) + 1;
+    if rf == 15 && !crate::game::secret_areas::is_secret_area(run.area) {
+        populate_throne_room(run, plan);
     }
 
     // Chest trimming (scrPopChests): keep the furthest of each kind.
@@ -1015,6 +1032,35 @@ fn walls_cover_tile(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: 
         }
     }
     false
+}
+
+fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
+    // Keep palace throne room sparse: remove clutter traps/mines.
+    plan.props.retain(|(k, _)| !matches!(k, PropKind::Mine | PropKind::FireTrap));
+    plan.enemies.clear();
+
+    let gens = [
+        Vec2::new(-220.0, 120.0),
+        Vec2::new(220.0, 120.0),
+        Vec2::new(-220.0, -120.0),
+        Vec2::new(220.0, -120.0),
+    ];
+    for p in gens {
+        plan.props.push((PropKind::BigGenerator, p));
+    }
+    let statues = [
+        Vec2::new(-70.0, 160.0),
+        Vec2::new(70.0, 160.0),
+        Vec2::new(-70.0, 40.0),
+        Vec2::new(70.0, 40.0),
+        Vec2::new(-70.0, -80.0),
+        Vec2::new(70.0, -80.0),
+    ];
+    for p in statues {
+        plan.props.push((PropKind::ThroneStatue, p));
+    }
+    plan.boss = Some(EnemyKind::Throne);
+    plan.boss_count = 1;
 }
 
 fn trim_chests(chests: &mut Vec<ChestSpawn>) {
@@ -1488,19 +1534,21 @@ pub fn spawn_level(
     if let Some(kind) = plan.boss {
         match kind {
             EnemyKind::BigBandit | EnemyKind::BigBanditLoop => {
-                // Upstream: Big Bandit bursts in after ~10% of the floor's
-                // enemies die, charging from a wall. The marker is consumed
-                // by enemies::tick_delayed_boss_spawns.
-                commands.spawn((
-                    GameCleanup,
-                    LevelCleanup,
-                    PendingDelayedBoss {
-                        kind,
-                        initial_trash: plan.enemies.len() as u32,
-                        kill_fraction: 0.10,
-                        from_wall: true,
-                    },
-                ));
+                // Upstream: loop_count *2 simultaneous (L1→2, L2→4…); each
+                // bursts from a wall after a staggered kill fraction.
+                let n = plan.boss_count.max(1);
+                for i in 0..n {
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        PendingDelayedBoss {
+                            kind,
+                            initial_trash: (plan.enemies.len() as u32).max(1),
+                            kill_fraction: 0.10 + (i as f32) * 0.02,
+                            from_wall: true,
+                        },
+                    ));
+                }
             }
             EnemyKind::BigDog | EnemyKind::BigDogLoop => {
                 // Sleeping opposite side of the map.
@@ -1537,6 +1585,23 @@ pub fn spawn_level(
                 );
             }
         }
+    }
+
+    // Throne carpet (visual + laser trigger volume) when Throne is the boss.
+    if matches!(plan.boss, Some(EnemyKind::Throne)) {
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            ThroneCarpet {
+                half_extents: Vec2::new(36.0, 240.0),
+            },
+            Sprite {
+                color: Color::srgba(0.75, 0.12, 0.14, 0.85),
+                custom_size: Some(Vec2::new(72.0, 480.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, -48.0),
+        ));
     }
 
     // Crown Vault: a crown pedestal near the center (pick on contact).
@@ -1920,6 +1985,31 @@ fn spawn_prop(
             true,
         ),
 
+        PropKind::BigGenerator => (
+            &["images/sprGenerator.png", "images/sprBigGenerator.png"],
+            Color::srgb(0.55, 0.75, 1.0),
+            Vec2::new(40.0, 48.0),
+            40.0,
+            40,
+            true,
+            false,
+            None,
+            -8.0,
+            true,
+        ),
+        PropKind::ThroneStatue => (
+            &["images/sprThroneStatue.png"],
+            Color::srgb(0.9, 0.82, 0.55),
+            Vec2::splat(36.0),
+            32.0,
+            12,
+            true,
+            false,
+            None,
+            -8.0,
+            true,
+        ),
+
         PropKind::GroundDecal => (
             &[decal_png],
             Color::srgba(0.5, 0.5, 0.5, 0.5),
@@ -1969,6 +2059,12 @@ fn spawn_prop(
     if kind == PropKind::Torch {
         entity.insert(SurfacePulse::hazard(pos.x * 0.01 + pos.y * 0.02));
     }
+    if kind == PropKind::BigGenerator {
+        entity.insert(BigGenerator { index: 0 });
+    }
+    if kind == PropKind::ThroneStatue {
+        entity.insert(ThroneStatueProp { guardian_count: 1 });
+    }
 }
 
 pub fn is_boss_floor(floor: u32) -> bool {
@@ -1989,6 +2085,15 @@ pub fn boss_for_floor_and_loop(floor: u32, loop_count: u32) -> EnemyKind {
         11 => EnemyKind::LilHunter,
         15 => EnemyKind::Throne,
         _ => EnemyKind::BigBandit,
+    }
+}
+
+/// Upstream: Big Bandits on loop = loop_count * 2 (L1→2, L2→4, …). Pre-loop = 1.
+pub fn big_bandit_count(loop_count: u32) -> u32 {
+    if loop_count == 0 {
+        1
+    } else {
+        loop_count.saturating_mul(2).max(2)
     }
 }
 

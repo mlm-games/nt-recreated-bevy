@@ -1460,6 +1460,23 @@ pub fn resolve_deaths(
         let pos = tf.translation.truncate();
 
         commands.entity(e).despawn();
+        if !def.boss && !matches!(enemy.kind, EnemyKind::IdpdVan | EnemyKind::FrogEgg) {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                Corpse {
+                    kind: enemy.kind,
+                    life: Timer::from_seconds(12.0, TimerMode::Once),
+                    pos,
+                },
+                Sprite {
+                    color: Color::srgba(0.35, 0.1, 0.1, 0.85),
+                    custom_size: Some(Vec2::splat(def.size * 0.7)),
+                    ..default()
+                },
+                Transform::from_translation(pos.extend(-5.0)),
+            ));
+        }
 
         // Loop-transition hooks must run before normal drop handling so the
         // interlude starts while loot still pops.

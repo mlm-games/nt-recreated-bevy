@@ -131,13 +131,15 @@ pub fn segment_hits_wall(
     false
 }
 
-/// Per-floor budget reset driven by `FloorStarted`.
+/// Per-floor budget + throne-room gate reset driven by `FloorStarted`.
 pub fn reset_hammerhead_budget(
     mut events: MessageReader<FloorStarted>,
     mut budget: ResMut<HammerheadBudget>,
+    mut throne: ResMut<ThroneRoomState>,
 ) {
     if events.read().next().is_some() {
         budget.remaining = HammerheadBudget::default().remaining;
+        throne.reset();
     }
 }
 

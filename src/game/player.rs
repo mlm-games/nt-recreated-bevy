@@ -834,6 +834,7 @@ pub fn player_fire(
         spawn_pellets(
             &mut commands,
             &mut trauma,
+            &mut hitstop,
             &audio,
             &mut rumble,
             &gamepads,
@@ -851,6 +852,9 @@ pub fn player_fire(
                 spawn_pellets(
                     &mut commands,
                     &mut trauma,
+
+                    &mut hitstop,
+
                     &audio,
                     &mut rumble,
                     &gamepads,
@@ -938,6 +942,9 @@ pub fn player_fire(
     spawn_pellets(
         &mut commands,
         &mut trauma,
+
+        &mut hitstop,
+
         &audio,
         &mut rumble,
         &gamepads,
@@ -965,6 +972,9 @@ pub fn player_fire(
             spawn_pellets(
                 &mut commands,
                 &mut trauma,
+
+                &mut hitstop,
+
                 &audio,
                 &mut rumble,
                 &gamepads,
@@ -1022,6 +1032,7 @@ fn apply_weapon_mutation_mods(
 fn spawn_pellets(
     commands: &mut Commands,
     trauma: &mut Trauma,
+    hitstop: &mut HitStop,
     audio: &GameAudio,
     rumble: &mut MessageWriter<GamepadRumbleRequest>,
     gamepads: &Query<(Entity, &Gamepad)>,
@@ -1032,6 +1043,10 @@ fn spawn_pellets(
     id: WeaponId,
     def: &WeaponDef,
 ) {
+    let sleep = crate::game::weapon_runtime::weapon_sleep_secs(id);
+    if sleep > 0.0 {
+        hitstop.trigger((sleep * 8.0).clamp(0.15, 0.85), sleep);
+    }
     ScreenEffects::add_trauma(trauma, def.shake);
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 

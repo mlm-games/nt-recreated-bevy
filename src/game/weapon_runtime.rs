@@ -206,6 +206,61 @@ fn family_for(meta: &WeaponData) -> WeaponFamily {
     }
 }
 
+/// Upstream Sleep() is frames @30fps. Return seconds for HitStop.
+pub fn weapon_sleep_secs(id: WeaponId) -> f32 {
+    let fam = weapon_family(id);
+    let meta = weapon_meta(sanitize_weapon_id(id));
+    let name = meta.wep_name;
+
+    let frames: f32 = match base_weapon_name(name) {
+        "REVOLVER" | "PISTOL" => 2.0,
+        "MACHINEGUN" | "SMG" => 1.0,
+        "ASSAULT RIFLE" => 3.0,
+        "SHOTGUN" | "DOUBLE SHOTGUN" | "SAWED-OFF SHOTGUN" => 5.0,
+        "SLUGGER" | "HEAVY SLUGGER" => 6.0,
+        "CROSSBOW" | "HEAVY CROSSBOW" => 4.0,
+        "GRENADE LAUNCHER" | "BAZOOKA" | "NUKE LAUNCHER" => 8.0,
+        "SUPER PLASMA CANNON" | "PLASMA CANNON" => 10.0,
+        "LIGHTNING HAMMER" | "HAMMER" | "SLEDGEHAMMER" => 8.0,
+        "SCREWDRIVER" | "WRENCH" | "GUITAR" => 4.0,
+        "LASER RIFLE" | "LASER PISTOL" => 2.0,
+        "ENERGY SWORD" | "ENERGY SCREWDRIVER" => 5.0,
+        _ => match fam {
+            WeaponFamily::Empty => 0.0,
+            WeaponFamily::Automatic | WeaponFamily::Pistol => 1.5,
+            WeaponFamily::BurstRifle => 3.0,
+            WeaponFamily::Shotgun => 5.0,
+            WeaponFamily::Slugger | WeaponFamily::Crossbow => 5.0,
+            WeaponFamily::Explosive => 7.0,
+            WeaponFamily::Plasma | WeaponFamily::Laser => 4.0,
+            WeaponFamily::Lightning | WeaponFamily::Flame => 3.0,
+            WeaponFamily::MeleeLight => 3.0,
+            WeaponFamily::MeleeHeavy => 7.0,
+            WeaponFamily::Disc | WeaponFamily::Splinter => 4.0,
+            WeaponFamily::Toxic | WeaponFamily::Deployable | WeaponFamily::Novelty => 2.0,
+        },
+    };
+
+    let mult = if name.starts_with("ULTRA ") {
+        1.25
+    } else if name.starts_with("CURSED ") {
+        1.1
+    } else {
+        1.0
+    };
+
+    (frames * mult / 30.0).clamp(0.0, 0.45)
+}
+
+fn base_weapon_name(name: &str) -> &str {
+    let stripped = name
+        .strip_prefix("ULTRA ")
+        .or_else(|| name.strip_prefix("CURSED "))
+        .or_else(|| name.strip_prefix("GOLDEN "))
+        .unwrap_or(name);
+    stripped
+}
+
 #[allow(dead_code)]
 pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
     let id = sanitize_weapon_id(id);
@@ -2157,13 +2212,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
 
         _ => {}
     }
-}
-
-fn base_weapon_name(name: &'static str) -> &'static str {
-    name.strip_prefix("GOLDEN ")
-        .or_else(|| name.strip_prefix("ULTRA "))
-        .or_else(|| name.strip_prefix("CURSED "))
-        .unwrap_or(name)
 }
 
 fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
