@@ -513,6 +513,17 @@ fn apply_mutation(
         }
         MutationId::BackMuscle => {
             player.back_muscle += 1;
+            for kind in [
+                AmmoKind::Bullets,
+                AmmoKind::Shells,
+                AmmoKind::Bolts,
+                AmmoKind::Explosives,
+                AmmoKind::Energy,
+            ] {
+                let cap = player.ammo_cap(kind);
+                let a = inv.ammo_mut(kind);
+                *a = (*a).min(cap);
+            }
         }
         MutationId::Euphoria => {
             euphoria.0 = true;
@@ -740,7 +751,7 @@ fn apply_ultra_mutation(
                 AmmoKind::Explosives,
                 AmmoKind::Energy,
             ] {
-                *inv.ammo_mut(kind) = ammo_max(kind);
+                *inv.ammo_mut(kind) = player.ammo_cap(kind);
             }
         }
 

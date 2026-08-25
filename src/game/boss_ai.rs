@@ -35,6 +35,7 @@ pub fn boss_ai(
         With<Enemy>,
     >,
     props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
 ) {
     let Ok((player_tf, player_vel)) = player_q.single() else {
         return;
@@ -77,6 +78,7 @@ pub fn boss_ai(
                 dir,
                 dt,
                 &props,
+                &walls,
             ),
             EnemyKind::BigDog | EnemyKind::BigDogLoop => big_dog_ai(
                 &mut commands,
@@ -185,6 +187,7 @@ pub fn boss_ai(
                 dir,
                 dt,
                 &props,
+                &walls,
             ),
             EnemyKind::OldGuardian => old_guardian_ai(
                 &mut commands,
@@ -221,6 +224,7 @@ fn big_bandit_ai(
     dir: Vec2,
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+    walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
 ) {
     let looped = def.name.contains("Loop");
     let volley_count = if looped { 7 } else { 5 };
@@ -242,21 +246,31 @@ fn big_bandit_ai(
             resolve_prop_collision(&mut tf.translation, def.radius, props);
 
             if boss.attack_timer.just_finished() {
-                fire_fan(
-                    commands,
-                    owner,
-                    pos,
-                    dir,
-                    Team::Enemy,
-                    volley_count,
-                    volley_spread,
-                    if looped { 220.0 } else { 165.0 },
-                    if looped { 4 } else { 3 },
-                    3.2,
-                    4.5,
-                    Color::srgb(1.0, 0.28, 0.08),
-                    8.0,
-                );
+                // Prefer a charge when close or when a wall blocks the shot.
+                let los_blocked = crate::game::walls::segment_hits_wall(pos, player_pos, walls);
+                let close = pos.distance(player_pos) < 110.0;
+                if (close || los_blocked) && pos.distance(player_pos) < 520.0 {
+                    boss.target = player_pos;
+                    boss.set_phase(BossPhase::Telegraph, 0.28);
+                    vel.0 *= 0.25;
+                    ScreenEffects::add_trauma(trauma, 0.08);
+                } else {
+                    fire_fan(
+                        commands,
+                        owner,
+                        pos,
+                        dir,
+                        Team::Enemy,
+                        volley_count,
+                        volley_spread,
+                        if looped { 220.0 } else { 165.0 },
+                        if looped { 4 } else { 3 },
+                        3.2,
+                        4.5,
+                        Color::srgb(1.0, 0.28, 0.08),
+                        8.0,
+                    );
+                }
             }
 
             if boss.special_timer.just_finished() && pos.distance(player_pos) < 520.0 {
@@ -282,8 +296,12 @@ fn big_bandit_ai(
 
         BossPhase::Charging => {
             tf.scale = Vec3::splat(1.06);
+            let before = tf.translation.truncate();
             tf.translation += (vel.0 * dt).extend(0.0);
-            resolve_prop_collision(&mut tf.translation, def.radius, props);
+            let after = tf.translation.truncate();
+            crate::game::walls::queue_wall_breaks_along_segment(
+                commands, walls, before, after, def.radius * 0.9,
+            );
 
             if boss.phase_timer.just_finished() {
                 boss.set_phase(BossPhase::Cooldown, 0.55);
@@ -1372,6 +1390,7 @@ fn captain_ai(
     dir: Vec2,
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+    walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
 ) {
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
@@ -1430,8 +1449,12 @@ fn captain_ai(
         }
 
         BossPhase::Charging => {
+            let before = tf.translation.truncate();
             tf.translation += (vel.0 * dt).extend(0.0);
-            resolve_prop_collision(&mut tf.translation, def.radius, props);
+            let after = tf.translation.truncate();
+            crate::game::walls::queue_wall_breaks_along_segment(
+                commands, walls, before, after, def.radius * 0.9,
+            );
 
             if boss.phase_timer.just_finished() {
                 vel.0 *= 0.15;

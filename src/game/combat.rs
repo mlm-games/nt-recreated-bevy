@@ -102,6 +102,7 @@ pub fn tick_beams(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut secrets: ResMut<SecretTriggers>,
+    mut last_damage: ResMut<LastDamageTaken>,
     mut beams: Query<(Entity, &Transform, &mut Beam)>,
     mut targets: Query<
         (
@@ -151,6 +152,7 @@ pub fn tick_beams(
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 secrets.mark_damage_taken();
+                last_damage.note(Some(HitId::Trap), None);
             }
 
             HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.08);
@@ -708,6 +710,7 @@ pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut secrets: ResMut<SecretTriggers>,
+    mut last_damage: ResMut<LastDamageTaken>,
     mut clouds: Query<(Entity, &Team, &Transform, &mut HazardCloud), Without<AbilityHazard>>,
     mut targets: Query<
         (Entity, &Transform, &Team, &mut Health),
@@ -743,6 +746,11 @@ pub fn tick_hazard_clouds(
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 // Hazard damage disqualifies the Oasis secret for this floor.
                 secrets.mark_damage_taken();
+                let hid = match cloud.kind {
+                    crate::game::content::HazardKind::Toxic => HitId::Toxic,
+                    crate::game::content::HazardKind::Fire => HitId::Fire,
+                };
+                last_damage.note(Some(hid), None);
             }
         }
     }
@@ -767,6 +775,8 @@ pub fn apply_explosions(
         (Entity, &mut Prop, &Transform, Option<&PropDeathEffect>),
         (With<Prop>, Without<Player>),
     >,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    mut last_damage: ResMut<LastDamageTaken>,
 ) {
     for (e, mut boom, tf) in &mut q {
         boom.timer.tick(time.delta());
@@ -849,6 +859,21 @@ pub fn apply_explosions(
 
                 commands.entity(prop_e).despawn();
             }
+
+            // Explosions chew nearby walls.
+            for (_, cell, wtf) in &walls {
+                if wtf.translation.truncate().distance(pos) < boom.radius * 0.85 {
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        PendingWallBreak {
+                            cell: (cell.0, cell.1),
+                            pos: wtf.translation.truncate(),
+                            spawn_floor: true,
+                        },
+                    ));
+                }
+            }
         }
 
         // Friendly fire: explosions can hurt the player too (Boiling Veins
@@ -870,6 +895,7 @@ pub fn apply_explosions(
             health.hp -= dmg;
             health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             secrets.mark_damage_taken();
+            last_damage.note(boom.source.map(|s| s.hit_id), None);
             HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
         }
@@ -887,6 +913,7 @@ pub fn projectile_hits(
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
     mut secrets: ResMut<SecretTriggers>,
+    mut last_damage: ResMut<LastDamageTaken>,
     player_state: Query<&Player, With<Player>>,
     mut projectiles: Query<
         (
@@ -1013,6 +1040,7 @@ pub fn projectile_hits(
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 hit_player = true;
                 secrets.mark_damage_taken();
+                last_damage.note(proj.source.map(|s| s.hit_id), None);
                 audio.play_hurt(&mut commands);
             } else {
                 audio.play_hit(&mut commands);
@@ -1246,6 +1274,7 @@ pub fn contact_damage(
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
     mut secrets: ResMut<SecretTriggers>,
+    mut last_damage: ResMut<LastDamageTaken>,
     mut player_q: Query<
         (Entity, &Transform, &mut Health, &mut Velocity, &Player),
         (With<Player>, Without<Enemy>),
@@ -1298,6 +1327,7 @@ pub fn contact_damage(
         health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
         brain.melee = Timer::from_seconds(0.5, TimerMode::Once);
         secrets.mark_damage_taken();
+        last_damage.note(Some(HitId::Contact), Some(enemy.kind));
 
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
         GameFeel::apply_knockback(&mut player_vel.0, away, 240.0);
@@ -1377,6 +1407,7 @@ pub fn resolve_deaths(
         ResMut<SlowMotion>,
         ResMut<LoopTransition>,
         ResMut<Toast>,
+        ResMut<LastDamageTaken>,
     ),
     audio: Res<GameAudio>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -1400,6 +1431,7 @@ pub fn resolve_deaths(
         mut slow_mo,
         mut loop_transition,
         mut toast,
+        mut last_damage,
     ) = effects;
     if run.game_over {
         return;
@@ -1460,6 +1492,15 @@ pub fn resolve_deaths(
         ScreenEffects::add_trauma(&mut trauma, 0.25);
         ScreenEffects::chromatic_pulse(&mut chroma, 0.08);
         hitstop.trigger(0.28, 0.055);
+        if def.boss {
+            hitstop.trigger(0.28, 0.18);
+            GameFeel::slow_motion(&mut slow_mo, 0.35, 0.55);
+            ScreenEffects::flash_white(&mut flash, 0.12);
+            toast.show(&format!(
+                "{} DEFEATED",
+                enemy_def(enemy.kind).name.to_ascii_uppercase()
+            ));
+        }
 
         let burst_count = if def.boss { 40 } else { 14 };
         VfxSpawner::spawn_burst(
@@ -1478,7 +1519,7 @@ pub fn resolve_deaths(
             phealth.hp = (phealth.hp + 2).min(phealth.max);
         }
         if player.lucky_shot && rng.random_range(0..10) == 0 {
-            give_ammo(&mut pinv);
+            give_ammo(&mut pinv, &player);
         }
         // Trigger Fingers: a kill cuts the in-progress reload by 40%.
         if player.mutations.contains(&MutationId::TriggerFingers)
@@ -1615,7 +1656,7 @@ pub fn resolve_deaths(
                 AmmoKind::Explosives,
                 AmmoKind::Energy,
             ] {
-                *pinv.ammo_mut(kind) = ammo_max(kind);
+                *pinv.ammo_mut(kind) = player.ammo_cap(kind);
             }
             HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
             audio.play_pickup(&mut commands);
@@ -1671,6 +1712,7 @@ pub fn resolve_deaths(
         );
         dirty.0 = true;
         paused.0 = false;
+        toast.show(&format!("KILLED BY {}", last_damage.source_name));
 
         // Keep the game running in InGame so the death slow-mo plays; the
         // gameplay gate on `run.game_over` freezes actions. The UI overlay
@@ -1679,14 +1721,14 @@ pub fn resolve_deaths(
     }
 }
 
-fn give_ammo(inv: &mut Inventory) {
+fn give_ammo(inv: &mut Inventory, player: &Player) {
     let id = inv.weapons[inv.current];
     if id == WeaponId::NONE {
         let mut rng = rand::rng();
         let kind = random_ammo_kind(&mut rng);
         let slot = inv.ammo_mut(kind);
         let add = ammo_pickup_amount(kind);
-        *slot = (*slot + add).min(ammo_max(kind));
+        *slot = (*slot + add).min(player.ammo_cap(kind));
         return;
     }
     let def = crate::game::weapon_runtime::weapon_runtime_def(id);
@@ -1695,11 +1737,11 @@ fn give_ammo(inv: &mut Inventory) {
     }
     let slot = inv.ammo_mut(def.ammo);
     let add = ammo_pickup_amount(def.ammo);
-    *slot = (*slot + add).min(ammo_max(def.ammo));
+    *slot = (*slot + add).min(player.ammo_cap(def.ammo));
 }
 
 /// Sum of per-weapon ammo need factors (0.1 well-stocked .. 0.75 low).
-fn scrub_need(inv: &Inventory) -> f32 {
+fn scrub_need(inv: &Inventory, player: &Player) -> f32 {
     let mut need = 0.0;
     for w in inv.weapons.iter().take(inv.weapon_slots) {
         if *w == WeaponId::NONE {
@@ -1710,7 +1752,7 @@ fn scrub_need(inv: &Inventory) -> f32 {
             need += 0.5;
             continue;
         }
-        let cap = ammo_max(def.ammo) as f32;
+        let cap = player.ammo_cap(def.ammo) as f32;
         let am = inv_ammo(inv, def.ammo) as f32;
         if am < cap * 0.2 {
             need += 0.75;
@@ -1769,7 +1811,7 @@ pub fn maybe_spawn_drop(
 ) {
     let mut rng = rand::rng();
 
-    let need = scrub_need(inv);
+    let need = scrub_need(inv, player);
     let paw = player.drop_mult;
     let roll = rng.random_range(0.0..100.0);
 

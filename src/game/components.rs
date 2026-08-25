@@ -90,6 +90,70 @@ impl FloorMask {
 #[derive(Component)]
 pub struct WallTile;
 
+/// Lattice coords of a wall solid (16px grid, matching LevelPlan
+/// `wall_cells` / `small_walls`).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WallCell(pub i32, pub i32);
+
+/// Linked visual entities (out / bot / top) for a wall solid; despawned with it.
+#[derive(Component, Clone, Debug, Default)]
+pub struct WallVisuals {
+    pub parts: Vec<Entity>,
+}
+
+/// Queued wall destruction so combat/AI systems don't fight Prop queries.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PendingWallBreak {
+    pub cell: (i32, i32),
+    pub pos: Vec2,
+    /// Expand the floor mask under the broken wall (walkable hole).
+    pub spawn_floor: bool,
+}
+
+/// Hammerhead wall-chew budget for the current floor (upstream max 20).
+#[derive(Resource, Debug)]
+pub struct HammerheadBudget {
+    pub remaining: u32,
+}
+
+impl Default for HammerheadBudget {
+    fn default() -> Self {
+        Self { remaining: 20 }
+    }
+}
+
+/// Last damage that touched the player (Game Over "killed by").
+#[derive(Resource, Default, Debug, Clone)]
+pub struct LastDamageTaken {
+    pub hit_id: Option<HitId>,
+    pub enemy_kind: Option<EnemyKind>,
+    pub source_name: String,
+}
+
+impl LastDamageTaken {
+    pub fn note(&mut self, hit_id: Option<HitId>, enemy_kind: Option<EnemyKind>) {
+        self.hit_id = hit_id;
+        self.enemy_kind = enemy_kind;
+        self.source_name = match (hit_id, enemy_kind) {
+            (_, Some(kind)) => enemy_def(kind).name.to_ascii_uppercase(),
+            (Some(HitId::Contact), _) => "CONTACT".into(),
+            (Some(HitId::Toxic), _) => "TOXIC".into(),
+            (Some(HitId::Fire), _) => "FIRE".into(),
+            (Some(HitId::Trap), _) => "TRAP".into(),
+            (Some(HitId::Explosion(_)), _) => "EXPLOSION".into(),
+            (Some(HitId::Weapon(_)), _) => "BULLET".into(),
+            (Some(HitId::Enemy(_)), _) => "ENEMY".into(),
+            _ => "???".into(),
+        };
+    }
+}
+
+/// Brief intro marker spawned when a delayed boss bursts in.
+#[derive(Component)]
+pub struct BossIntro {
+    pub timer: Timer,
+}
+
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
 
@@ -294,6 +358,25 @@ impl Default for Player {
             ultra_ability_mult: 1.0,
             mutations: Vec::new(),
         }
+    }
+}
+
+impl Player {
+    /// Ammo capacity for `kind`, including Back Muscle stacks.
+    pub fn ammo_cap(&self, kind: AmmoKind) -> i32 {
+        ammo_cap_with(self.back_muscle, kind)
+    }
+}
+
+/// NT ammo caps with Back Muscle (+300 bullets / +44 other families per stack).
+pub fn ammo_cap_with(back_muscle: u32, kind: AmmoKind) -> i32 {
+    let base = crate::game::content::ammo_max(kind);
+    if back_muscle == 0 || kind == AmmoKind::None {
+        return base;
+    }
+    base + match kind {
+        AmmoKind::Bullets => 300 * back_muscle as i32,
+        _ => 44 * back_muscle as i32,
     }
 }
 

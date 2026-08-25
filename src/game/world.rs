@@ -1186,7 +1186,7 @@ fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'stat
 /// Secret areas use their own tile families (100-series art); any slot whose
 /// PNG was not imported falls back to the route family so `sprite_exact`
 /// never hits its missing-asset panic.
-fn area_sprites_for_run(
+pub(crate) fn area_sprites_for_run(
     run: &Run,
     catalog: &AssetCatalog,
 ) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
@@ -1395,37 +1395,54 @@ pub fn spawn_level(
         let owner = (wx.div_euclid(2), (wy - 1).div_euclid(2));
         let floor_below = floor_set.contains(&owner);
 
-        // Out face — the missing extended wall art.
+        // Visuals first so they can be linked to the solid via WallVisuals.
+        let mut parts: Vec<Entity> = Vec::with_capacity(3);
+
         if catalog.has(wall_out_png) {
-            commands.spawn((
-                GameCleanup,
-                LevelCleanup,
-                sprite_exact_frame(catalog, asset_server, wall_out_png, out_frame),
-                Transform::from_xyz(c.x, c.y, -42.0),
-            ));
+            let e = commands
+                .spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    sprite_exact_frame(catalog, asset_server, wall_out_png, out_frame),
+                    Transform::from_xyz(c.x, c.y, -42.0),
+                ))
+                .id();
+            parts.push(e);
         }
 
         if floor_below {
-            commands.spawn((
-                GameCleanup,
-                LevelCleanup,
-                sprite_exact_frame(catalog, asset_server, wall_bot_png, body_frame),
-                Transform::from_xyz(c.x, c.y, -40.0),
-            ));
+            let e = commands
+                .spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    sprite_exact_frame(catalog, asset_server, wall_bot_png, body_frame),
+                    Transform::from_xyz(c.x, c.y, -40.0),
+                ))
+                .id();
+            parts.push(e);
         }
 
-        commands.spawn((
-            GameCleanup,
-            LevelCleanup,
-            sprite_exact_frame(catalog, asset_server, wall_top_png, top_frame),
-            Transform::from_xyz(c.x, c.y + 8.0, -36.0),
-        ));
+        {
+            let e = commands
+                .spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    sprite_exact_frame(catalog, asset_server, wall_top_png, top_frame),
+                    Transform::from_xyz(c.x, c.y + 8.0, -36.0),
+                ))
+                .id();
+            parts.push(e);
+        }
 
-        // Collision body (16px solid).
+        // Collision body (16px solid). Walls only break through the explicit
+        // PendingWallBreak pipeline (hammerhead / charges / explosions), never
+        // by generic projectile erosion.
         commands.spawn((
             GameCleanup,
             LevelCleanup,
             WallTile,
+            WallCell(wx, wy),
+            WallVisuals { parts },
             Prop {
                 size: Vec2::splat(WALL_PX),
                 hp: 9999,
@@ -2020,6 +2037,24 @@ pub fn difficulty_multiplier(floor: u32) -> f32 {
 pub fn clamp_to_arena(pos: &mut Vec3, radius: f32) {
     pos.x = pos.x.clamp(-ARENA_W / 2.0 + radius, ARENA_W / 2.0 - radius);
     pos.y = pos.y.clamp(-ARENA_H / 2.0 + radius, ARENA_H / 2.0 - radius);
+}
+
+/// Convert a broken 16px wall lattice cell into walkable floor (32px owner).
+pub fn floor_cell_for_wall(wx: i32, wy: i32) -> (i32, i32) {
+    (wx.div_euclid(2), wy.div_euclid(2))
+}
+
+/// Make a broken wall's owner tile walkable in the floor mask.
+pub fn expand_floor_for_wall(mask: &mut FloorMask, wx: i32, wy: i32) {
+    mask.cells.insert(floor_cell_for_wall(wx, wy));
+}
+
+/// World position -> wall lattice cell.
+pub fn wall_cell_at(pos: Vec2) -> (i32, i32) {
+    (
+        (pos.x / WALL_PX).floor() as i32,
+        (pos.y / WALL_PX).floor() as i32,
+    )
 }
 
 /// Generic over the caller's prop-query filter so systems that must be

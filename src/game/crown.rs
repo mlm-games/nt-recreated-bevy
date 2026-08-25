@@ -278,7 +278,7 @@ pub fn crown_floor_start_bonus(
                     AmmoKind::Energy,
                 ] {
                     let slot = inv.ammo_mut(ammo);
-                    *slot = (*slot + ammo_pickup_amount(ammo)).min(ammo_max(ammo));
+                    *slot = (*slot + ammo_pickup_amount(ammo)).min(player.ammo_cap(ammo));
                 }
             }
 

@@ -26,6 +26,7 @@ pub mod projectile_math;
 pub mod reactive_audio;
 pub mod secret_areas;
 pub mod ui_art;
+pub mod walls;
 pub mod weapon_runtime;
 pub mod weapons_data;
 pub mod world;
@@ -62,6 +63,8 @@ impl Plugin for GamePlugin {
             .init_resource::<secret_areas::SecretTriggers>()
             .init_resource::<idpd::IdpdRaidState>()
             .init_resource::<LoopTransition>()
+            .init_resource::<HammerheadBudget>()
+            .init_resource::<LastDamageTaken>()
             .init_resource::<ambience::AreaAudioState>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
             .add_message::<reactive_audio::UiBridgeAction>()
@@ -145,8 +148,10 @@ impl Plugin for GamePlugin {
                         enemies::enemy_ai,
                         enemies::tick_frog_eggs,
                         enemies::tick_delayed_boss_spawns,
+                        enemies::tick_boss_intro,
                         boss_ai::boss_ai,
                         boss_ai::tick_hyper_orbit_crystals,
+                        walls::apply_pending_wall_breaks,
                     )
                         .in_set(NtSimSet::Combat)
                         .run_if(gameplay_active),
@@ -189,6 +194,12 @@ impl Plugin for GamePlugin {
             .add_systems(
                 FixedUpdate,
                 progress_sys::apply_floor_reach_unlocks
+                    .in_set(NtSimSet::Always)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                FixedUpdate,
+                walls::reset_hammerhead_budget
                     .in_set(NtSimSet::Always)
                     .run_if(in_state(AppState::InGame)),
             )

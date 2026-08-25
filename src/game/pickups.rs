@@ -284,15 +284,7 @@ pub fn collect_pickups(
                     // give, sndAmmoChest.
                     let ammo = decide_ammo_type(&inv);
                     let amount = ammo_pickup_amount(ammo) * 2;
-                    let cap = ammo_max(ammo)
-                        + if player.back_muscle > 0 {
-                            match ammo {
-                                AmmoKind::Bullets => (300 * player.back_muscle) as i32,
-                                _ => (44 * player.back_muscle) as i32,
-                            }
-                        } else {
-                            0
-                        };
+                    let cap = player.ammo_cap(ammo);
                     let slot = inv.ammo_mut(ammo);
                     let gained = (*slot + amount).min(cap) - *slot;
                     *slot += gained;
@@ -370,15 +362,7 @@ pub fn collect_pickups(
                 } else {
                     0
                 };
-                let cap = ammo_max(ammo)
-                    + if player.back_muscle > 0 {
-                        match ammo {
-                            AmmoKind::Bullets => (300 * player.back_muscle) as i32,
-                            _ => (44 * player.back_muscle) as i32,
-                        }
-                    } else {
-                        0
-                    };
+                let cap = player.ammo_cap(ammo);
                 let slot = inv.ammo_mut(ammo);
                 let gained = (amount + fish_bonus).min(cap - *slot).max(0);
                 *slot += gained;
@@ -422,6 +406,7 @@ pub fn collect_pickups(
                     &mut inv,
                     weapon,
                     player_pos,
+                    &player,
                 );
 
                 // Fish ultra — Confiscate: weapon pickups grant extra ammo.
@@ -430,7 +415,7 @@ pub fn collect_pickups(
                     if kind != AmmoKind::None {
                         let add = ammo_pickup_amount(kind) * 2;
                         let slot = inv.ammo_mut(kind);
-                        *slot = (*slot + add).min(ammo_max(kind));
+                        *slot = (*slot + add).min(player.ammo_cap(kind));
                         VfxSpawner::spawn_damage_number(
                             &mut commands,
                             add,
@@ -550,6 +535,7 @@ fn equip_weapon(
     inv: &mut Inventory,
     weapon: WeaponId,
     player_pos: Vec2,
+    player: &Player,
 ) {
     if let Some(empty) = first_empty_weapon_slot(inv) {
         inv.weapons[empty] = weapon;
@@ -558,7 +544,7 @@ fn equip_weapon(
         if def.melee.is_none() {
             let slot = inv.ammo_mut(def.ammo);
             let add = ammo_pickup_amount(def.ammo) * 2;
-            *slot = (*slot + add).min(ammo_max(def.ammo));
+            *slot = (*slot + add).min(player.ammo_cap(def.ammo));
         }
         return;
     }
@@ -573,7 +559,7 @@ fn equip_weapon(
     if def.melee.is_none() {
         let slot = inv.ammo_mut(def.ammo);
         let add = ammo_pickup_amount(def.ammo) * 2;
-        *slot = (*slot + add).min(ammo_max(def.ammo));
+        *slot = (*slot + add).min(player.ammo_cap(def.ammo));
     }
 }
 

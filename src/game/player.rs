@@ -435,7 +435,8 @@ pub fn player_ability(
                     AmmoKind::None => 0,
                 };
                 let add = ((add as f32) * ability_mult).round() as i32;
-                *inv.ammo_mut(kind) += add;
+                let slot = inv.ammo_mut(kind);
+                *slot = (*slot + add).min(player.ammo_cap(kind));
             }
             VfxSpawner::spawn_burst(
                 &mut commands,
@@ -954,7 +955,7 @@ pub fn player_fire(
         && rand::rng().random_range(0..5) == 0
     {
         let slot = inv.ammo_mut(AmmoKind::Bullets);
-        *slot = (*slot + 1).min(ammo_max(AmmoKind::Bullets));
+        *slot = (*slot + 1).min(player.ammo_cap(AmmoKind::Bullets));
     }
 
     // Y.V. Pop Pop: second volley
@@ -1447,21 +1448,62 @@ pub fn hammerhead_chew(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     mut cooldown: Local<f32>,
-    player_q: Query<(Entity, &Transform), With<Player>>,
-    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>)>,
+    mut budget: ResMut<HammerheadBudget>,
+    player_q: Query<(Entity, &Transform, &Player, &Velocity), With<Player>>,
+    mut props: Query<
+        (Entity, &mut Prop, &Transform, Option<&PropDeathEffect>),
+        Without<WallTile>,
+    >,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
-    let Ok((player_entity, player_tf)) = player_q.single() else {
-        return;
-    };
-
     *cooldown -= time.delta_secs();
     if *cooldown > 0.0 {
         return;
     }
 
+    let Ok((player_entity, player_tf, player, vel)) = player_q.single() else {
+        return;
+    };
+    if !player.hammerhead {
+        return;
+    }
+    if vel.0.length_squared() < 40.0 * 40.0 {
+        return;
+    }
+
     let pos = player_tf.translation.truncate();
+    let push = vel.0.normalize_or_zero();
+    let probe = pos + push * (PLAYER_RADIUS + 6.0);
+
+    // --- Walls first (NT: 20 blocks / floor) ---
+    if budget.remaining > 0 {
+        for (_, cell, wtf) in &walls {
+            let wpos = wtf.translation.truncate();
+            if wpos.distance(probe) > crate::game::world::WALL_PX * 0.85 {
+                continue;
+            }
+            // Prefer wall in push direction.
+            if (wpos - pos).dot(push) < 0.0 {
+                continue;
+            }
+            budget.remaining -= 1;
+            *cooldown = 0.08;
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                PendingWallBreak {
+                    cell: (cell.0, cell.1),
+                    pos: wpos,
+                    spawn_floor: true,
+                },
+            ));
+            return;
+        }
+    }
+
+    // --- Existing prop chew path ---
     for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
         if !prop.destructible {
             continue;
@@ -1479,8 +1521,6 @@ pub fn hammerhead_chew(
         *cooldown = 0.25;
         prop.hp -= 1;
         if prop.hp <= 0 {
-            // Shared terminal payload: cars/barrels/mines react like they do
-            // to bullets.
             spawn_prop_death_effect(
                 &mut commands,
                 center,
@@ -1492,8 +1532,6 @@ pub fn hammerhead_chew(
                     hit_id: HitId::Other(301),
                 }),
             );
-
-            // Hammerhead can also open secret entrances.
             if let Ok(entrance) = entrances.get(prop_e) {
                 secrets.queue(entrance.target);
             }

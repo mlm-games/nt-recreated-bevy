@@ -234,6 +234,22 @@ pub fn enemy_ai(
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
+        // Assassin / Spider: short leap toward the player when in mid range.
+        let was_dashing = brain.dash > 0.0;
+        if matches!(enemy.kind, EnemyKind::Assassin | EnemyKind::Spider)
+            && !was_dashing
+            && dist < 110.0
+            && dist > 36.0
+            && brain.melee.is_finished()
+        {
+            brain.dash = 0.22;
+            brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
+            vel.0 = dir * 620.0;
+        }
+        if brain.dash > 0.0 {
+            brain.dash = (brain.dash - dt).max(0.0);
+        }
+
         let dashing = brain.dash > 0.0;
         let speed = if dashing { 600.0 } else { brain.speed };
 
@@ -293,6 +309,23 @@ pub fn enemy_ai(
                 let push = (pos - *other).normalize() * (def.radius + 14.0 - d) * 0.5;
                 tf.translation.x += push.x;
                 tf.translation.y += push.y;
+            }
+        }
+
+        // Necromancer revive pulse: periodically spawn a Freak.
+        if enemy.kind == EnemyKind::Necromancer {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
+                if (positions.len() as u32) < 40 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let p = pos + Vec2::new(ang.cos(), ang.sin()) * 40.0;
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::Freak,
+                        pos: p,
+                        difficulty: 1.0,
+                    });
+                }
             }
         }
 
@@ -425,9 +458,12 @@ pub fn tick_delayed_boss_spawns(
     run: Res<Run>,
     mask: Res<FloorMask>,
     mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
+    mut hitstop: ResMut<game_utils_bevy::hitstop::HitStop>,
+    mut toast: ResMut<Toast>,
     pending: Query<(Entity, &PendingDelayedBoss)>,
     enemies: Query<&Enemy, With<Enemy>>,
     player_q: Query<&Transform, With<Player>>,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
 ) {
     let Ok((marker_e, pending_boss)) = pending.single() else {
         return;
@@ -447,32 +483,79 @@ pub fn tick_delayed_boss_spawns(
     };
     let player_pos = player_tf.translation.truncate();
 
-    // Pick a walkable floor cell a few tiles from the player; prefer cells
-    // near the wall ring when `from_wall`.
-    let mut rng = rand::rng();
-    let mut best = mask.random_floor_pos(&mut rng, 120.0);
-    for _ in 0..32 {
-        let ang = rng.random_range(0.0..std::f32::consts::TAU);
-        let cand =
-            player_pos + Vec2::new(ang.cos(), ang.sin()) * rng.random_range(140.0..240.0);
-        if mask.is_walkable(cand) {
-            best = cand;
-            break;
+    // Prefer a wall cell roughly 180px from the player (side walls).
+    let mut best_wall: Option<(Vec2, (i32, i32))> = None;
+    let mut best_score = f32::MAX;
+    if pending_boss.from_wall {
+        for (_, cell, tf) in &walls {
+            let p = tf.translation.truncate();
+            let d = p.distance(player_pos);
+            if d < 120.0 || d > 260.0 {
+                continue;
+            }
+            let score = (d - 180.0).abs() + (p.y - player_pos.y).abs() * 0.25;
+            if score < best_score {
+                best_score = score;
+                best_wall = Some((p, (cell.0, cell.1)));
+            }
         }
     }
 
+    let spawn_pos = if let Some((p, _)) = best_wall {
+        p
+    } else {
+        // Fallback: walkable floor a few tiles from player.
+        let mut rng = rand::rng();
+        let mut best = mask.random_floor_pos(&mut rng, 120.0);
+        for _ in 0..32 {
+            let ang = rng.random_range(0.0..std::f32::consts::TAU);
+            let cand =
+                player_pos + Vec2::new(ang.cos(), ang.sin()) * rng.random_range(140.0..240.0);
+            if mask.is_walkable(cand) {
+                best = cand;
+                break;
+            }
+        }
+        best
+    };
+
     commands.entity(marker_e).despawn();
     ScreenEffects::add_trauma(&mut trauma, 0.3);
+
+    // Carve a hole so Bandit doesn't suffocate in the wall.
+    if let Some((p, cell)) = best_wall {
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)] {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                PendingWallBreak {
+                    cell: (cell.0 + dx, cell.1 + dy),
+                    pos: p,
+                    spawn_floor: true,
+                },
+            ));
+        }
+    }
+
     spawn_enemy_at(
         &mut commands,
         &catalog,
         &asset_server,
         pending_boss.kind,
-        best,
+        spawn_pos,
         difficulty_multiplier(run.floor),
         false,
         false,
     );
+
+    commands.spawn((
+        GameCleanup,
+        BossIntro {
+            timer: Timer::from_seconds(1.1, TimerMode::Once),
+        },
+    ));
+    toast.show("BIG BANDIT");
+    hitstop.trigger(0.2, 0.15);
 }
 
 /// Frog Eggs laid by Mom sit for their attack timer, then hatch into Ballguys.
@@ -504,5 +587,18 @@ pub fn tick_frog_eggs(
             false,
             false,
         );
+    }
+}
+
+pub fn tick_boss_intro(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut BossIntro)>,
+) {
+    for (e, mut intro) in &mut q {
+        intro.timer.tick(time.delta());
+        if intro.timer.just_finished() {
+            commands.entity(e).despawn();
+        }
     }
 }
