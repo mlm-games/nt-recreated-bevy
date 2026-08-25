@@ -472,7 +472,7 @@ fn play_ui_sfx(
     volume: f32,
 ) {
     for dir in ["audio", "sounds"] {
-        for ext in ["wav", "ogg", "mp3", "flac"] {
+        for ext in ["ogg", "wav", "mp3", "flac"] {
             let path = format!("{dir}/{stem}.{ext}");
             if catalog.has_audio(&path) {
                 commands.spawn((

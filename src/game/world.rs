@@ -893,8 +893,73 @@ fn trim_chests(chests: &mut Vec<ChestSpawn>) {
 // Spawning
 // ---------------------------------------------------------------------------
 
-fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'static str) {
-    // (floor, wall bot, wall top, ground decal prop)
+fn sprite_frames(catalog: &AssetCatalog, path: &str) -> usize {
+    catalog
+        .anims
+        .get(path)
+        .map(|m| m[0].max(1.0) as usize)
+        .unwrap_or(1)
+}
+
+fn sprite_exact_frame(
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    path: &str,
+    frame: usize,
+) -> Sprite {
+    let mut sprite = sprite_exact(catalog, asset_server, path);
+    if let Some(m) = catalog.anims.get(path)
+        && m[0] > 1.0
+    {
+        let f = frame % sprite_frames(catalog, path).max(1);
+        let w = m[1].max(1.0);
+        let h = m[2].max(1.0);
+        sprite.rect = Some(Rect::new(f as f32 * w, 0.0, (f + 1) as f32 * w, h));
+    }
+    sprite
+}
+
+fn wall_hash(seed: u64, wx: i32, wy: i32, salt: u64) -> u64 {
+    let mut x = seed
+        ^ ((wx as i64 as u64) << 32)
+        ^ (wy as i64 as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ salt;
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
+}
+
+fn wall_body_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &str) -> usize {
+    // Wall/Create_0 image_index
+    let raw = if wall_hash(seed, wx, wy, 0x11) % 150 == 0 {
+        3
+    } else {
+        [0usize, 0, 0, 0, 0, 0, 0, 1, 2][(wall_hash(seed, wx, wy, 0x12) % 9) as usize]
+            + [0usize, 4][(wall_hash(seed, wx, wy, 0x13) % 2) as usize]
+    };
+    raw % sprite_frames(catalog, path).max(1)
+}
+
+fn wall_top_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &str) -> usize {
+    let raw = if wall_hash(seed, wx, wy, 0x21) % 200 == 0 {
+        3
+    } else {
+        [0usize, 0, 0, 0, 0, 0, 0, 1, 2][(wall_hash(seed, wx, wy, 0x22) % 9) as usize]
+            + [0usize, 4, 8][(wall_hash(seed, wx, wy, 0x23) % 3) as usize]
+    };
+    raw % sprite_frames(catalog, path).max(1)
+}
+
+fn wall_out_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &str) -> usize {
+    let raw = [0usize, 0, 0, 0, 1, 2, 3, 4][(wall_hash(seed, wx, wy, 0x31) % 8) as usize]
+        + [0usize, 4][(wall_hash(seed, wx, wy, 0x32) % 2) as usize];
+    raw % sprite_frames(catalog, path).max(1)
+}
+
+fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+    // (floor, wall bot, wall top, wall out, ground decal)
     // Upstream sprite families are named by _area id.
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
@@ -902,48 +967,56 @@ fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'stat
             "images/sprFloor0.png",
             "images/sprWall0Bot.png",
             "images/sprWall0Top.png",
+            "images/sprWall0Out.png",
             "images/sprNightDesertTopDecal.png",
         ),
         4 => (
             "images/sprFloor2.png",
             "images/sprWall2Bot.png",
             "images/sprWall2Top.png",
+            "images/sprWall2Out.png",
             "images/sprTopDecalSewers.png",
         ),
         5..=7 => (
             "images/sprFloor3.png",
             "images/sprWall3Bot.png",
             "images/sprWall3Top.png",
+            "images/sprWall3Out.png",
             "images/sprTopDecalScrapyard.png",
         ),
         8 => (
             "images/sprFloor4.png",
             "images/sprWall4Bot.png",
             "images/sprWall4Top.png",
+            "images/sprWall4Out.png",
             "images/sprTopDecalCave.png",
         ),
         9..=11 => (
             "images/sprFloor5.png",
             "images/sprWall5Bot.png",
             "images/sprWall5Top.png",
+            "images/sprWall5Out.png",
             "images/sprTopDecalCity.png",
         ),
         12 => (
             "images/sprFloor6.png",
             "images/sprWall6Bot.png",
             "images/sprWall6Top.png",
+            "images/sprWall6Out.png",
             "images/sprTopDecalCity.png",
         ),
         13..=15 => (
             "images/sprFloor7.png",
             "images/sprWall7Bot.png",
             "images/sprWall7Top.png",
+            "images/sprWall7Out.png",
             "images/sprPalaceTopDecal.png",
         ),
         _ => (
             "images/sprFloor1.png",
             "images/sprWall1Bot.png",
             "images/sprWall1Top.png",
+            "images/sprWall1Out.png",
             "images/sprDesertTopDecal.png",
         ),
     }
@@ -957,7 +1030,8 @@ pub fn spawn_level(
     plan: &LevelPlan,
     mask: &mut FloorMask,
 ) {
-    let (floor_png, wall_bot_png, wall_top_png, decal_prop_png) = area_sprites(run.floor);
+    let (floor_png, wall_bot_png, wall_top_png, wall_out_png, decal_prop_png) =
+        area_sprites(run.floor);
 
     let cols = (ARENA_W / TILE) as i32;
     let rows = (ARENA_H / TILE) as i32;
@@ -1071,25 +1145,38 @@ pub fn spawn_level(
     );
     for (wx, wy) in all_walls {
         let c = wall_center(wx, wy);
+        let body_frame = wall_body_frame(catalog, run.gen_seed, wx, wy, wall_bot_png);
+        let top_frame = wall_top_frame(catalog, run.gen_seed, wx, wy, wall_top_png);
+        let out_frame = wall_out_frame(catalog, run.gen_seed, wx, wy, wall_out_png);
 
-        // GML probes place_meeting(x, y+16) with y-down: shift the 16px box
-        // one cell SOUTH on screen. Bevy y-up => subtract one lattice row.
-        // wy even -> row wy/2 - 1; wy odd -> row (wy-1)/2.
+        // GML place_meeting(x, y+16, Floor) with y-down.
+        // Bevy y-up lattice: owner of the cell one step "south" on screen.
         let owner = (wx.div_euclid(2), (wy - 1).div_euclid(2));
         let floor_below = floor_set.contains(&owner);
+
+        // Out face — the missing extended wall art.
+        if catalog.has(wall_out_png) {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                sprite_exact_frame(catalog, asset_server, wall_out_png, out_frame),
+                Transform::from_xyz(c.x, c.y, -42.0),
+            ));
+        }
+
         if floor_below {
             commands.spawn((
                 GameCleanup,
                 LevelCleanup,
-                sprite_exact(catalog, asset_server, wall_bot_png),
+                sprite_exact_frame(catalog, asset_server, wall_bot_png, body_frame),
                 Transform::from_xyz(c.x, c.y, -40.0),
             ));
         }
-        // Top cap sits 8px ABOVE on screen (GML drew it at y-8 with y-down).
+
         commands.spawn((
             GameCleanup,
             LevelCleanup,
-            sprite_exact(catalog, asset_server, wall_top_png),
+            sprite_exact_frame(catalog, asset_server, wall_top_png, top_frame),
             Transform::from_xyz(c.x, c.y + 8.0, -36.0),
         ));
 

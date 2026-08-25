@@ -3,6 +3,8 @@
 //! GUI coordinate system mapped 1:1 into camera space; sprites keep their
 //! native dimensions and GameMaker origins (from anims.json).
 
+use std::collections::HashSet;
+
 use bevy::audio::AudioSource;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings, Volume};
 use bevy::ecs::query::QueryFilter;
@@ -292,16 +294,15 @@ fn spawn_spiral_field(
             Some(rand::random::<f32>() * 1.2),
         );
     }
-    if catalog.has_audio("audio/sndPortalLoop.wav") && portal.is_empty() {
-        commands.spawn((
+    if portal.is_empty() {
+        play_loop(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            "sndPortalLoop",
+            0.5,
             PortalLoop,
-            AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndPortalLoop.wav")),
-            PlaybackSettings {
-                mode: PlaybackMode::Loop,
-                volume: Volume::Linear(0.5),
-                ..default()
-            },
-        ));
+        );
     }
 }
 
@@ -329,6 +330,19 @@ fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>
     }
 }
 
+fn resolve_audio_path(catalog: &AssetCatalog, stem: &str) -> Option<String> {
+    // Prefer original imported OGG over placeholder/generated WAV.
+    for dir in ["audio", "sounds"] {
+        for ext in ["ogg", "wav", "mp3", "flac"] {
+            let path = format!("{dir}/{stem}.{ext}");
+            if catalog.has_audio(&path) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 fn play_cue(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -336,10 +350,9 @@ fn play_cue(
     name: &str,
     volume: f32,
 ) {
-    let path = format!("audio/{name}.wav");
-    if !catalog.has_audio(&path) {
+    let Some(path) = resolve_audio_path(catalog, name) else {
         return;
-    }
+    };
     commands.spawn((
         AudioPlayer::<AudioSource>::new(asset_server.load(path)),
         PlaybackSettings {
@@ -350,13 +363,255 @@ fn play_cue(
     ));
 }
 
+fn play_loop(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    name: &str,
+    volume: f32,
+    marker: impl Bundle,
+) {
+    let Some(path) = resolve_audio_path(catalog, name) else {
+        return;
+    };
+    commands.spawn((
+        marker,
+        AudioPlayer::<AudioSource>::new(asset_server.load(path)),
+        PlaybackSettings {
+            mode: PlaybackMode::Loop,
+            volume: Volume::Linear(volume),
+            ..default()
+        },
+    ));
+}
+
+fn sync_boot_mode_ui(bridge: &UiBridge, mode: u8) {
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.boot_mode = mode.min(4);
+    }
+}
+
+fn sprite_frame_count(catalog: &AssetCatalog, path: &str) -> usize {
+    meta_of(catalog, path)[0].max(1.0) as usize
+}
+
+fn wrap_sprite_frame(catalog: &AssetCatalog, path: &str, raw: usize) -> usize {
+    raw % sprite_frame_count(catalog, path).max(1)
+}
+
+fn pick_usize(items: &[usize]) -> usize {
+    items[rand::rng().random_range(0..items.len())]
+}
+
+fn pick_i32(items: &[i32]) -> i32 {
+    items[rand::rng().random_range(0..items.len())]
+}
+
+fn campfire_floor_frame(catalog: &AssetCatalog) -> usize {
+    // Floor/Create_0:
+    // if random(500)<1 image_index=3
+    // else image_index = choose(0,0,0,0,0,0,0,1,2) + choose(0,4)
+    let raw = if rand::random::<f32>() * 500.0 < 1.0 {
+        3
+    } else {
+        pick_usize(&[0, 0, 0, 0, 0, 0, 0, 1, 2]) + pick_usize(&[0, 4])
+    };
+    wrap_sprite_frame(catalog, "images/sprFloor0.png", raw)
+}
+
+fn floor0_frame(catalog: &AssetCatalog) -> usize {
+    campfire_floor_frame(catalog)
+}
+
+fn title_world_to_gui(wx: f32, wy: f32) -> (f32, f32) {
+    // scrCampfireMenuCreate places the campfire at world (64,64).
+    // The Bevy title scene places the campfire at the GUI center, so every
+    // MenuGen/FloorMaker world coordinate is rendered relative to that anchor.
+    (GUI_W * 0.5 + wx - 64.0, GUI_H * 0.5 + wy - 64.0)
+}
+
+fn title_floor_owner_below(wx: i32, wy: i32) -> (i32, i32) {
+    (wx.div_euclid(2), (wy - 1).div_euclid(2))
+}
+
+fn title_wall_xy(wx: i32, wy: i32) -> (f32, f32) {
+    title_world_to_gui(wx as f32 * 16.0, wy as f32 * 16.0)
+}
+
+fn add_title_floor_cell(floors: &mut HashSet<(i32, i32)>, wx: i32, wy: i32) {
+    // Floor object positions are 32px-grid world coordinates.
+    // Duplicate Floor creation is ignored by Floor/Create_0 via place_meeting.
+    floors.insert((wx.div_euclid(32), wy.div_euclid(32)));
+}
+
+fn floor_maker_step_delta(direction: i32) -> (i32, i32) {
+    match direction.rem_euclid(360) {
+        0 => (32, 0),
+        90 => (0, -32),
+        180 => (-32, 0),
+        270 => (0, 32),
+        _ => (0, 0),
+    }
+}
+
+fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
+    // Exact title-area floor source:
+    // MenuGen/Create_0 creates the initial 3x4 cluster field, then creates
+    // four FloorMaker instances at choose(0,32,64,96,128). FloorMaker/Create_0
+    // sets goal=50 while MenuGen exists, and scrMakeFloor uses the area 0
+    // branch for turns/splitting.
+    let mut floors: HashSet<(i32, i32)> = HashSet::new();
+
+    let mut dix = 32_i32;
+    let mut diy = 32_i32;
+
+    for _row in 0..3 {
+        for _col in 0..4 {
+            // GameMaker choose(), not weighted: choose(32,0,-32).
+            let mody = pick_i32(&[32, 0, -32]);
+            let cx = dix + mody;
+            let cy = diy + mody;
+
+            for oy in [-32, 0, 32] {
+                for ox in [-32, 0, 32] {
+                    add_title_floor_cell(&mut floors, cx + ox, cy + oy);
+                }
+            }
+
+            dix += 32;
+        }
+
+        // This is intentionally 0, not 32. It matches MenuGen/Create_0.
+        dix = 0;
+        diy += 32;
+    }
+
+    #[derive(Clone, Copy)]
+    struct Maker {
+        x: i32,
+        y: i32,
+        direction: i32,
+    }
+
+    let mut makers: Vec<Maker> = Vec::with_capacity(8);
+
+    for _ in 0..4 {
+        let x = pick_i32(&[0, 32, 64, 96, 128]);
+        let y = pick_i32(&[0, 32, 64, 96, 128]);
+        let direction = pick_i32(&[0, 0, 90, 180, 270]);
+
+        // FloorMaker/Create_0 ends by creating a Floor at its position.
+        add_title_floor_cell(&mut floors, x, y);
+        makers.push(Maker { x, y, direction });
+    }
+
+    let mut guard = 0usize;
+    while !makers.is_empty() && guard < 512 {
+        guard += 1;
+
+        let active_count = makers.len() as i32;
+        let mut next: Vec<Maker> = Vec::with_capacity(makers.len() + 2);
+
+        for mut maker in makers.drain(..) {
+            // FloorMaker/Step_0: if instance_number(Floor) > goal, create one
+            // last floor and destroy the maker.
+            if floors.len() > 50 {
+                add_title_floor_cell(&mut floors, maker.x, maker.y);
+                continue;
+            }
+
+            // scrMakeFloor area_campfire branch.
+            let (dx, dy) = floor_maker_step_delta(maker.direction);
+            maker.x += dx;
+            maker.y += dy;
+            add_title_floor_cell(&mut floors, maker.x, maker.y);
+
+            let trn = pick_i32(&[0, 0, 90, -90, 90, -90, 180]);
+            maker.direction = (maker.direction + trn).rem_euclid(360);
+
+            // scrMakeFloor creates another Floor on 180-degree turns.
+            if trn == 180 {
+                add_title_floor_cell(&mut floors, maker.x, maker.y);
+            }
+
+            // Area 0 early-destroy/split rules.
+            let span = 19 + active_count;
+            if rand::random::<f32>() * span as f32 > 22.0 {
+                add_title_floor_cell(&mut floors, maker.x, maker.y);
+                continue;
+            }
+
+            next.push(maker);
+
+            if rand::random::<f32>() * 4.0 < 1.0 {
+                let child = Maker {
+                    x: maker.x,
+                    y: maker.y,
+                    direction: pick_i32(&[0, 0, 90, 180, 270]),
+                };
+                add_title_floor_cell(&mut floors, child.x, child.y);
+                next.push(child);
+            }
+        }
+
+        makers = next;
+    }
+
+    // MenuGen/Alarm_1:
+    // with(Floor) create missing cardinal neighbours.
+    let base: Vec<(i32, i32)> = floors.iter().copied().collect();
+    for (cx, cy) in base {
+        floors.insert((cx - 1, cy));
+        floors.insert((cx + 1, cy));
+        floors.insert((cx, cy - 1));
+        floors.insert((cx, cy + 1));
+    }
+
+    floors
+}
+
+// Wall/Create_0 exact frame families for area_campfire / sprWall0*
+fn campfire_wall_body_frame(catalog: &AssetCatalog) -> usize {
+    let raw = if rand::random::<f32>() * 150.0 < 1.0 {
+        3
+    } else {
+        pick_usize(&[0, 0, 0, 0, 0, 0, 0, 1, 2]) + pick_usize(&[0, 4])
+    };
+    wrap_sprite_frame(catalog, "images/sprWall0Bot.png", raw)
+}
+
+fn campfire_wall_top_frame(catalog: &AssetCatalog) -> usize {
+    let raw = if rand::random::<f32>() * 200.0 < 1.0 {
+        3
+    } else {
+        pick_usize(&[0, 0, 0, 0, 0, 0, 0, 1, 2]) + pick_usize(&[0, 4, 8])
+    };
+    wrap_sprite_frame(catalog, "images/sprWall0Top.png", raw)
+}
+
+fn campfire_wall_out_frame(catalog: &AssetCatalog) -> usize {
+    let raw = pick_usize(&[0, 0, 0, 0, 1, 2, 3, 4]) + pick_usize(&[0, 4]);
+    wrap_sprite_frame(catalog, "images/sprWall0Out.png", raw)
+}
+
+fn wall0_body_frame(catalog: &AssetCatalog) -> usize {
+    campfire_wall_body_frame(catalog)
+}
+
+fn wall0_top_frame(catalog: &AssetCatalog) -> usize {
+    campfire_wall_top_frame(catalog)
+}
+
+fn wall0_out_frame(catalog: &AssetCatalog) -> usize {
+    campfire_wall_out_frame(catalog)
+}
+
 /// Card stage lengths. Upstream Vlambeer/Create_0 sets alarm[0]=120 and
 /// Alarm_0 re-arms 60 (+60 for the Vlambeer card) at a game speed of
 /// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
-const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
+const MODE_SECS: [f32; 4] = [2.0, 1.0, 2.0, 1.0];
 
-/// The boot driver: mode timers, input skipping, per-mode sprites, the logo
-/// sound script, and the transition to the main-menu buttons.
+/// Vlambeer + Logo boot driver.
 #[allow(clippy::type_complexity)]
 fn boot_intro(
     mut commands: Commands,
@@ -381,24 +636,16 @@ fn boot_intro(
         return;
     };
     let dt = time.delta_secs();
-    if let Ok(mut ui) = bridge.shared.lock() {
-        ui.boot_mode = boot.mode;
-    }
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
-    // Publish the boot stage every frame, before any per-stage logic: overlay
-    // text must switch in lockstep with the sprites (never show a neighbouring
-    // card's text early or leave mode-3 credits up over the logo).
-    if let Ok(mut ui) = bridge.shared.lock() {
-        ui.boot_mode = boot.mode.min(4);
-    }
+    // Keep Repose text locked to sprites every frame (before transitions).
+    sync_boot_mode_ui(&bridge, boot.mode);
 
     // ----- Logo stage (mode 4) -----
     if boot.mode == 4 {
         boot.t += dt;
 
-        // Spawn the NT logo once. Frame 0 is blank; it builds up per shot.
         if boot.spawned.is_empty()
             && let Some((cam, map)) = view_setup(&windows, &cam_q)
         {
@@ -419,52 +666,41 @@ fn boot_intro(
                 .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
         }
 
-        // Logo/Alarm_0 (game runs at 30 fps; Logo/Create_0 arms alarm[0]=30):
-        //   index 1 after 1.0s, then every 2 ticks; after frame 6 wait 20
-        //   ticks, then frame 7 + the boom set + logo-loop ambience.
-        // Times when image_index becomes 1,2,...,7:
-        const STEP_T: [f32; 7] = [
-            1.0,                             // -> 1
-            1.0 + 2.0 / 30.0,                // -> 2
-            1.0 + 4.0 / 30.0,                // -> 3
-            1.0 + 6.0 / 30.0,                // -> 4
-            1.0 + 8.0 / 30.0,                // -> 5
-            1.0 + 10.0 / 30.0,               // -> 6
-            1.0 + 10.0 / 30.0 + 20.0 / 30.0, // -> 7 boom
-        ];
-        while (boot.guns as usize) < STEP_T.len() && boot.t >= STEP_T[boot.guns as usize] {
-            boot.guns += 1; // guns == image_index after step
+        // Logo/Alarm_0: first step at 0.5s, then every 2 ticks, 20-tick pause
+        // before the assembled frame. guns == image_index after each step.
+        // Times (seconds @ 60fps): 0.5, 0.533, 0.566, 0.6, 0.633, 0.666, then
+        // boom at 0.666+20/60 ≈ 1.0 when guns reaches 7.
+        let step_t = [0.5, 0.533_333, 0.566_666, 0.6, 0.633_333, 0.666_666, 1.0];
+        while (boot.guns as usize) < step_t.len() && boot.t >= step_t[boot.guns as usize] {
+            boot.guns += 1;
             if boot.guns >= 7 {
-                if catalog.has_audio("audio/sndLogoLoop.wav") {
-                    commands.spawn((
+                if !boot.booms {
+                    play_loop(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        "sndLogoLoop",
+                        0.6,
                         SplashLoop,
-                        AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndLogoLoop.wav")),
-                        PlaybackSettings {
-                            mode: PlaybackMode::Loop,
-                            volume: Volume::Linear(0.6),
-                            ..default()
-                        },
-                    ));
+                    );
+                    play_cue(&mut commands, &catalog, &asset_server, "sndShovel", 0.8);
+                    play_cue(&mut commands, &catalog, &asset_server, "sndMeatExplo", 0.8);
+                    play_cue(&mut commands, &catalog, &asset_server, "sndExplosion", 0.8);
+                    boot.shake += 2.5;
+                    boot.booms = true;
                 }
-                play_cue(&mut commands, &catalog, &asset_server, "sndShovel", 0.8);
-                play_cue(&mut commands, &catalog, &asset_server, "sndMeatExplo", 0.8);
-                play_cue(&mut commands, &catalog, &asset_server, "sndExplosion", 0.8);
-                boot.shake += 2.5;
-                boot.booms = true;
             } else {
                 play_cue(&mut commands, &catalog, &asset_server, "sndMachinegun", 0.5);
                 boot.shake += 0.5;
             }
         }
 
-        // Draw_0: the logo steps to the current frame and jitters by shake,
-        // which decays one unit per tick.
-        boot.shake = (boot.shake - dt * 30.0).max(0.0); // decays 1/tick @ 30 fps
+        // Draw_0: frame + orandom(shake) jitter, shake--
+        boot.shake = (boot.shake - dt * 60.0).max(0.0);
         if let Some(logo) = boot.spawned.first().copied() {
             if let Ok(mut spr) = sprites.get_mut(logo) {
                 let m = meta_of(&catalog, "images/sprLogo.png");
                 let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
-                // Final assembled frame is 7 (NUCLEAR + THRONE).
                 let f = (boot.guns as f32).min(7.0);
                 spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
             }
@@ -473,17 +709,15 @@ fn boot_intro(
             {
                 let jx = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
                 let jy = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
-                // True GM origin from meta (centre of the logo).
                 let c = map.to_world(GUI_W / 2.0 + jx, GUI_H / 2.0 + jy);
                 tf.translation = c.extend(-890.0);
             }
         }
 
-        // Logo/Mouse_53.
+        // Logo/Mouse_53
         if pressed {
             if boot.guns == 0 {
-                // Before frame 1: speed the alarm up (min 10 ticks).
-                boot.t = boot.t.max(1.0 - 10.0 / 30.0);
+                boot.t = boot.t.max(0.334); // speed alarm toward first shot
             } else {
                 transition.begin_to_state(AppState::MainMenu);
             }
@@ -492,20 +726,19 @@ fn boot_intro(
     }
 
     // ----- Card modes 0..3 -----
-    // Skip input needs a short grace per card: the click that focuses the
-    // window at launch would otherwise insta-advance mode 0 ("MADE IN
-    // GAMEMAKER" appearing early / both cards seemingly at once).
-    let can_skip = boot.t >= 0.25;
-    if (pressed && can_skip) || boot.t >= MODE_SECS[boot.mode as usize] {
+    // Advance only after the current card has been shown at least one frame.
+    let can_advance = boot.rendered_mode == boot.mode as i8;
+    if can_advance && (pressed || boot.t >= MODE_SECS[boot.mode as usize]) {
+        // Despawn previous card sprites FIRST so they never composite.
+        for e in boot.spawned.drain(..) {
+            commands.entity(e).despawn();
+        }
         boot.mode += 1;
         boot.t = 0.0;
         boot.rendered_mode = -1;
+        sync_boot_mode_ui(&bridge, boot.mode);
+
         if boot.mode == 4 {
-            // Drop any card sprites before the logo stage.
-            for e in boot.spawned.drain(..) {
-                commands.entity(e).despawn();
-            }
-            // Vlambeer/Alarm_0 mode >= 3: SpiralCont + Logo (no jingle).
             if let Some((cam, map)) = view_setup(&windows, &cam_q) {
                 commands.insert_resource(SpiralCtl {
                     angle: rand::random::<f32>() * 360.0,
@@ -523,19 +756,14 @@ fn boot_intro(
                         Some(rand::random::<f32>() * 1.2),
                     );
                 }
-                if catalog.has_audio("audio/sndPortalLoop.wav") {
-                    commands.spawn((
-                        PortalLoop,
-                        AudioPlayer::<AudioSource>::new(
-                            asset_server.load("audio/sndPortalLoop.wav"),
-                        ),
-                        PlaybackSettings {
-                            mode: PlaybackMode::Loop,
-                            volume: Volume::Linear(0.5),
-                            ..default()
-                        },
-                    ));
-                }
+                play_loop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    "sndPortalLoop",
+                    0.5,
+                    PortalLoop,
+                );
             }
         } else {
             play_cue(&mut commands, &catalog, &asset_server, "sndRestart", 0.7);
@@ -547,8 +775,8 @@ fn boot_intro(
     if boot.mode >= 4 {
         return;
     }
-    // da advances 0.5/tick at 30 fps (Draw_0: da += 0.5).
-    boot.da += dt * 15.0;
+
+    boot.da += dt * 30.0; // da += 0.5 per tick
 
     // Rebuild sprites when the mode changes.
     if boot.rendered_mode != boot.mode as i8 {
@@ -561,7 +789,7 @@ fn boot_intro(
         };
         match boot.mode {
             0 => {
-                // Vlambeer/Create_0: the jingle plays as the first card shows.
+                // Vlambeer/Create_0 plays the jingle once with the first card.
                 play_cue(&mut commands, &catalog, &asset_server, "sndVlambeer", 0.7);
                 let (spr, tf) = gm_sprite(
                     &catalog,
@@ -580,14 +808,27 @@ fn boot_intro(
                     .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
             }
             2 => {
+                // Vlambeer/Draw_0:
+                //   _px = (view_width  - sprite_width)  div 2
+                //   _py = (view_height - sprite_height)
+                // draw point is TOP-LEFT of the sprite (origin 0,0 for this card).
+                let m = meta_of(&catalog, "images/sprVlambeer.png");
+                let fw = m[1].max(1.0);
+                let fh = m[2].max(1.0);
+                let ox = m[4];
+                let oy = m[5];
+                // Convert top-left (_px,_py) into a GM draw point (origin-relative).
+                let px = ((GUI_W - fw) * 0.5).floor() + ox;
+                let py = (GUI_H - fh) + oy;
+
                 let (spr, tf) = gm_sprite(
                     &catalog,
                     &asset_server,
                     &map,
                     "images/sprVlambeer.png",
                     0,
-                    0.0,
-                    0.0,
+                    px,
+                    py,
                     1.0,
                     1.0,
                     Color::WHITE,
@@ -595,17 +836,17 @@ fn boot_intro(
                 );
                 boot.spawned
                     .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
-                // Draw_0 adds ten additive jittered copies; four static ones
-                // approximate the glow.
-                for k in 0..4usize {
+
+                // repeat(10) additive orandom(4) copies — positions re-jittered below.
+                for _ in 0..10 {
                     let (g, gtf) = gm_sprite(
                         &catalog,
                         &asset_server,
                         &map,
                         "images/sprVlambeer.png",
                         0,
-                        if k & 1 != 0 { 2.0 } else { -2.0 },
-                        if k & 2 != 0 { 2.0 } else { -2.0 },
+                        px,
+                        py,
                         1.0,
                         1.0,
                         Color::srgba(1.0, 1.0, 1.0, 0.1),
@@ -615,22 +856,47 @@ fn boot_intro(
                         .push(commands.spawn((BootArt, ChildOf(cam), g, gtf)).id());
                 }
             }
+            // modes 1 and 3 are text-only (Repose splash_ui)
             _ => {}
         }
-    } else if boot.mode == 0
-        && let Some(e) = boot.spawned.first().copied()
-        && let Ok(mut spr) = sprites.get_mut(e)
-    {
-        // Saving icon animates at 30 fps (da += 0.5 per tick).
-        let m = meta_of(&catalog, "images/sprSaving.png");
-        let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
-        let frame = (boot.da.floor() as usize) % 31;
-        spr.rect = Some(Rect::new(
-            frame as f32 * fw,
-            0.0,
-            (frame + 1) as f32 * fw,
-            fh,
-        ));
+    } else if boot.mode == 0 {
+        // sprSaving animates: da += 0.5/tick
+        if let Some(e) = boot.spawned.first().copied()
+            && let Ok(mut spr) = sprites.get_mut(e)
+        {
+            let m = meta_of(&catalog, "images/sprSaving.png");
+            let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+            let n = sprite_frame_count(&catalog, "images/sprSaving.png").max(1);
+            let frame = (boot.da.floor() as usize) % n;
+            spr.rect = Some(Rect::new(
+                frame as f32 * fw,
+                0.0,
+                (frame + 1) as f32 * fw,
+                fh,
+            ));
+        }
+    } else if boot.mode == 2 && boot.spawned.len() > 1 {
+        // Re-jitter the 10 glow copies every frame (orandom(4)).
+        let Some((_, map)) = view_setup(&windows, &cam_q) else {
+            return;
+        };
+        let m = meta_of(&catalog, "images/sprVlambeer.png");
+        let fw = m[1].max(1.0);
+        let fh = m[2].max(1.0);
+        let ox = m[4];
+        let oy = m[5];
+        let px = ((GUI_W - fw) * 0.5).floor() + ox;
+        let py = (GUI_H - fh) + oy;
+        for e in boot.spawned.iter().copied().skip(1) {
+            if let Ok(mut tf) = transforms.get_mut(e) {
+                let jx = rand::rng().random_range(-4.0..=4.0);
+                let jy = rand::rng().random_range(-4.0..=4.0);
+                let left = (px + jx) - ox;
+                let top = (py + jy) - oy;
+                let c = map.to_world(left + fw * 0.5, top + fh * 0.5);
+                tf.translation = c.extend(-889.0);
+            }
+        }
     }
 }
 
@@ -977,39 +1243,21 @@ fn spawn_char_select(
         ));
     }
     {
-        // 12x10 field (+1 ring) of 32 px tiles with the MenuGen jitter
-        // (mody = choose(32, 0, -32)) and the Floor frame weighting
-        // (mostly 0, sometimes 1/2, rarely 3).
-        let mut spawn_tile = |gx: f32, gy: f32| {
-            let mody = [(0.0_f32, 2i32), (-32.0, 1), (32.0, 1)];
-            let pick = |w: i32| rand::rng().random_range(0..w);
-            let total: i32 = mody.iter().map(|(_, w)| w).sum();
-            let mut r = pick(total);
-            let mut dy = 0.0;
-            for (v, w) in mody {
-                r -= w;
-                if r < 0 {
-                    dy = v;
-                    break;
-                }
-            }
-            let frame = if rand::random::<f32>() < 1.0 / 500.0 {
-                3usize
-            } else {
-                match pick(9) {
-                    0..=6 => 0,
-                    7 => 1,
-                    _ => 2,
-                }
-            };
+        // MenuGen + FloorMaker exact topology. This replaces the previous
+        // rectangular 12x10 fill. Coordinates are GameMaker world positions
+        // converted around the campfire at (64,64) -> GUI center.
+        let title_floor: HashSet<(i32, i32)> = menu_gen_floor_cells();
+
+        for &(cx, cy) in &title_floor {
+            let (gx, gy) = title_world_to_gui(cx as f32 * 32.0, cy as f32 * 32.0);
             let (spr, mut tf) = gm_sprite(
                 &catalog,
                 &asset_server,
                 &map,
                 "images/sprFloor0.png",
-                frame,
-                gx + dy,
-                gy + dy,
+                campfire_floor_frame(&catalog),
+                gx,
+                gy,
                 1.0,
                 1.0,
                 Color::WHITE,
@@ -1017,43 +1265,140 @@ fn spawn_char_select(
             );
             tf.translation.z = -890.0;
             commands.spawn((TitleArt, ChildOf(cam), spr, tf));
-        };
-        for j in -1..10i32 {
-            for i in -1..12i32 {
-                spawn_tile(i as f32 * 32.0 + 16.0, j as f32 * 32.0 + 16.0);
+        }
+
+        // MenuGen/Alarm_1 decor pass:
+        // with(Floor) if random(6)<1 spawn either NightCactus or
+        // TopDecalNightDesert. Avoid hard failure when extracted assets are
+        // absent; use the exact upstream names when present.
+        for &(cx, cy) in &title_floor {
+            if rand::random::<f32>() * 6.0 >= 1.0 {
+                continue;
+            }
+
+            let (gx, gy) = title_world_to_gui(cx as f32 * 32.0 + 16.0, cy as f32 * 32.0 + 16.0);
+
+            if rand::rng().random_range(0..=21) != 0 {
+                let cactus_path = match pick_i32(&[1, 2, 3]) {
+                    1 => "images/sprNightCactus.png",
+                    2 => "images/sprNightCactus2.png",
+                    _ => "images/sprNightCactus3.png",
+                };
+
+                if catalog.has(cactus_path) {
+                    let (spr, tf) = gm_sprite(
+                        &catalog,
+                        &asset_server,
+                        &map,
+                        cactus_path,
+                        0,
+                        gx,
+                        gy,
+                        1.0,
+                        1.0,
+                        Color::WHITE,
+                        -865.0,
+                    );
+                    commands.spawn((TitleArt, ChildOf(cam), spr, tf));
+                }
+            } else if catalog.has("images/sprNightDesertTopDecal.png") {
+                let frame = rand::rng()
+                    .random_range(0..sprite_frame_count(&catalog, "images/sprNightDesertTopDecal.png"));
+                let (spr, tf) = gm_sprite(
+                    &catalog,
+                    &asset_server,
+                    &map,
+                    "images/sprNightDesertTopDecal.png",
+                    frame,
+                    gx,
+                    gy,
+                    1.0,
+                    1.0,
+                    Color::WHITE,
+                    -864.0,
+                );
+                commands.spawn((TitleArt, ChildOf(cam), spr, tf));
             }
         }
-        // Walls around the floor field (mcr_floor_make_walls): one-tile thick border.
-        {
-            for j in -2..12i32 {
-                for i in -2..14i32 {
-                    let is_floor = i >= -1 && i <= 12 && j >= -1 && j <= 10;
-                    let is_edge = i == -2 || i == 13 || j == -2 || j == 11;
-                    if is_edge && !is_floor {
-                        let (wall_path, frame) = if j == -2 {
-                            ("images/sprWall0Top.png", 0)
-                        } else if j == 11 {
-                            ("images/sprWall0Bot.png", 0)
-                        } else {
-                            ("images/sprWall0Out.png", 0)
-                        };
-                        if catalog.has(wall_path) {
-                            let (spr, tf) = gm_sprite(
-                                &catalog,
-                                &asset_server,
-                                &map,
-                                wall_path,
-                                frame,
-                                i as f32 * 32.0 + 16.0,
-                                j as f32 * 32.0 + 16.0,
-                                1.0,
-                                1.0,
-                                Color::WHITE,
-                                -889.0,
-                            );
-                            commands.spawn((TitleArt, ChildOf(cam), spr, tf));
-                        }
-                    }
+
+        // Wall/Create_0 from every final Floor via mcr_floor_make_walls.
+        let mut wall_seen: HashSet<(i32, i32)> = HashSet::new();
+        let probes = [
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (2, -1),
+            (2, 0),
+            (2, 1),
+            (-1, 0),
+            (-1, 1),
+            (-1, 2),
+            (0, 2),
+            (1, 2),
+            (2, 2),
+        ];
+
+        for &(cx, cy) in &title_floor {
+            for (ox, oy) in probes {
+                let wx = cx * 2 + ox;
+                let wy = cy * 2 + oy;
+                let owner = (wx.div_euclid(2), wy.div_euclid(2));
+                if title_floor.contains(&owner) || !wall_seen.insert((wx, wy)) {
+                    continue;
+                }
+
+                let (gx, gy) = title_wall_xy(wx, wy);
+                let floor_below = title_floor.contains(&title_floor_owner_below(wx, wy));
+
+                if catalog.has("images/sprWall0Out.png") {
+                    let (s, t) = gm_sprite(
+                        &catalog,
+                        &asset_server,
+                        &map,
+                        "images/sprWall0Out.png",
+                        campfire_wall_out_frame(&catalog),
+                        gx,
+                        gy,
+                        1.0,
+                        1.0,
+                        Color::WHITE,
+                        -889.5,
+                    );
+                    commands.spawn((TitleArt, ChildOf(cam), s, t));
+                }
+
+                if floor_below && catalog.has("images/sprWall0Bot.png") {
+                    let (s, t) = gm_sprite(
+                        &catalog,
+                        &asset_server,
+                        &map,
+                        "images/sprWall0Bot.png",
+                        campfire_wall_body_frame(&catalog),
+                        gx,
+                        gy,
+                        1.0,
+                        1.0,
+                        Color::WHITE,
+                        -889.0,
+                    );
+                    commands.spawn((TitleArt, ChildOf(cam), s, t));
+                }
+
+                if catalog.has("images/sprWall0Top.png") {
+                    let (s, t) = gm_sprite(
+                        &catalog,
+                        &asset_server,
+                        &map,
+                        "images/sprWall0Top.png",
+                        campfire_wall_top_frame(&catalog),
+                        gx,
+                        gy - 8.0,
+                        1.0,
+                        1.0,
+                        Color::WHITE,
+                        -888.0,
+                    );
+                    commands.spawn((TitleArt, ChildOf(cam), s, t));
                 }
             }
         }
@@ -1535,13 +1880,13 @@ fn main_menu_hover(
         // sndHover fires only for available rows (0, 2, 4).
         if matches!(hovered, 0 | 2 | 4)
             && let Some(catalog) = catalog
-            && catalog.has_audio("audio/sndHover.wav")
+            && let Some(path) = resolve_audio_path(&catalog, "sndHover")
         {
             commands.spawn((
-                AudioPlayer::<AudioSource>::new(asset_server.load("audio/sndHover.wav")),
+                AudioPlayer::<AudioSource>::new(asset_server.load(path)),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
-                    volume: Volume::Linear(0.5),
+                    volume: Volume::Linear(0.45),
                     ..default()
                 },
             ));
