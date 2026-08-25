@@ -45,7 +45,7 @@ pub fn apply_pending_wall_breaks(
                     owner.0 as f32 * TILE + TILE * 0.5,
                     owner.1 as f32 * TILE + TILE * 0.5,
                 );
-                let (floor_png, _, _, _, _) = area_sprites_for_run(&run, &catalog);
+                let (floor_png, _, _, _, _, _) = area_sprites_for_run(&run, &catalog);
                 commands.spawn((
                     GameCleanup,
                     LevelCleanup,

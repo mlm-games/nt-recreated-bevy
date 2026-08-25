@@ -341,6 +341,14 @@ fn wall_center(wx: i32, wy: i32) -> Vec2 {
     )
 }
 
+/// Top-left of a 16px wall cell in Bevy y-up lattice space.
+/// Wall instance (x,y) in GM is this point (origin 0,0 on Bot/Top).
+fn wall_top_left(wx: i32, wy: i32) -> Vec2 {
+    // Bevy y-up: cell covers [wx*16, wx*16+16) × [wy*16, wy*16+16).
+    // GM y-down top-left of that cell on screen = top edge = high Bevy y.
+    Vec2::new(wx as f32 * WALL_PX, (wy as f32 + 1.0) * WALL_PX)
+}
+
 // ---------------------------------------------------------------------------
 // mcr_floor_make_walls — 12-probe ring on the 16px lattice
 // ---------------------------------------------------------------------------
@@ -1105,24 +1113,6 @@ fn sprite_frames(catalog: &AssetCatalog, path: &str) -> usize {
         .unwrap_or(1)
 }
 
-fn sprite_exact_frame(
-    catalog: &AssetCatalog,
-    asset_server: &AssetServer,
-    path: &str,
-    frame: usize,
-) -> Sprite {
-    let mut sprite = sprite_exact(catalog, asset_server, path);
-    if let Some(m) = catalog.anims.get(path)
-        && m[0] > 1.0
-    {
-        let f = frame % sprite_frames(catalog, path).max(1);
-        let w = m[1].max(1.0);
-        let h = m[2].max(1.0);
-        sprite.rect = Some(Rect::new(f as f32 * w, 0.0, (f + 1) as f32 * w, h));
-    }
-    sprite
-}
-
 fn wall_hash(seed: u64, wx: i32, wy: i32, salt: u64) -> u64 {
     let mut x = seed
         ^ ((wx as i64 as u64) << 32)
@@ -1170,8 +1160,9 @@ fn area_sprites(
     &'static str,
     &'static str,
     &'static str,
+    &'static str,
 ) {
-    // (floor, wall bot, wall top, wall out, ground decal)
+    // (floor, bot, top, out, trans, ground decal)
     // Upstream sprite families are named by _area id.
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
@@ -1180,6 +1171,7 @@ fn area_sprites(
             "images/sprWall0Bot.png",
             "images/sprWall0Top.png",
             "images/sprWall0Out.png",
+            "images/sprWall0Trans.png",
             "images/sprNightDesertTopDecal.png",
         ),
         4 => (
@@ -1187,6 +1179,7 @@ fn area_sprites(
             "images/sprWall2Bot.png",
             "images/sprWall2Top.png",
             "images/sprWall2Out.png",
+            "images/sprWall2Trans.png",
             "images/sprTopDecalSewers.png",
         ),
         5..=7 => (
@@ -1194,6 +1187,7 @@ fn area_sprites(
             "images/sprWall3Bot.png",
             "images/sprWall3Top.png",
             "images/sprWall3Out.png",
+            "images/sprWall3Trans.png",
             "images/sprTopDecalScrapyard.png",
         ),
         8 => (
@@ -1201,6 +1195,7 @@ fn area_sprites(
             "images/sprWall4Bot.png",
             "images/sprWall4Top.png",
             "images/sprWall4Out.png",
+            "images/sprWall4Trans.png",
             "images/sprTopDecalCave.png",
         ),
         9..=11 => (
@@ -1208,6 +1203,7 @@ fn area_sprites(
             "images/sprWall5Bot.png",
             "images/sprWall5Top.png",
             "images/sprWall5Out.png",
+            "images/sprWall5Trans.png",
             "images/sprTopDecalCity.png",
         ),
         12 => (
@@ -1215,6 +1211,7 @@ fn area_sprites(
             "images/sprWall6Bot.png",
             "images/sprWall6Top.png",
             "images/sprWall6Out.png",
+            "images/sprWall6Trans.png",
             "images/sprTopDecalCity.png",
         ),
         13..=15 => (
@@ -1222,6 +1219,7 @@ fn area_sprites(
             "images/sprWall7Bot.png",
             "images/sprWall7Top.png",
             "images/sprWall7Out.png",
+            "images/sprWall7Trans.png",
             "images/sprPalaceTopDecal.png",
         ),
         _ => (
@@ -1229,6 +1227,7 @@ fn area_sprites(
             "images/sprWall1Bot.png",
             "images/sprWall1Top.png",
             "images/sprWall1Out.png",
+            "images/sprWall1Trans.png",
             "images/sprDesertTopDecal.png",
         ),
     }
@@ -1241,6 +1240,7 @@ pub(crate) fn area_sprites_for_run(
     run: &Run,
     catalog: &AssetCatalog,
 ) -> (
+    &'static str,
     &'static str,
     &'static str,
     &'static str,
@@ -1264,42 +1264,48 @@ pub(crate) fn area_sprites_for_run(
         return route;
     }
 
-    let (floor, bot, top, out) = match run.area {
+    let (floor, bot, top, out, trans) = match run.area {
         AreaId::Oasis => (
             "images/sprFloor101.png",
             "images/sprWall101Bot.png",
             "images/sprWall101Top.png",
             "images/sprWall101Out.png",
+            "images/sprWall101Trans.png",
         ),
         AreaId::PizzaSewers => (
             "images/sprFloor102.png",
             "images/sprWall102Bot.png",
             "images/sprWall102Top.png",
             "images/sprWall102Out.png",
+            "images/sprWall102Trans.png",
         ),
         AreaId::City => (
             "images/sprFloor103.png",
             "images/sprWall103Bot.png",
             "images/sprWall103Top.png",
             "images/sprWall103Out.png",
+            "images/sprWall103Trans.png",
         ),
         AreaId::CursedCaves | AreaId::Vault | AreaId::CrownVault => (
             "images/sprFloor104.png",
             "images/sprWall104Bot.png",
             "images/sprWall104Top.png",
             "images/sprWall104Out.png",
+            "images/sprWall104Trans.png",
         ),
         AreaId::Jungle => (
             "images/sprFloor105.png",
             "images/sprWall105Bot.png",
             "images/sprWall105Top.png",
             "images/sprWall105Out.png",
+            "images/sprWall105Trans.png",
         ),
         _ => (
             "images/sprFloor106.png",
             "images/sprWall106Bot.png",
             "images/sprWall106Top.png",
             "images/sprWall106Out.png",
+            "images/sprWall106Trans.png",
         ),
     };
 
@@ -1316,7 +1322,8 @@ pub(crate) fn area_sprites_for_run(
         slot(bot, route.1),
         slot(top, route.2),
         slot(out, route.3),
-        route.4,
+        slot(trans, route.4),
+        route.5,
     )
 }
 
@@ -1328,7 +1335,7 @@ pub fn spawn_level(
     plan: &LevelPlan,
     mask: &mut FloorMask,
 ) {
-    let (floor_png, wall_bot_png, wall_top_png, wall_out_png, decal_prop_png) =
+    let (floor_png, wall_bot_png, wall_top_png, wall_out_png, wall_trans_png, decal_prop_png) =
         area_sprites_for_run(run, catalog);
 
     let cols = (ARENA_W / TILE) as i32;
@@ -1429,71 +1436,102 @@ pub fn spawn_level(
         ));
     }
 
-    // Wall bodies (Bot): visible only when a Floor overlaps the probe point
-    // (x, y + 16) — the exact upstream rule (`place_meeting(x, y + 16, Floor)`).
-    // The Top face overlays every wall 8px higher.
+    // ---------------------------------------------------------------------
+    // Walls — faithful to objects/Wall/Create_0 + Top draw:
+    //
+    // GM instance (x,y) = top-left of 16×16 (mskWall).
+    // - sprWallNOut @ (x,y) origin (4,12)  → extends past the ground edge
+    // - sprWallNBot @ (x,y) origin (0,0)   → only if place_meeting(x, y+16, Floor)
+    // - sprWallNTop @ (x, y-8) origin (0,0)→ always, 8px "up" the screen
+    //
+    // Bevy lattice is y-up; screen-south (GM +y) is −Bevy y.
+    // ---------------------------------------------------------------------
     let floor_set: std::collections::HashSet<(i32, i32)> =
         plan.floor_cells.iter().copied().collect();
-    // Ring walls + interior small walls share the same renderer.
-    let mut all_walls: Vec<(i32, i32)> = plan.wall_cells.iter().copied().collect();
-    all_walls.extend(
-        plan.small_walls
-            .iter()
-            .map(|&(wx, wy)| (wx as i32, wy as i32)),
-    );
+    let wall_set: std::collections::HashSet<(i32, i32)> = {
+        let mut s = plan.wall_cells.clone();
+        for &(wx, wy) in &plan.small_walls {
+            s.insert((wx as i32, wy as i32));
+        }
+        s
+    };
+
+    let mut all_walls: Vec<(i32, i32)> = wall_set.iter().copied().collect();
+    // Stable order for determinism
+    all_walls.sort_unstable();
+
     for (wx, wy) in all_walls {
         let c = wall_center(wx, wy);
+        // GM draw point (top-left of 16×16), mapped into Bevy y-up.
+        // Top edge of cell = high Bevy y.
+        let gm_draw = wall_top_left(wx, wy);
+
         let body_frame = wall_body_frame(catalog, run.gen_seed, wx, wy, wall_bot_png);
         let top_frame = wall_top_frame(catalog, run.gen_seed, wx, wy, wall_top_png);
         let out_frame = wall_out_frame(catalog, run.gen_seed, wx, wy, wall_out_png);
 
-        // GML place_meeting(x, y+16, Floor) with y-down.
-        // Bevy y-up lattice: owner of the cell one step "south" on screen.
-        let owner = (wx.div_euclid(2), (wy - 1).div_euclid(2));
-        let floor_below = floor_set.contains(&owner);
+        // place_meeting(x, y+16, Floor) in GM y-down = one lattice step
+        // screen-south = Bevy wy - 1.
+        let floor_south = {
+            // Probe center of the 16px cell immediately south on screen.
+            let probe = Vec2::new(c.x, c.y - WALL_PX);
+            let owner = (
+                (probe.x / TILE).floor() as i32,
+                (probe.y / TILE).floor() as i32,
+            );
+            floor_set.contains(&owner)
+        };
 
         // Visuals first so they can be linked to the solid via WallVisuals.
         let mut parts: Vec<Entity> = Vec::with_capacity(3);
 
+        // --- Out face (extends the ground) — EVERY wall ---
+        // sprWall*Out is 24×32, origin (4,12). Drawing at GM (x,y) makes it
+        // hang 4px past each side and 12px "above" the wall top-left.
         if catalog.has(wall_out_png) {
-            let e = commands
-                .spawn((
-                    GameCleanup,
-                    LevelCleanup,
-                    sprite_exact_frame(catalog, asset_server, wall_out_png, out_frame),
-                    Transform::from_xyz(c.x, c.y, -42.0),
-                ))
-                .id();
+            let (spr, tf) = sprite_at_gm_origin(
+                catalog,
+                asset_server,
+                wall_out_png,
+                out_frame,
+                gm_draw,
+                -42.0,
+            );
+            let e = commands.spawn((GameCleanup, LevelCleanup, spr, tf)).id();
             parts.push(e);
         }
 
-        if floor_below {
-            let e = commands
-                .spawn((
-                    GameCleanup,
-                    LevelCleanup,
-                    sprite_exact_frame(catalog, asset_server, wall_bot_png, body_frame),
-                    Transform::from_xyz(c.x, c.y, -40.0),
-                ))
-                .id();
+        // --- Bot body — only when floor is screen-south (Wall.visible) ---
+        if floor_south && catalog.has(wall_bot_png) {
+            let (spr, tf) = sprite_at_gm_origin(
+                catalog,
+                asset_server,
+                wall_bot_png,
+                body_frame,
+                gm_draw,
+                -40.0,
+            );
+            let e = commands.spawn((GameCleanup, LevelCleanup, spr, tf)).id();
             parts.push(e);
         }
 
-        {
-            let e = commands
-                .spawn((
-                    GameCleanup,
-                    LevelCleanup,
-                    sprite_exact_frame(catalog, asset_server, wall_top_png, top_frame),
-                    Transform::from_xyz(c.x, c.y + 8.0, -36.0),
-                ))
-                .id();
+        // --- Top face at (x, y-8) in GM = 8px screen-north of draw point ---
+        // Bevy y-up: screen-north = +y → gm_draw + (0, +8).
+        if catalog.has(wall_top_png) {
+            let top_draw = gm_draw + Vec2::new(0.0, 8.0);
+            let (spr, tf) = sprite_at_gm_origin(
+                catalog,
+                asset_server,
+                wall_top_png,
+                top_frame,
+                top_draw,
+                -36.0,
+            );
+            let e = commands.spawn((GameCleanup, LevelCleanup, spr, tf)).id();
             parts.push(e);
         }
 
-        // Collision body (16px solid). Walls only break through the explicit
-        // PendingWallBreak pipeline (hammerhead / charges / explosions), never
-        // by generic projectile erosion.
+        // Collision body (16px solid) at cell center.
         let wall_e = commands
             .spawn((
                 GameCleanup,
@@ -1514,6 +1552,43 @@ pub fn spawn_level(
         let is_screen_end = !floor_set.contains(&floor_cell_for_wall(wx, wy));
         if is_screen_end {
             commands.entity(wall_e).insert(ScreenEnd);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // TopSmall / Trans fill (objects/Top + TopSmall):
+    // For each floor tile, stamp 4× 16px candidates; keep only cells that are
+    // neither Floor nor Wall. Upstream sprite = sprWallNTrans (often invisible
+    // collision / soft top — draw when art exists so the rim reads solid).
+    // -------------------------------------------------------------------------
+    if catalog.has(wall_trans_png) {
+        for &(cx, cy) in &plan.floor_cells {
+            // Floor top-left in Bevy y-up.
+            let ftl = Vec2::new(cx as f32 * TILE, (cy as f32 + 1.0) * TILE);
+            for (ox, oy) in [(0.0, 0.0), (16.0, 0.0), (0.0, -16.0), (16.0, -16.0)] {
+                let p = ftl + Vec2::new(ox, oy);
+                let wx = (p.x / WALL_PX).floor() as i32;
+                let wy = (p.y / WALL_PX).floor() as i32;
+                if wall_set.contains(&(wx, wy)) {
+                    continue;
+                }
+                let owner = (wx.div_euclid(2), wy.div_euclid(2));
+                if floor_set.contains(&owner) {
+                    continue;
+                }
+                let frame = (wall_hash(run.gen_seed, wx, wy, 0x41) as usize)
+                    % sprite_frames(catalog, wall_trans_png).max(1);
+                let draw = wall_top_left(wx, wy);
+                let (spr, tf) = sprite_at_gm_origin(
+                    catalog,
+                    asset_server,
+                    wall_trans_png,
+                    frame,
+                    draw,
+                    -38.0,
+                );
+                commands.spawn((GameCleanup, LevelCleanup, spr, tf));
+            }
         }
     }
 

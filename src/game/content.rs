@@ -2678,6 +2678,63 @@ pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &s
     sprite
 }
 
+/// Same as `sprite_exact`, but pick a horizontal strip frame.
+pub fn sprite_exact_frame(
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    path: &str,
+    frame: usize,
+) -> Sprite {
+    let mut sprite = sprite_exact(catalog, asset_server, path);
+    if let Some(m) = catalog.anims.get(path) {
+        let frames = m[0].max(1.0) as usize;
+        let f = frame % frames.max(1);
+        let w = m[1].max(1.0);
+        let h = m[2].max(1.0);
+        sprite.rect = Some(Rect::new(f as f32 * w, 0.0, (f as f32 + 1.0) * w, h));
+    }
+    sprite
+}
+
+/// Metadata: [frames, w, h, fps, xorigin, yorigin]
+pub fn sprite_meta(catalog: &AssetCatalog, path: &str) -> [f32; 6] {
+    catalog
+        .anims
+        .get(path)
+        .copied()
+        .unwrap_or([1.0, 16.0, 16.0, 0.0, 8.0, 8.0])
+}
+
+/// Place a sprite as GameMaker would: draw point = instance (x,y), using
+/// sprite xorigin/yorigin. Coordinates are Bevy y-up; `draw_pos` is the
+/// Bevy-space position of the GM draw point (instance x,y mapped to y-up).
+/// Returns (Sprite, Transform) with center-anchor.
+pub fn sprite_at_gm_origin(
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    path: &str,
+    frame: usize,
+    draw_pos: Vec2,
+    z: f32,
+) -> (Sprite, Transform) {
+    let m = sprite_meta(catalog, path);
+    let (fw, fh, xorigin, yorigin) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+    let sprite = sprite_exact_frame(catalog, asset_server, path, frame);
+
+    // GM: left = x - xorigin, top = y - yorigin (y-down).
+    // Bevy y-up draw_pos is the same logical corner/origin point on screen
+    // after the lattice is already y-up:
+    //   left  = draw_pos.x - xorigin
+    //   top (high y) = draw_pos.y + yorigin
+    //   center = left + fw/2, top - fh/2 = draw_pos.y + yorigin - fh/2.
+    let center = Vec2::new(
+        draw_pos.x - xorigin + fw * 0.5,
+        draw_pos.y + yorigin - fh * 0.5,
+    );
+
+    (sprite, Transform::from_xyz(center.x, center.y, z))
+}
+
 /// Bevy `Anchor` for a sprite path, derived from GameMaker xorigin/yorigin.
 /// Centered origins return `Anchor::Center` (default); custom origins (weapons,
 /// projectiles) return a custom anchor so rotation pivots at the handle/muzzle
