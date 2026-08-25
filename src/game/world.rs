@@ -1483,25 +1483,32 @@ pub fn spawn_level(
         // Collision body (16px solid). Walls only break through the explicit
         // PendingWallBreak pipeline (hammerhead / charges / explosions), never
         // by generic projectile erosion.
-        commands.spawn((
-            GameCleanup,
-            LevelCleanup,
-            WallTile,
-            WallCell(wx, wy),
-            WallVisuals { parts },
-            Prop {
-                size: Vec2::splat(WALL_PX),
-                hp: 9999,
-                destructible: false,
-                explosive: false,
-            },
-            Transform::from_xyz(c.x, c.y, -30.0),
-        ));
+        let wall_e = commands
+            .spawn((
+                GameCleanup,
+                LevelCleanup,
+                WallTile,
+                WallCell(wx, wy),
+                WallVisuals { parts },
+                Prop {
+                    size: Vec2::splat(WALL_PX),
+                    hp: 9999,
+                    destructible: false,
+                    explosive: false,
+                },
+                Transform::from_xyz(c.x, c.y, -30.0),
+            ))
+            .id();
+        // Outer ring walls preferentially break for boss intros / generators.
+        let is_screen_end = !floor_set.contains(&floor_cell_for_wall(wx, wy));
+        if is_screen_end {
+            commands.entity(wall_e).insert(ScreenEnd);
+        }
     }
 
     // Props.
     for (kind, pos) in &plan.props {
-        spawn_prop(commands, catalog, asset_server, *kind, *pos, decal_prop_png);
+        spawn_prop(commands, catalog, asset_server, *kind, *pos, decal_prop_png, run);
     }
 
     // Secret entrances (destructible markers; destroying one queues the
@@ -1678,13 +1685,19 @@ fn spawn_secret_entrances(
         return;
     };
 
+    // HP scales with loop (upstream proto statue tanks).
+    let hp = if matches!(target, SecretTarget::CrownVault | SecretTarget::Vault) {
+        120 + run.loop_count as i32 * 12
+    } else {
+        6
+    };
     let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
         SecretEntrance { target },
         Prop {
             size: Vec2::splat(size),
-            hp: 6,
+            hp,
             destructible: true,
             explosive: false,
         },
@@ -1698,6 +1711,26 @@ fn spawn_secret_entrances(
         }
         SecretTarget::CrownVault | SecretTarget::Vault => {
             ec.insert(ProtoStatue);
+            // Four guards around the statue (upstream vault entrance).
+            let guard = if run.area == AreaId::FrozenCity {
+                EnemyKind::SnowBandit
+            } else {
+                EnemyKind::Bandit
+            };
+            for i in 0..4 {
+                let ang = i as f32 * std::f32::consts::FRAC_PI_2;
+                let p = pos + Vec2::from_angle(ang) * 36.0;
+                crate::game::enemies::spawn_enemy_at(
+                    commands,
+                    catalog,
+                    asset_server,
+                    guard,
+                    p,
+                    crate::game::world::difficulty_multiplier(run.floor),
+                    false,
+                    false,
+                );
+            }
         }
         SecretTarget::YvMansion => {
             ec.insert(GoldCar);
@@ -1717,6 +1750,7 @@ fn spawn_prop(
     kind: PropKind,
     pos: Vec2,
     decal_png: &'static str,
+    run: &Run,
 ) {
     // --- Functional floor / hazard entities (no solid Prop component) ---
     match kind {
@@ -1985,18 +2019,25 @@ fn spawn_prop(
             true,
         ),
 
-        PropKind::BigGenerator => (
-            &["images/sprGenerator.png", "images/sprBigGenerator.png"],
-            Color::srgb(0.55, 0.75, 1.0),
-            Vec2::new(40.0, 48.0),
-            40.0,
-            40,
-            true,
-            false,
-            None,
-            -8.0,
-            true,
-        ),
+        PropKind::BigGenerator => {
+            let hp = if run.loop_count == 0 {
+                40
+            } else {
+                (18 - run.loop_count as i32 * 2).max(8)
+            };
+            (
+                &["images/sprGenerator.png", "images/sprBigGenerator.png"],
+                Color::srgb(0.55, 0.75, 1.0),
+                Vec2::new(40.0, 48.0),
+                40.0,
+                hp,
+                true,
+                false,
+                None,
+                -8.0,
+                true,
+            )
+        }
         PropKind::ThroneStatue => (
             &["images/sprThroneStatue.png"],
             Color::srgb(0.9, 0.82, 0.55),
@@ -2063,7 +2104,9 @@ fn spawn_prop(
         entity.insert(BigGenerator { index: 0 });
     }
     if kind == PropKind::ThroneStatue {
-        entity.insert(ThroneStatueProp { guardian_count: 1 });
+        entity.insert(ThroneStatueProp {
+            guardian_count: (1 + run.loop_count).min(6) as u8,
+        });
     }
 }
 
@@ -2216,6 +2259,7 @@ pub fn circle_hits_prop(
 mod tests {
     use super::*;
     use crate::game::areas::AreaId;
+    use crate::game::components::ThroneRoomState;
 
     fn run_for(floor: u32) -> Run {
         let loop_count = (floor.max(1) - 1) / 15;
@@ -2320,6 +2364,25 @@ mod tests {
         run.area = crate::game::areas::AreaId::CrownVault;
         let plan = generate_level(&run);
         assert_eq!(plan.boss, Some(EnemyKind::OldGuardian));
+    }
+
+    #[test]
+    fn loop_bandit_counts() {
+        assert_eq!(big_bandit_count(0), 1);
+        assert_eq!(big_bandit_count(1), 2);
+        assert_eq!(big_bandit_count(2), 4);
+        assert_eq!(big_bandit_count(3), 6);
+    }
+
+    #[test]
+    fn throne_room_loop_requires_generators() {
+        let mut s = ThroneRoomState::default();
+        assert!(!s.loop_eligible);
+        for _ in 0..4 {
+            s.note_generator_destroyed();
+        }
+        assert!(s.loop_eligible);
+        assert!(s.all_generators_down);
     }
 
     #[test]

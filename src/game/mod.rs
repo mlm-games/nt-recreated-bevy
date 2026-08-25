@@ -207,6 +207,21 @@ impl Plugin for GamePlugin {
             )
             .add_systems(
                 FixedUpdate,
+                walls::update_carpet_occupancy
+                    .in_set(NtSimSet::Combat)
+                    .before(boss_ai::boss_ai)
+                    .run_if(gameplay_active),
+            )
+            .add_systems(
+                FixedUpdate,
+                walls::handle_throne_room_props
+                    .in_set(NtSimSet::Combat)
+                    .after(combat::move_projectiles)
+                    .after(combat::apply_explosions)
+                    .run_if(gameplay_active),
+            )
+            .add_systems(
+                FixedUpdate,
                 (
                     environment::apply_surface_effects
                         .after(player_sys::player_move)

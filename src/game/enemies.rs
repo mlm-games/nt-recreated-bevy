@@ -480,7 +480,7 @@ pub fn tick_delayed_boss_spawns(
     pending: Query<(Entity, &PendingDelayedBoss)>,
     enemies: Query<&Enemy, With<Enemy>>,
     player_q: Query<&Transform, With<Player>>,
-    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    walls: Query<(Entity, &WallCell, &Transform, Option<&ScreenEnd>), With<WallTile>>,
 ) {
     let Ok((marker_e, pending_boss)) = pending.single() else {
         return;
@@ -500,17 +500,21 @@ pub fn tick_delayed_boss_spawns(
     };
     let player_pos = player_tf.translation.truncate();
 
-    // Prefer a wall cell roughly 180px from the player (side walls).
+    // Prefer a wall cell roughly 180px from the player (side walls), with a
+    // bonus for screen-end walls (outer ring).
     let mut best_wall: Option<(Vec2, (i32, i32))> = None;
     let mut best_score = f32::MAX;
     if pending_boss.from_wall {
-        for (_, cell, tf) in &walls {
+        for (_, cell, tf, screen_end) in &walls {
             let p = tf.translation.truncate();
             let d = p.distance(player_pos);
             if d < 120.0 || d > 260.0 {
                 continue;
             }
-            let score = (d - 180.0).abs() + (p.y - player_pos.y).abs() * 0.25;
+            let mut score = (d - 180.0).abs() + (p.y - player_pos.y).abs() * 0.25;
+            if screen_end.is_some() {
+                score -= 20.0;
+            }
             if score < best_score {
                 best_score = score;
                 best_wall = Some((p, (cell.0, cell.1)));

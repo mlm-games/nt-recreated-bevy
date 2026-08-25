@@ -143,6 +143,89 @@ pub fn reset_hammerhead_budget(
     }
 }
 
+/// Palace throne-room: generators and statues are props whose death drives
+/// the loop gate and spawns guardians. This runs after prop damage has set
+/// `Prop.hp <= 0` but before the deferred despawn flush.
+pub fn handle_throne_room_props(
+    mut commands: Commands,
+    mut throne_room: ResMut<ThroneRoomState>,
+    mut toast: ResMut<Toast>,
+    run: Res<Run>,
+    mut bosses: Query<(&Enemy, &mut Health), With<BossBrain>>,
+    q: Query<(Entity, &Prop, Option<&BigGenerator>, Option<&ThroneStatueProp>, &Transform)>,
+) {
+    for (e, prop, big_gen, statue, tf) in &q {
+        if prop.hp > 0 {
+            continue;
+        }
+
+        if big_gen.is_some() {
+            // Only count once per generator entity (hp just crossed).
+            // Use a marker to avoid double-counting if this system sees the
+            // same prop over multiple ticks before despawn.
+            // Since we run once per tick and the prop will be despawned
+            // next flush, we can safely count now.
+            let before = throne_room.generators_destroyed;
+            throne_room.note_generator_destroyed();
+            if throne_room.generators_destroyed != before {
+                toast.show(&format!(
+                    "GENERATOR {}/{}",
+                    throne_room.generators_destroyed, throne_room.generators_total
+                ));
+            }
+            if throne_room.all_generators_down && !throne_room.halved_throne {
+                throne_room.halved_throne = true;
+                toast.show("THE THRONE WEAKENS");
+                if run.loop_count == 0 {
+                    for (enemy, mut hp) in &mut bosses {
+                        if enemy.kind == crate::game::content::EnemyKind::Throne {
+                            hp.hp = (hp.hp / 2).max(1);
+                            hp.max = (hp.max / 2).max(1);
+                        }
+                    }
+                }
+            }
+            // Let the original prop-damage system handle the despawn;
+            // we just drive the gate.
+            let _ = e;
+        }
+
+        if let Some(statue) = statue {
+            let pos = tf.translation.truncate();
+            for i in 0..statue.guardian_count {
+                let ang = i as f32 * std::f32::consts::TAU / statue.guardian_count as f32;
+                let p = pos + Vec2::new(ang.cos(), ang.sin()) * 36.0;
+                commands.spawn(crate::game::components::PendingEnemySpawn {
+                    kind: crate::game::content::EnemyKind::PalaceGuardian,
+                    pos: p,
+                    difficulty: 1.0,
+                });
+            }
+        }
+    }
+}
+
+/// Throne carpet occupancy: sets `ThroneRoomState.player_on_carpet`.
+pub fn update_carpet_occupancy(
+    mut throne_room: ResMut<ThroneRoomState>,
+    player_q: Query<&Transform, With<Player>>,
+    carpets: Query<(&Transform, &ThroneCarpet)>,
+) {
+    throne_room.player_on_carpet = false;
+    let Ok(ptf) = player_q.single() else {
+        return;
+    };
+    let p = ptf.translation.truncate();
+    for (tf, carpet) in &carpets {
+        let c = tf.translation.truncate();
+        let d = (p - c).abs();
+        if d.x <= carpet.half_extents.x && d.y <= carpet.half_extents.y {
+            throne_room.player_on_carpet = true;
+            break;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -20,6 +20,7 @@ pub fn boss_ai(
     mut commands: Commands,
     run: Res<Run>,
     mut trauma: ResMut<Trauma>,
+    throne_room: Res<ThroneRoomState>,
     player_q: Query<(&Transform, &Velocity), (With<Player>, Without<Enemy>)>,
     mut bosses: Query<
         (
@@ -113,6 +114,7 @@ pub fn boss_ai(
             EnemyKind::Throne => throne_ai(
                 &mut commands,
                 &mut trauma,
+                &throne_room,
                 entity,
                 &mut boss,
                 &mut vel,
@@ -694,6 +696,7 @@ fn lil_hunter_burst(
 fn throne_ai(
     commands: &mut Commands,
     trauma: &mut ResMut<Trauma>,
+    throne_room: &ThroneRoomState,
     owner: Entity,
     boss: &mut BossBrain,
     vel: &mut Velocity,
@@ -730,6 +733,12 @@ fn throne_ai(
         boss.set_phase(BossPhase::Radial, 0.45);
         throne_radial_burst(commands, owner, pos, boss.pattern_index, boss.enraged);
         ScreenEffects::add_trauma(trauma, if boss.enraged { 0.34 } else { 0.22 });
+    }
+
+    if throne_room.player_on_carpet && boss.special_timer.just_finished() {
+        let dir = Vec2::new(0.0, -1.0);
+        spawn_enemy_beam(commands, pos + dir * 40.0, dir, 520.0, 28.0, 5, 0.35);
+        ScreenEffects::add_trauma(trauma, 0.2);
     }
 }
 

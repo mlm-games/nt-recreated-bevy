@@ -1408,6 +1408,7 @@ pub fn resolve_deaths(
         ResMut<LoopTransition>,
         ResMut<Toast>,
         ResMut<LastDamageTaken>,
+        ResMut<ThroneRoomState>,
     ),
     audio: Res<GameAudio>,
     gamepads: Query<(Entity, &Gamepad)>,
@@ -1432,6 +1433,7 @@ pub fn resolve_deaths(
         mut loop_transition,
         mut toast,
         mut last_damage,
+        mut throne_room,
     ) = effects;
     if run.game_over {
         return;
@@ -1483,13 +1485,22 @@ pub fn resolve_deaths(
         let player_pos_now = player_tf.translation.truncate();
         match enemy.kind {
             EnemyKind::Throne => {
-                crate::game::loop_transition::begin_throne_campfire(
-                    &mut commands,
-                    &mut loop_transition,
-                    &mut toast,
-                    &mut trauma,
-                    player_pos_now,
-                );
+                if throne_room.loop_eligible {
+                    crate::game::loop_transition::begin_throne_campfire(
+                        &mut commands,
+                        &mut loop_transition,
+                        &mut toast,
+                        &mut trauma,
+                        player_pos_now,
+                    );
+                } else {
+                    // Sit ending — run over, no loop (generators still up).
+                    run.game_over = true;
+                    toast.show("THE NUCLEAR THRONE");
+                    ScreenEffects::flash_white(&mut flash, 0.2);
+                    ScreenEffects::add_trauma(&mut trauma, 0.5);
+                    GameFeel::slow_motion(&mut slow_mo, 0.25, 2.0);
+                }
             }
             EnemyKind::ThroneII => {
                 loop_transition.throne_ii_defeated();
