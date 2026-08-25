@@ -87,6 +87,15 @@ pub struct SecretTriggers {
     pub last_secret: Option<SecretTarget>,
     pub oasis_eligible: bool,
     pub damage_taken_this_floor: bool,
+    /// Oasis step 1: all chests opened while the kill fraction stayed low.
+    pub oasis_chests_ready: bool,
+    /// Countdown after Big Bandit appears; killing him in time opens Oasis.
+    pub oasis_bandit_timer: f32,
+    pub oasis_bandit_alive: bool,
+    /// Floor-start snapshots used for the chest / kill-fraction gates.
+    pub(crate) oasis_floor_chests_initial: u32,
+    pub(crate) oasis_floor_enemies_initial: u32,
+    pub(crate) oasis_snapshot_done: bool,
 }
 
 impl Default for SecretTriggers {
@@ -96,6 +105,12 @@ impl Default for SecretTriggers {
             last_secret: None,
             oasis_eligible: true,
             damage_taken_this_floor: false,
+            oasis_chests_ready: false,
+            oasis_bandit_timer: 0.0,
+            oasis_bandit_alive: false,
+            oasis_floor_chests_initial: 0,
+            oasis_floor_enemies_initial: 1,
+            oasis_snapshot_done: false,
         }
     }
 }
@@ -133,6 +148,12 @@ impl SecretTriggers {
     pub fn reset_floor_flags(&mut self) {
         self.oasis_eligible = true;
         self.damage_taken_this_floor = false;
+        self.oasis_chests_ready = false;
+        self.oasis_bandit_timer = 0.0;
+        self.oasis_bandit_alive = false;
+        self.oasis_snapshot_done = false;
+        self.oasis_floor_chests_initial = 0;
+        self.oasis_floor_enemies_initial = 1;
     }
 
     pub fn mark_damage_taken(&mut self) {
@@ -216,22 +237,113 @@ pub fn apply_secret_transition(
     None
 }
 
-/// Oasis: reach Desert 1-3 at full HP without taking damage this floor.
+/// Oasis step 1: snapshot chests and living trash at floor start so the
+/// chest/kill-fraction gates below can compare against them.
+pub fn observe_oasis_floor_start(
+    run: Res<Run>,
+    mut triggers: ResMut<SecretTriggers>,
+    pickups_q: Query<&Pickup>,
+    enemies_q: Query<&Enemy, Without<BossBrain>>,
+) {
+    if triggers.oasis_snapshot_done || !triggers.oasis_eligible {
+        return;
+    }
+    if run.area != AreaId::Desert || run.floor_in_area > 3 {
+        return;
+    }
+    triggers.oasis_floor_chests_initial = pickups_q
+        .iter()
+        .filter(|p| matches!(p.kind, PickupKind::Chest(_)))
+        .count() as u32;
+    triggers.oasis_floor_enemies_initial = (enemies_q
+        .iter()
+        .filter(|e| !crate::game::content::is_boss(e.kind))
+        .count() as u32)
+        .max(1);
+    triggers.oasis_snapshot_done = true;
+}
+
+/// Oasis: open every chest on a Desert floor (1-1/1-2 within 2% kills,
+/// 1-3 within 10%) without taking damage. This arms the 10-second Big Bandit
+/// window handled by `tick_oasis_bandit_window`.
 pub fn detect_oasis_eligibility(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
-    player_q: Query<&Health, With<Player>>,
+    pickups_q: Query<&Pickup>,
+    enemies_q: Query<&Enemy, Without<BossBrain>>,
 ) {
-    if run.area != AreaId::Desert || run.floor != 3 {
+    if triggers.oasis_chests_ready
+        || run.area != AreaId::Desert
+        || run.floor_in_area > 3
+        || !triggers.oasis_eligible
+        || triggers.damage_taken_this_floor
+    {
         return;
     }
 
-    let Ok(health) = player_q.single() else {
+    let chests_left = pickups_q
+        .iter()
+        .filter(|p| matches!(p.kind, PickupKind::Chest(_)))
+        .count();
+    if chests_left > 0 || !triggers.oasis_snapshot_done {
         return;
-    };
+    }
 
-    if health.hp >= health.max && triggers.oasis_eligible && !triggers.damage_taken_this_floor {
+    let living_trash = enemies_q
+        .iter()
+        .filter(|e| !crate::game::content::is_boss(e.kind))
+        .count() as u32;
+    let killed = triggers
+        .oasis_floor_enemies_initial
+        .saturating_sub(living_trash);
+    let kill_frac = killed as f32 / triggers.oasis_floor_enemies_initial.max(1) as f32;
+    let max_kill = if run.floor_in_area == 3 { 0.10 } else { 0.02 };
+    if kill_frac <= max_kill {
+        triggers.oasis_chests_ready = true;
+    }
+}
+
+/// Oasis step 2: once all chests are opened legally, killing Big Bandit
+/// within 10 seconds of his delayed entrance opens the Oasis portal.
+pub fn tick_oasis_bandit_window(
+    time: Res<Time<Fixed>>,
+    mut triggers: ResMut<SecretTriggers>,
+    enemies_q: Query<&Enemy>,
+) {
+    if !triggers.oasis_chests_ready {
+        return;
+    }
+    if triggers.damage_taken_this_floor || !triggers.oasis_eligible {
+        triggers.oasis_chests_ready = false;
+        return;
+    }
+
+    let bandit_alive = enemies_q.iter().any(|e| {
+        matches!(
+            e.kind,
+            crate::game::content::EnemyKind::BigBandit | crate::game::content::EnemyKind::BigBanditLoop
+        )
+    });
+
+    if bandit_alive && !triggers.oasis_bandit_alive {
+        triggers.oasis_bandit_alive = true;
+        triggers.oasis_bandit_timer = 10.0;
+    }
+
+    if !triggers.oasis_bandit_alive {
+        return;
+    }
+
+    triggers.oasis_bandit_timer -= time.delta_secs();
+    if !bandit_alive && triggers.oasis_bandit_timer > 0.0 {
+        // Bandit died inside the window.
         triggers.queue(SecretTarget::Oasis);
+        triggers.oasis_chests_ready = false;
+        triggers.oasis_bandit_alive = false;
+    } else if triggers.oasis_bandit_timer <= 0.0 {
+        // Window expired.
+        triggers.oasis_chests_ready = false;
+        triggers.oasis_bandit_alive = false;
     }
 }
 

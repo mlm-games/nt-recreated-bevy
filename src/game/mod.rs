@@ -98,6 +98,7 @@ impl Plugin for GamePlugin {
                             progress_sys::handle_mutation_choice,
                             player_sys::face_aim,
                             pickups::tick_toast,
+                            secret_areas::observe_oasis_floor_start,
                             secret_areas::detect_oasis_eligibility,
                             secret_areas::detect_cursed_caves,
                             secret_areas::detect_hq,
@@ -141,6 +142,8 @@ impl Plugin for GamePlugin {
                         player_sys::tick_hazard_clouds,
                         player_sys::ally_ai,
                         enemies::enemy_ai,
+                        enemies::tick_frog_eggs,
+                        enemies::tick_delayed_boss_spawns,
                         boss_ai::boss_ai,
                         boss_ai::tick_hyper_orbit_crystals,
                     )
@@ -154,6 +157,7 @@ impl Plugin for GamePlugin {
                         combat::tick_sticky_projectiles,
                         combat::tick_beams,
                         combat::tick_sentry_turrets,
+                        secret_areas::tick_oasis_bandit_window,
                     )
                         .in_set(NtSimSet::Combat)
                         .run_if(gameplay_active),
@@ -180,6 +184,12 @@ impl Plugin for GamePlugin {
                         .in_set(NtSimSet::Cleanup)
                         .run_if(in_state(AppState::InGame)),
                 ),
+            )
+            .add_systems(
+                FixedUpdate,
+                progress_sys::apply_floor_reach_unlocks
+                    .in_set(NtSimSet::Always)
+                    .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 FixedUpdate,

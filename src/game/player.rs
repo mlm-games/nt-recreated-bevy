@@ -248,6 +248,8 @@ pub fn player_ability(
         (With<Player>, Without<Enemy>),
     >,
     mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
+    mut save: ResMut<crate::save::SaveData>,
+    mut dirty: ResMut<SaveDirty>,
 ) {
     let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, shield, telek)) =
         q.single_mut()
@@ -459,6 +461,10 @@ pub fn player_ability(
             player.rads = player
                 .rads
                 .saturating_add(if regurgitate { 40 } else { 20 });
+            // Robot's unlock: eat a weapon.
+            if crate::game::generated::unlocks::try_unlock_race(&mut save, RaceId::Robot) {
+                dirty.0 = true;
+            }
             VfxSpawner::spawn_burst(
                 &mut commands,
                 pos,

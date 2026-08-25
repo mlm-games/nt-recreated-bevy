@@ -1140,14 +1140,32 @@ pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<
     }
 }
 
+/// Canonical floor-reach unlocks, applied once per newly reached floor and
+/// persisted through the throttled save flush.
+pub fn apply_floor_reach_unlocks(
+    mut applied: Local<u32>,
+    run: Res<Run>,
+    mut dirty: ResMut<SaveDirty>,
+    mut save: ResMut<SaveData>,
+) {
+    if run.floor <= *applied {
+        return;
+    }
+    *applied = run.floor;
+    let before = save.unlocked_characters.len();
+    crate::game::generated::unlocks::apply_floor_unlocks(&mut save, run.floor);
+    if save.unlocked_characters.len() != before {
+        dirty.0 = true;
+    }
+}
+
 pub fn flush_dirty_save(
     mut accumulator: Local<f32>,
     time: Res<Time<Fixed>>,
     mut dirty: ResMut<SaveDirty>,
     save: Res<SaveData>,
     manager: Res<SaveManager>,
-) {
-    if !dirty.0 {
+) {    if !dirty.0 {
         return;
     }
     *accumulator += time.delta_secs();

@@ -148,6 +148,44 @@ pub fn boss_ai(
                 dt,
                 run.loop_count,
             ),
+            EnemyKind::Mom => mom_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dir,
+                dt,
+                &props,
+            ),
+            EnemyKind::Technomancer => technomancer_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                def,
+                pos,
+                player_pos,
+            ),
+            EnemyKind::Captain => captain_ai(
+                &mut commands,
+                &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dir,
+                dt,
+                &props,
+            ),
             _ => {}
         }
 
@@ -1184,6 +1222,233 @@ pub fn tick_hyper_orbit_crystals(
             0.28,
         );
     }
+}
+
+// -----------------------------------------------------------------------------
+// Mom — loop Sewers boss: toxic rings, hazard clouds, and Frog Egg broods
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn mom_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dir: Vec2,
+    dt: f32,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+) {
+    // Drift and keep mid range.
+    let desired = if pos.distance(player_pos) < 120.0 { -dir } else { dir };
+    vel.0 += desired * def.accel * 0.5 * dt;
+    limit_velocity(vel, def.speed.max(50.0));
+    tf.translation += (vel.0 * dt).extend(0.0);
+    resolve_prop_collision(&mut tf.translation, def.radius, props);
+
+    if boss.attack_timer.just_finished() {
+        // Toxic ring around Mom.
+        fire_ring(
+            commands,
+            owner,
+            pos,
+            Team::Enemy,
+            10 + usize::from(boss.enraged) * 4,
+            boss.pattern_index as f32 * 0.11,
+            90.0,
+            2,
+            2.5,
+            5.0,
+            Color::srgb(0.4, 1.0, 0.35),
+            9.0,
+        );
+        boss.pattern_index += 1;
+        ScreenEffects::add_trauma(trauma, 0.12);
+    }
+
+    if boss.special_timer.just_finished() {
+        boss.set_phase(BossPhase::Spawning, 0.4);
+        // Lay three eggs in a triangle around Mom.
+        for i in 0..3 {
+            let a = i as f32 * std::f32::consts::TAU / 3.0 + boss.pattern_index as f32 * 0.4;
+            commands.spawn(PendingEnemySpawn {
+                kind: EnemyKind::FrogEgg,
+                pos: pos + Vec2::new(a.cos(), a.sin()) * 48.0,
+                difficulty: difficulty_for_loop(boss.enraged),
+            });
+        }
+        ScreenEffects::add_trauma(trauma, 0.18);
+    }
+
+    if matches!(boss.phase, BossPhase::Spawning)
+        && boss.phase_timer.just_finished()
+    {
+        boss.set_phase(BossPhase::Idle, 0.1);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Technomancer — loop Labs boss: stationary summon engine
+// -----------------------------------------------------------------------------
+
+fn technomancer_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    _owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    def: EnemyDef,
+    pos: Vec2,
+    _player_pos: Vec2,
+) {
+    let _ = def;
+    // Stationary revive engine: periodically raises reinforcements.
+    if boss.attack_timer.just_finished() {
+        boss.pattern_index += 1;
+        let kind = if boss.pattern_index % 2 == 0 {
+            EnemyKind::Necromancer
+        } else {
+            EnemyKind::Freak
+        };
+        let ang = boss.pattern_index as f32 * 1.7;
+        commands.spawn(PendingEnemySpawn {
+            kind,
+            pos: pos + Vec2::new(ang.cos(), ang.sin()) * 90.0,
+            difficulty: difficulty_for_loop(boss.enraged),
+        });
+        ScreenEffects::add_trauma(trauma, 0.1);
+    }
+
+    if boss.special_timer.just_finished() {
+        // Burst of Freaks in a ring; wider when enraged.
+        let n = if boss.enraged { 4 } else { 2 };
+        for i in 0..n {
+            let a = i as f32 * (std::f32::consts::TAU / n as f32);
+            commands.spawn(PendingEnemySpawn {
+                kind: EnemyKind::Freak,
+                pos: pos + Vec2::new(a.cos(), a.sin()) * 110.0,
+                difficulty: 1.15,
+            });
+        }
+        ScreenEffects::add_trauma(trauma, 0.22);
+    }
+
+    vel.0 = Vec2::ZERO;
+}
+
+// -----------------------------------------------------------------------------
+// Captain — IDPD HQ boss: fan volleys, wall charges, and teleports
+// -----------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn captain_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dir: Vec2,
+    dt: f32,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+) {
+    match boss.phase {
+        BossPhase::Idle | BossPhase::Cooldown => {
+            let desired = if pos.distance(player_pos) < 100.0 { -dir } else { dir };
+            vel.0 += desired * def.accel * 0.65 * dt;
+            limit_velocity(vel, def.speed);
+            tf.translation += (vel.0 * dt).extend(0.0);
+            resolve_prop_collision(&mut tf.translation, def.radius, props);
+
+            if boss.attack_timer.just_finished() {
+                fire_fan(
+                    commands,
+                    owner,
+                    pos,
+                    dir,
+                    Team::Enemy,
+                    def.bullets_per_shot.max(5),
+                    def.fan_spread,
+                    def.projectile_speed,
+                    def.projectile_damage,
+                    def.projectile_lifetime,
+                    def.projectile_radius,
+                    def.projectile_color,
+                    def.projectile_size,
+                );
+            }
+
+            if boss.special_timer.just_finished() && pos.distance(player_pos) < 560.0 {
+                boss.target = player_pos;
+                boss.set_phase(BossPhase::Telegraph, 0.22);
+                vel.0 *= 0.25;
+            }
+        }
+
+        BossPhase::Telegraph => {
+            vel.0 *= 0.8_f32.powf(dt * 60.0);
+            tf.scale =
+                Vec3::splat(1.0 + (boss.phase_timer.elapsed_secs() * 20.0).sin().abs() * 0.08);
+
+            if boss.phase_timer.just_finished() {
+                tf.scale = Vec3::ONE;
+                if boss.pattern_index % 2 == 0 {
+                    // Charge through the player's last position.
+                    boss.set_phase(BossPhase::Charging, 0.35);
+                    vel.0 = (boss.target - pos).normalize_or_zero() * 720.0;
+                    ScreenEffects::add_trauma(trauma, 0.14);
+                } else {
+                    // Teleport past the player.
+                    boss.set_phase(BossPhase::Teleport, 0.05);
+                    tf.translation = (player_pos + dir * 90.0).extend(tf.translation.z);
+                    ScreenEffects::add_trauma(trauma, 0.2);
+                    boss.set_phase(BossPhase::Cooldown, 0.4);
+                }
+                boss.pattern_index += 1;
+            }
+        }
+
+        BossPhase::Charging => {
+            tf.translation += (vel.0 * dt).extend(0.0);
+            resolve_prop_collision(&mut tf.translation, def.radius, props);
+
+            if boss.phase_timer.just_finished() {
+                vel.0 *= 0.15;
+                boss.set_phase(BossPhase::Cooldown, 0.45);
+                fire_ring(
+                    commands,
+                    owner,
+                    tf.translation.truncate(),
+                    Team::Enemy,
+                    12,
+                    boss.pattern_index as f32 * 0.17,
+                    140.0,
+                    3,
+                    2.0,
+                    4.0,
+                    Color::srgb(0.4, 0.7, 1.0),
+                    7.0,
+                );
+            }
+        }
+
+        _ => {
+            boss.set_phase(BossPhase::Idle, 0.1);
+            tf.scale = Vec3::ONE;
+        }
+    }
+}
+
+/// Spawn difficulty used by bosses that call reinforcements mid-fight.
+fn difficulty_for_loop(enraged: bool) -> f32 {
+    1.0 + if enraged { 0.25 } else { 0.0 }
 }
 
 // -----------------------------------------------------------------------------

@@ -8,6 +8,7 @@ use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::world::*;
 use game_utils_bevy::juice::Juice;
+use game_utils_bevy::screen_effects::ScreenEffects;
 
 pub fn spawn_enemy_at(
     commands: &mut Commands,
@@ -404,4 +405,95 @@ fn fire_enemy_shot(
         ));
     }
     let _ = enemy;
+}
+
+/// Big Bandit bursts in once enough of the floor's trash is dead, charging
+/// from a wall-adjacent cell near the player (upstream BanditBoss behaviour).
+pub fn tick_delayed_boss_spawns(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    run: Res<Run>,
+    mask: Res<FloorMask>,
+    mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
+    pending: Query<(Entity, &PendingDelayedBoss)>,
+    enemies: Query<&Enemy, With<Enemy>>,
+    player_q: Query<&Transform, With<Player>>,
+) {
+    let Ok((marker_e, pending_boss)) = pending.single() else {
+        return;
+    };
+
+    let living_trash = enemies
+        .iter()
+        .filter(|e| !crate::game::content::is_boss(e.kind))
+        .count() as u32;
+    let killed = pending_boss.initial_trash.saturating_sub(living_trash);
+    if killed < pending_boss.kills_needed() {
+        return;
+    }
+
+    let Ok(player_tf) = player_q.single() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    // Pick a walkable floor cell a few tiles from the player; prefer cells
+    // near the wall ring when `from_wall`.
+    let mut rng = rand::rng();
+    let mut best = mask.random_floor_pos(&mut rng, 120.0);
+    for _ in 0..32 {
+        let ang = rng.random_range(0.0..std::f32::consts::TAU);
+        let cand =
+            player_pos + Vec2::new(ang.cos(), ang.sin()) * rng.random_range(140.0..240.0);
+        if mask.is_walkable(cand) {
+            best = cand;
+            break;
+        }
+    }
+
+    commands.entity(marker_e).despawn();
+    ScreenEffects::add_trauma(&mut trauma, 0.3);
+    spawn_enemy_at(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        pending_boss.kind,
+        best,
+        difficulty_multiplier(run.floor),
+        false,
+        false,
+    );
+}
+
+/// Frog Eggs laid by Mom sit for their attack timer, then hatch into Ballguys.
+pub fn tick_frog_eggs(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    run: Res<Run>,
+    mut q: Query<(Entity, &Enemy, &mut EnemyBrain, &Transform), With<Enemy>>,
+) {
+    for (e, enemy, mut brain, tf) in &mut q {
+        if enemy.kind != EnemyKind::FrogEgg {
+            continue;
+        }
+        brain.attack.tick(time.delta());
+        if !brain.attack.just_finished() {
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        commands.entity(e).despawn();
+        spawn_enemy_at(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            EnemyKind::Ballguy,
+            pos,
+            difficulty_multiplier(run.floor),
+            false,
+            false,
+        );
+    }
 }

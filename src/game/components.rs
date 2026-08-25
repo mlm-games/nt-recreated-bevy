@@ -746,6 +746,24 @@ pub struct PendingEnemySpawn {
     pub difficulty: f32,
 }
 
+/// Big Bandit (and similar bosses) wait until a fraction of the floor's trash
+/// is dead before bursting in from a wall. The marker holds the floor's
+/// initial trash count so `tick_delayed_boss_spawns` can compute kills.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PendingDelayedBoss {
+    pub kind: EnemyKind,
+    pub initial_trash: u32,
+    pub kill_fraction: f32,
+    /// Prefer a wall-adjacent floor cell near the player when true.
+    pub from_wall: bool,
+}
+
+impl PendingDelayedBoss {
+    pub fn kills_needed(&self) -> u32 {
+        (((self.initial_trash as f32) * self.kill_fraction).ceil() as u32).max(1)
+    }
+}
+
 /// Laser crystal orbiting a Hyper Crystal core.
 #[derive(Component)]
 pub struct HyperOrbitCrystal {
@@ -804,6 +822,9 @@ pub enum BossPhase {
     Radial,
     Beam,
     Enraged,
+    // Mom / Captain extras
+    Spawning,
+    Teleport,
 }
 
 /// Phase state machine driving the bespoke boss behaviors in `boss_ai`.
@@ -846,6 +867,9 @@ impl BossBrain {
             EnemyKind::Throne => (0.7, 2.5),
             EnemyKind::ThroneII => (0.85, 3.4),
             EnemyKind::Hyper => (1.1, 4.0),
+            EnemyKind::Mom => (1.0, 2.4),
+            EnemyKind::Technomancer => (2.0, 3.5),
+            EnemyKind::Captain => (0.7, 2.0),
             _ => (1.2, 3.0),
         };
 

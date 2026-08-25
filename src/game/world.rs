@@ -516,9 +516,13 @@ fn populate(
     }
 
     // --- Enemy pass (scrPopEnemies) ---
+    // Boss floors still get trash mobs upstream; only the bare Throne room
+    // (route floor 15) stays sparse so the boss has room.
+    let rf_route = ((run.floor.max(1) - 1) % 15) + 1;
+    let skip_enemies = boss_sub && rf_route == 15;
     let mut enemy_tiles: Vec<(EnemyKind, Vec2)> = Vec::new();
     for &(cx, cy) in floors {
-        if boss_sub {
+        if skip_enemies {
             break;
         }
         let (px, py) = cell_center_i(cx, cy);
@@ -581,7 +585,19 @@ fn populate(
             }
             2 => {
                 // Sewers: rats dominate, with maggots/freaks/bandits mixed in.
-                if rng.random::<f32>() * 9.0 < 1.0 {
+                // Loop Sewers swaps most fodder for Ballguys (upstream).
+                if run.loop_count > 0 && rng.random::<f32>() * 3.0 >= 1.0 {
+                    let mut cands = vec![
+                        EnemyKind::Ballguy,
+                        EnemyKind::Ballguy,
+                        EnemyKind::Ballguy,
+                        EnemyKind::Rat,
+                        EnemyKind::Freak,
+                    ];
+                    cands.extend(loop_extras.iter().copied());
+                    let k = pick_kind(&mut rng, &cands);
+                    enemy_tiles.push((k, center));
+                } else if rng.random::<f32>() * 9.0 < 1.0 {
                     let k = pick_kind(
                         &mut rng,
                         &[
@@ -674,7 +690,7 @@ fn populate(
     }
 
     // Guarantee minimum enemy count by filling from distant floor cells.
-    if !boss_sub {
+    if !skip_enemies {
         let mut extras = floors
             .iter()
             .copied()
@@ -707,11 +723,20 @@ fn populate(
     plan.enemies = enemy_tiles;
 
     // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
-    // quiet single-floor stop.
+    // quiet single-floor stop. Loop Sewers gets Mom, loop Labs the
+    // Technomancer; HQ runs host the IDPD Captain.
     if boss_sub {
         plan.boss = Some(boss_for_floor_and_loop(run.floor, run.loop_count));
-    } else if gml_area(run.floor) == 4 && run.loop_count >= 1 {
+    } else if area == 2 && run.loop_count >= 1 {
+        // Loop Sewers 2-1 → Mom
+        plan.boss = Some(EnemyKind::Mom);
+    } else if area == 4 && run.loop_count >= 1 {
         plan.boss = Some(EnemyKind::Hyper);
+    } else if area == 6 && run.loop_count >= 1 {
+        // Loop Labs → Technomancer (upstream has three stations; one core here)
+        plan.boss = Some(EnemyKind::Technomancer);
+    } else if run.area == AreaId::HQ {
+        plan.boss = Some(EnemyKind::Captain);
     }
 
     // Chest trimming (scrPopChests): keep the furthest of each kind.
@@ -1228,16 +1253,56 @@ pub fn spawn_level(
         );
     }
     if let Some(kind) = plan.boss {
-        crate::game::enemies::spawn_enemy_at(
-            commands,
-            catalog,
-            asset_server,
-            kind,
-            Vec2::new(320.0, -160.0),
-            difficulty_multiplier(run.floor),
-            false,
-            false,
-        );
+        match kind {
+            EnemyKind::BigBandit | EnemyKind::BigBanditLoop => {
+                // Upstream: Big Bandit bursts in after ~10% of the floor's
+                // enemies die, charging from a wall. The marker is consumed
+                // by enemies::tick_delayed_boss_spawns.
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    PendingDelayedBoss {
+                        kind,
+                        initial_trash: plan.enemies.len() as u32,
+                        kill_fraction: 0.10,
+                        from_wall: true,
+                    },
+                ));
+            }
+            EnemyKind::BigDog | EnemyKind::BigDogLoop => {
+                // Sleeping opposite side of the map.
+                crate::game::enemies::spawn_enemy_at(
+                    commands,
+                    catalog,
+                    asset_server,
+                    kind,
+                    Vec2::new(-280.0, 180.0),
+                    difficulty_multiplier(run.floor),
+                    false,
+                    false,
+                );
+            }
+            other => {
+                let pos = match other {
+                    EnemyKind::Throne => Vec2::new(0.0, 200.0),
+                    EnemyKind::Mom => Vec2::new(0.0, -40.0),
+                    EnemyKind::Technomancer => Vec2::new(0.0, 0.0),
+                    EnemyKind::Captain => Vec2::new(0.0, 80.0),
+                    EnemyKind::Hyper => Vec2::new(0.0, 0.0),
+                    _ => Vec2::new(320.0, -160.0),
+                };
+                crate::game::enemies::spawn_enemy_at(
+                    commands,
+                    catalog,
+                    asset_server,
+                    other,
+                    pos,
+                    difficulty_multiplier(run.floor),
+                    false,
+                    false,
+                );
+            }
+        }
     }
 }
 
@@ -1820,6 +1885,31 @@ mod tests {
         assert_eq!(boss_for_floor(22), EnemyKind::BigDogLoop);
         assert_eq!(boss_for_floor(26), EnemyKind::LilHunterLoop);
         assert_eq!(boss_for_floor(30), EnemyKind::Throne);
+    }
+
+    #[test]
+    fn loop_sewers_and_labs_get_exclusive_bosses() {
+        let mut run = run_for(4); // Sewers 2-1
+        run.loop_count = 1;
+        let plan = generate_level(&run);
+        assert_eq!(plan.boss, Some(EnemyKind::Mom));
+
+        let mut run = run_for(12); // Labs 6-1
+        run.loop_count = 1;
+        let plan = generate_level(&run);
+        assert_eq!(plan.boss, Some(EnemyKind::Technomancer));
+    }
+
+    #[test]
+    fn boss_floors_except_palace_still_get_trash() {
+        for floor in [3_u32, 7, 11] {
+            let run = run_for(floor);
+            let plan = generate_level(&run);
+            assert!(
+                !plan.enemies.is_empty(),
+                "floor {floor}: boss floor should have trash mobs"
+            );
+        }
     }
 
     #[test]

@@ -1660,6 +1660,8 @@ pub fn resolve_deaths(
         }
         save.total_runs += 1;
         save.total_kills = save.total_kills.saturating_add(run.total_kills);
+        // Melting's unlock: die once.
+        crate::game::generated::unlocks::try_unlock_race(&mut save, RaceId::Melting);
         dirty.0 = true;
         paused.0 = false;
 
