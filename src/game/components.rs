@@ -909,11 +909,21 @@ pub struct HurtAnim {
     pub was_moving: bool,
 }
 
+/// Marker: chest already opened (loot granted); the open-corpse sprite stays.
 #[derive(Component)]
-pub struct ChestOpening {
-    pub kind: ChestKind,
+pub struct OpenedChest;
+
+/// Rad/HP/ammo pickups blink out and despawn after their upstream lifetime.
+#[derive(Component)]
+pub struct PickupLifetime {
     pub timer: Timer,
-    pub granted: bool,
+}
+
+/// Ground items (dropped weapons): pop velocity + spin while sliding.
+#[derive(Component)]
+pub struct GroundPhysics {
+    pub vel: Vec2,
+    pub rotspeed: f32,
 }
 
 #[derive(Component)]

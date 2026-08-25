@@ -22,6 +22,11 @@ pub struct GameAudio {
     pub portal: Handle<AudioSource>,
     pub death: Handle<AudioSource>,
     pub chest: Handle<AudioSource>,
+    /// Upstream sndWeaponChest / sndAmmoChest (per chest kind).
+    pub weapon_chest: Handle<AudioSource>,
+    pub ammo_chest: Handle<AudioSource>,
+    /// sndPickupDisappear — rad/HP/ammo blink-out.
+    pub pickup_disappear: Handle<AudioSource>,
 }
 
 fn load_sfx(asset_server: &AssetServer, stem: &str) -> Handle<AudioSource> {
@@ -45,6 +50,9 @@ impl GameAudio {
             portal: load_sfx(asset_server, "sndPortalOpen"),
             death: load_sfx(asset_server, "sndPlayerDeath"),
             chest: load_sfx(asset_server, "sndChest"),
+            weapon_chest: load_sfx(asset_server, "sndWeaponChest"),
+            ammo_chest: load_sfx(asset_server, "sndAmmoChest"),
+            pickup_disappear: load_sfx(asset_server, "sndPickupDisappear"),
         }
     }
 
@@ -98,6 +106,18 @@ impl GameAudio {
 
     pub fn play_death(&self, commands: &mut Commands) {
         AudioM::play_sfx_varied(commands, self.death.clone(), 0.9, 0.02);
+    }
+
+    pub fn play_weapon_chest(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.weapon_chest.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_ammo_chest(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.ammo_chest.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_pickup_disappear(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.pickup_disappear.clone(), 0.4, 0.1);
     }
 
     pub fn play_chest(&self, commands: &mut Commands) {

@@ -115,7 +115,6 @@ impl Plugin for GamePlugin {
                         (
                             anim::tick_hurt_anims,
                             anim::hurt_on_damage,
-                            pickups::tick_chest_opening,
                             player_sys::ensure_weapon_visual,
                             player_sys::tick_weapon_visuals,
                             progress_sys::tick_portal_suck,
