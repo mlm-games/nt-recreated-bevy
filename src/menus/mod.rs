@@ -211,14 +211,6 @@ fn splash_ui(st: &SharedUi) -> View {
 
     let cy = GUI_H_F32 / 2.0;
 
-    // Vlambeer/Draw_0: draw_clear(c_black) every frame.
-    // Without this, card N and card N+1 composite on top of each other.
-    layers.push(Column(
-        Modifier::new()
-            .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 255)),
-    ));
-
     match st.boot_mode {
         0 => {
             layers.push(nt_text_at(
