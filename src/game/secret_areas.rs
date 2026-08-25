@@ -97,6 +97,8 @@ pub struct SecretTriggers {
     pub(crate) oasis_floor_chests_initial: u32,
     pub(crate) oasis_floor_enemies_initial: u32,
     pub(crate) oasis_snapshot_done: bool,
+    /// Cap vault visits per run (upstream vaults_entered <3).
+    pub vaults_entered: u8,
 }
 
 impl Default for SecretTriggers {
@@ -112,12 +114,19 @@ impl Default for SecretTriggers {
             oasis_floor_chests_initial: 0,
             oasis_floor_enemies_initial: 1,
             oasis_snapshot_done: false,
+            vaults_entered: 0,
         }
     }
 }
 
 impl SecretTriggers {
     pub fn queue(&mut self, target: SecretTarget) {
+        // Cap vault visits per run.
+        if matches!(target, SecretTarget::Vault | SecretTarget::CrownVault)
+            && self.vaults_entered >= 3
+        {
+            return;
+        }
         // Priority: vault-style hard transitions should override soft transitions.
         let replace = match (self.queued, target) {
             (None, _) => true,
@@ -199,6 +208,9 @@ pub fn apply_secret_transition(
     triggers: &mut SecretTriggers,
 ) -> Option<SecretTarget> {
     if let Some(target) = triggers.take_queued() {
+        if matches!(target, SecretTarget::Vault | SecretTarget::CrownVault) {
+            triggers.vaults_entered = triggers.vaults_entered.saturating_add(1);
+        }
         let (world, floor_in_area) = target.display();
         run.area = target.area();
         run.world = world;
@@ -493,5 +505,20 @@ mod tests {
         assert_eq!(run.area, AreaId::Scrapyards);
         assert_eq!(run.world, 3);
         assert_eq!(run.floor_in_area, 1);
+    }
+
+    #[test]
+    fn vault_visits_cap_at_three() {
+        let mut t = SecretTriggers::default();
+        for _ in 0..3 {
+            t.queue(SecretTarget::CrownVault);
+            let mut run = Run::default();
+            apply_secret_transition(&mut run, &mut t);
+        }
+        assert_eq!(t.vaults_entered, 3);
+        t.queue(SecretTarget::CrownVault);
+        assert_eq!(t.queued(), None);
+        t.queue(SecretTarget::Vault);
+        assert_eq!(t.queued(), None);
     }
 }

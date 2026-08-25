@@ -2870,6 +2870,21 @@ mod tests {
     }
 
     #[test]
+    fn weapon_sleep_heavy_gt_auto() {
+        let heavy = weapon_sleep_secs(id_by_name("SLEDGEHAMMER"));
+        let auto = weapon_sleep_secs(id_by_name("SMG"));
+        assert!(
+            heavy > auto,
+            "heavy sleep {heavy} should be > auto {auto}"
+        );
+        let shotgun = weapon_sleep_secs(id_by_name("SHOTGUN"));
+        assert!(
+            shotgun > auto,
+            "shotgun sleep {shotgun} should be > auto {auto}"
+        );
+    }
+
+    #[test]
     fn most_weapons_are_specialized_not_generic() {
         // The old fixed fallback was damage=3 / pellets=1 / no specials.
         // After the family+profile pass, only a small minority may remain

@@ -1530,7 +1530,16 @@ pub fn resolve_deaths(
             ));
         }
 
-        let burst_count = if def.boss { 40 } else { 14 };
+        let burst_count = if def.boss {
+            40 + run.loop_count as usize * 6
+        } else {
+            14
+        };
+        let boom_radius = if enemy.kind == EnemyKind::Throne {
+            130.0 + run.loop_count as f32 * 18.0
+        } else {
+            0.0
+        };
         VfxSpawner::spawn_burst(
             &mut commands,
             pos,
@@ -1538,6 +1547,25 @@ pub fn resolve_deaths(
             Color::srgb(0.9, 0.18, 0.1),
             (80.0, 260.0),
         );
+        if boom_radius > 0.0 {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                Explosion {
+                    timer: Timer::from_seconds(0.05, TimerMode::Once),
+                    radius: boom_radius,
+                    damage: 6 + run.loop_count as i32 * 2,
+                    team: Team::Enemy,
+                    hits_player: true,
+                    source: Some(DamageSource {
+                        owner: e,
+                        team: Team::Enemy,
+                        hit_id: HitId::Enemy(0),
+                    }),
+                },
+                Transform::from_translation(pos.extend(20.0)),
+            ));
+        }
 
         audio.play_hit(&mut commands);
 

@@ -247,6 +247,17 @@ pub fn enemy_ai(
             brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
             vel.0 = dir * 620.0;
         }
+        // Palace Guardian: shield-bash dash when close.
+        if enemy.kind == EnemyKind::PalaceGuardian
+            && !was_dashing
+            && dist < 80.0
+            && dist > 24.0
+            && brain.melee.is_finished()
+        {
+            brain.dash = 0.18;
+            brain.melee = Timer::from_seconds(0.9, TimerMode::Once);
+            vel.0 = dir * 540.0;
+        }
         if brain.dash > 0.0 {
             brain.dash = (brain.dash - dt).max(0.0);
         }
