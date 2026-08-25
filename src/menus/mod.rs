@@ -201,75 +201,11 @@ fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
     )
 }
 
-/// Boot screen: the original `Logo` object draws sprLogo dead-centre on a
-/// black GUI; the sprite itself is spawned by ui_art.rs.
-/// The Vlambeer boot cards (Vlambeer/Draw_0), rendered per boot mode. The
-/// sprites (saving icon, Vlambeer card, NT logo) live in ui_art.rs.
-fn splash_ui(st: &SharedUi) -> View {
-    let v = nt_view(st);
-    let mut layers: Vec<View> = Vec::new();
-
-    let cy = GUI_H_F32 / 2.0;
-
-    match st.boot_mode {
-        0 => {
-            layers.push(nt_text_at(
-                "DO NOT TURN OFF NUCLEAR THRONE".to_string(),
-                160.0,
-                cy + 20.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-            layers.push(nt_text_at(
-                "WHILE THIS SAVING ICON IS DISPLAYED.".to_string(),
-                160.0,
-                cy + 30.0,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-        }
-        1 => {
-            layers.push(nt_text_at(
-                "MADE IN GAMEMAKER".to_string(),
-                160.0,
-                cy,
-                &v,
-                col(255, 255, 255),
-                true,
-            ));
-        }
-        3 => {
-            const LINES: [(&str, (u8, u8, u8)); 9] = [
-                ("VLAMBEER", (255, 221, 0)),
-                ("", (255, 255, 255)),
-                ("PAUL VEER", (255, 255, 255)),
-                ("JUKIO KALLIO", (255, 255, 255)),
-                ("JOONAS TURNER", (255, 255, 255)),
-                ("JUSTIN CHAN", (255, 255, 255)),
-                ("YELLOWAFTERLIFE", (255, 255, 255)),
-                ("", (255, 255, 255)),
-                ("PRESENT", (255, 255, 255)),
-            ];
-            for (i, (line, (r, g, b))) in LINES.into_iter().enumerate() {
-                if line.is_empty() {
-                    continue;
-                }
-                layers.push(nt_text_at(
-                    line.to_string(),
-                    160.0,
-                    cy + (i as f32 - 4.0) * 10.0,
-                    &v,
-                    col(r, g, b),
-                    true,
-                ));
-            }
-        }
-        _ => {}
-    }
-
-    ZStack(Modifier::new().fill_max_size()).child(layers)
+/// Boot screen: ALL splash content (saving icon, Vlambeer card, logo AND the
+/// per-card text lines) is rendered Bevy-side in ui_art.rs so sprites and text
+/// share one visibility timeline. Repose renders nothing during Splash.
+fn splash_ui(_st: &SharedUi) -> View {
+    ZStack(Modifier::new().fill_max_size())
 }
 
 const GUI_H_F32: f32 = 240.0;

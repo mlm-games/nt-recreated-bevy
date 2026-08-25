@@ -220,33 +220,50 @@ fn gm_sprite(
 /// mode 3: team credits                                 (60 ticks)
 /// mode 4: NT logo — frame-stepped machinegun intro,    (input)
 ///         then any key/click -> main menu buttons.
+///
+/// Every card sprite is spawned ONCE up front and kept hidden; card switches
+/// flip Visibility for the outgoing and incoming sets in the SAME frame, so a
+/// new card can never composite over (or lag behind) the previous one,
+/// regardless of command-flush timing.
 #[derive(Resource)]
 struct BootState {
     mode: u8,
-    /// Mode changes are committed on the next frame, after the previous
-    /// mode's deferred despawns have been applied.
-    pending_mode: Option<u8>,
     t: f32,
     da: f32,
     shake: f32,
     guns: u8,
     booms: bool,
+    /// Last mode whose sprites were made visible (one-shot gating).
     rendered_mode: i8,
-    spawned: Vec<Entity>,
+    /// All card art built and parked hidden.
+    built: bool,
+    /// sprSaving icon (mode 0).
+    icon: Option<Entity>,
+    /// sprVlambeer main + ten additive glow copies (mode 2).
+    vlambeer: Vec<Entity>,
+    /// NT logo (mode 4).
+    logo: Option<Entity>,
+    /// Per-mode Repose-replacement text lines, pre-spawned hidden:
+    /// (mode, entities). Rendered as Text2d so text and sprite cards share
+    /// ONE visibility timeline — no cross-renderer timing at all.
+    texts: Vec<(u8, Vec<Entity>)>,
 }
 
 impl Default for BootState {
     fn default() -> Self {
         Self {
             mode: 0,
-            pending_mode: None,
             t: 0.0,
             da: 0.0,
             shake: 0.0,
             guns: 0,
             booms: false,
             rendered_mode: -1,
-            spawned: Vec::new(),
+            built: false,
+            icon: None,
+            vlambeer: Vec::new(),
+            logo: None,
+            texts: Vec::new(),
         }
     }
 }
@@ -257,7 +274,7 @@ fn reset_boot(mut boot: ResMut<BootState>) {
 
 fn despawn_boot_art(mut commands: Commands, q: Query<Entity, With<BootArt>>) {
     for e in &q {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 }
 
@@ -324,7 +341,7 @@ struct PortalLoop;
 
 fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>>) {
     for e in &q {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 }
 
@@ -371,7 +388,7 @@ fn spawn_boot_clear(
 
 fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>>) {
     for e in &q {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 }
 
@@ -386,8 +403,12 @@ fn play_cue(
     name: &str,
     volume: f32,
 ) {
-    let Some(path) = resolve_audio_path(catalog, name) else {
-        return;
+    let path = match resolve_audio_path(catalog, name) {
+        Some(p) => p,
+        None => {
+            bevy::log::warn!("missing audio cue: {name}");
+            return;
+        }
     };
     commands.spawn((
         AudioPlayer::<AudioSource>::new(asset_server.load(path)),
@@ -407,8 +428,12 @@ fn play_loop(
     volume: f32,
     marker: impl Bundle,
 ) {
-    let Some(path) = resolve_audio_path(catalog, name) else {
-        return;
+    let path = match resolve_audio_path(catalog, name) {
+        Some(p) => p,
+        None => {
+            bevy::log::warn!("missing audio loop: {name}");
+            return;
+        }
     };
     commands.spawn((
         marker,
@@ -647,6 +672,232 @@ fn wall0_out_frame(catalog: &AssetCatalog) -> usize {
 /// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
 const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
 
+/// Build every boot-card sprite once, parked hidden. Card switches only flip
+/// Visibility (old set hidden + new set visible queued in the same frame), so
+/// swaps are atomic — no compositing, no blank gaps.
+#[allow(clippy::too_many_arguments)]
+/// One centred Silkscreen line, the Bevy-sprite twin of the old Repose
+/// `nt_text_at(..., centered)` splash labels.
+fn splash_text_line(
+    commands: &mut Commands,
+    cam: Entity,
+    map: &GuiMap,
+    font: &Handle<Font>,
+    text: &str,
+    gui_x: f32,
+    gui_y: f32,
+    color: Color,
+) -> Entity {
+    let font_size = (7.0 * map.s).clamp(8.0, 96.0);
+    let c = map.to_world(gui_x, gui_y);
+    commands
+        .spawn((
+            BootArt,
+            ChildOf(cam),
+            Visibility::Hidden,
+            Text2d::new(text.to_string()),
+            TextFont {
+                font: font.clone().into(),
+                font_size: FontSize::Px(font_size),
+                ..default()
+            },
+            TextColor(color),
+            TextLayout::justify(Justify::Center),
+            Transform::from_xyz(c.x, c.y, -888.0),
+        ))
+        .id()
+}
+
+fn build_boot_cards(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    map: &GuiMap,
+    cam: Entity,
+    font: &Handle<Font>,
+    boot: &mut BootState,
+) {
+    // Mode 0: saving icon. Vlambeer/Create_0 plays the jingle with it.
+    play_cue(commands, catalog, asset_server, "sndVlambeer", 0.7);
+    let (spr, tf) = gm_sprite(
+        catalog,
+        asset_server,
+        map,
+        "images/sprSaving.png",
+        0,
+        GUI_W / 2.0,
+        GUI_H / 2.0 - 16.0,
+        1.0,
+        1.0,
+        Color::WHITE,
+        -890.0,
+    );
+    boot.icon = Some(
+        commands
+            .spawn((
+                BootArt,
+                ChildOf(cam),
+                Visibility::Hidden,
+                spr,
+                tf,
+            ))
+            .id(),
+    );
+
+    // Mode 2: Vlambeer/Draw_0 draws the card at
+    //   _px = (view_width - sprite_width) div 2
+    //   _py = view_height - sprite_height
+    // (origin 0,0), plus ten additive orandom(4) glow copies.
+    let m = meta_of(catalog, "images/sprVlambeer.png");
+    let fw = m[1].max(1.0);
+    let fh = m[2].max(1.0);
+    let ox = m[4];
+    let oy = m[5];
+    let px = ((GUI_W - fw) * 0.5).floor() + ox;
+    let py = (GUI_H - fh) + oy;
+
+    let (spr, tf) = gm_sprite(
+        catalog,
+        asset_server,
+        map,
+        "images/sprVlambeer.png",
+        0,
+        px,
+        py,
+        1.0,
+        1.0,
+        Color::WHITE,
+        -890.0,
+    );
+    boot.vlambeer.push(
+        commands
+            .spawn((
+                BootArt,
+                ChildOf(cam),
+                Visibility::Hidden,
+                spr,
+                tf,
+            ))
+            .id(),
+    );
+    for _ in 0..10 {
+        let (g, gtf) = gm_sprite(
+            catalog,
+            asset_server,
+            map,
+            "images/sprVlambeer.png",
+            0,
+            px,
+            py,
+            1.0,
+            1.0,
+            Color::srgba(1.0, 1.0, 1.0, 0.1),
+            -889.0,
+        );
+        boot.vlambeer.push(
+            commands
+                .spawn((
+                    BootArt,
+                    ChildOf(cam),
+                    Visibility::Hidden,
+                    g,
+                    gtf,
+                ))
+                .id(),
+        );
+    }
+
+    // Mode 4: NT logo. Frame 0 is blank; it builds up per machinegun shot.
+    let (spr, tf) = gm_sprite(
+        catalog,
+        asset_server,
+        map,
+        "images/sprLogo.png",
+        0,
+        GUI_W / 2.0,
+        GUI_H / 2.0,
+        1.0,
+        1.0,
+        Color::WHITE,
+        -890.0,
+    );
+    boot.logo = Some(
+        commands
+            .spawn((
+                BootArt,
+                ChildOf(cam),
+                Visibility::Hidden,
+                spr,
+                tf,
+            ))
+            .id(),
+    );
+
+    // Text cards (modes 0/1/3) — same hidden-until-switched lifecycle as the
+    // sprite cards above.
+    let cy = GUI_H / 2.0;
+    let mut group = |lines: Vec<(&str, Color)>, base_y: f32, step: f32| -> Vec<Entity> {
+        lines
+            .iter()
+            .enumerate()
+            .map(|(i, (s, col))| {
+                splash_text_line(commands, cam, map, font, s, GUI_W / 2.0, base_y + step * i as f32, *col)
+            })
+            .collect()
+    };
+
+    let mode0 = group(
+        vec![
+            ("DO NOT TURN OFF NUCLEAR THRONE", Color::WHITE),
+            ("WHILE THIS SAVING ICON IS DISPLAYED.", Color::WHITE),
+        ],
+        cy + 20.0,
+        10.0,
+    );
+    boot.texts.push((0, mode0));
+
+    let mode1 = group(
+        vec![("MADE IN GAMEMAKER", Color::WHITE)],
+        cy,
+        10.0,
+    );
+    boot.texts.push((1, mode1));
+
+    const CREDITS: [(&str, bool); 9] = [
+        ("VLAMBEER", true),
+        ("", false),
+        ("PAUL VEER", false),
+        ("JUKIO KALLIO", false),
+        ("JOONAS TURNER", false),
+        ("JUSTIN CHAN", false),
+        ("YELLOWAFTERLIFE", false),
+        ("", false),
+        ("PRESENT", false),
+    ];
+    let gold = Color::srgb_u8(255, 221, 0);
+    let white = Color::WHITE;
+    let mode3 = CREDITS
+        .iter()
+        .enumerate()
+        .filter(|(_, (s, _))| !s.is_empty())
+        .map(|(i, (s, is_gold))| {
+            splash_text_line(
+                commands,
+                cam,
+                map,
+                font,
+                s,
+                GUI_W / 2.0,
+                cy + (i as f32 - 4.0) * 10.0,
+                if *is_gold { gold } else { white },
+            )
+        })
+        .collect();
+    boot.texts.push((3, mode3));
+
+    boot.built = true;
+}
+
 /// Vlambeer + Logo boot driver.
 #[allow(clippy::type_complexity)]
 fn boot_intro(
@@ -661,9 +912,11 @@ fn boot_intro(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<(Entity, &Transform, &Projection), (With<Camera2d>, Without<BootArt>)>,
     bridge: Res<UiBridge>,
+    ui_font: Res<crate::app::UiFont>,
     mut boot: ResMut<BootState>,
     mut sprites: Query<&mut Sprite, With<BootArt>>,
     mut transforms: Query<&mut Transform, With<BootArt>>,
+    mut visibilities: Query<&mut Visibility, With<BootArt>>,
 ) {
     if *state.get() != AppState::Splash {
         return;
@@ -671,88 +924,43 @@ fn boot_intro(
     let Some(catalog) = catalog else {
         return;
     };
-    // Commands from the previous frame have now been applied, so it is safe
-    // to publish and render the next card without compositing it over the old
-    // card.
-    if let Some(next) = boot.pending_mode.take() {
-        boot.mode = next;
-        boot.t = 0.0;
-        boot.rendered_mode = -1;
 
-        if boot.mode == 4 {
-            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
-                commands.insert_resource(SpiralCtl {
-                    angle: rand::random::<f32>() * 360.0,
-                });
-
-                for _ in 0..150 {
-                    spawn_spiral_wisp(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
-                        cam,
-                        &map,
-                        SpiralCtl {
-                            angle: rand::random::<f32>() * 360.0,
-                        },
-                        Some(rand::random::<f32>() * 1.2),
-                    );
-                }
-
-                play_loop(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
-                    "sndPortalLoop",
-                    0.5,
-                    PortalLoop,
-                );
-            }
-        } else {
-            play_cue(
-                &mut commands,
-                &catalog,
-                &asset_server,
-                "sndRestart",
-                0.7,
-            );
-        }
+    // Build all card art once (hidden); retry until the camera view is ready.
+    if !boot.built {
+        let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+            return;
+        };
+        build_boot_cards(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            &map,
+            cam,
+            &ui_font.0,
+            &mut boot,
+        );
     }
+
     let dt = time.delta_secs();
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
-    // Keep Repose text locked to sprites every frame (before transitions).
+    // Keep Repose text locked to the current card.
     sync_boot_mode_ui(&bridge, boot.mode);
 
     // ----- Logo stage (mode 4) -----
     if boot.mode == 4 {
         boot.t += dt;
 
-        if boot.spawned.is_empty()
-            && let Some((cam, map)) = view_setup(&windows, &cam_q)
-        {
-            let (spr, tf) = gm_sprite(
-                &catalog,
-                &asset_server,
-                &map,
-                "images/sprLogo.png",
-                0,
-                GUI_W / 2.0,
-                GUI_H / 2.0,
-                1.0,
-                1.0,
-                Color::WHITE,
-                -890.0,
-            );
-            boot.spawned
-                .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
+        if let Some(logo) = boot.logo {
+            if let Ok(mut vis) = visibilities.get_mut(logo) {
+                *vis = Visibility::Visible;
+            }
         }
 
-        // Logo/Alarm_0: first step at 0.5s, then every 2 ticks, 20-tick pause
-        // before the assembled frame. guns == image_index after each step.
-        // Times (seconds @ 60fps): 0.5, 0.533, 0.566, 0.6, 0.633, 0.666, then
-        // boom at 0.666+20/60 ≈ 1.0 when guns reaches 7.
+        // Logo/Alarm_0 (30 fps; Create_0 arms alarm[0]=30): index 1 after
+        // 1.0s, then every 2 ticks; after frame 6 wait 20 ticks, then frame 7
+        // + boom set + logo-loop ambience. Times when image_index hits 1..7:
         const STEP_T: [f32; 7] = [
             1.0,
             1.0 + 2.0 / 30.0,
@@ -786,9 +994,10 @@ fn boot_intro(
             }
         }
 
-        // Draw_0: frame + orandom(shake) jitter, shake--
+        // Draw_0: the logo steps to the current frame and jitters by shake,
+        // which decays one unit per tick.
         boot.shake = (boot.shake - dt * 30.0).max(0.0);
-        if let Some(logo) = boot.spawned.first().copied() {
+        if let Some(logo) = boot.logo {
             if let Ok(mut spr) = sprites.get_mut(logo) {
                 let m = meta_of(&catalog, "images/sprLogo.png");
                 let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
@@ -805,9 +1014,10 @@ fn boot_intro(
             }
         }
 
-        // Logo/Mouse_53
+        // Logo/Mouse_53.
         if pressed {
             if boot.guns == 0 {
+                // Before frame 1: speed the alarm up (min 10 ticks).
                 boot.t = boot.t.max(1.0 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
@@ -817,23 +1027,90 @@ fn boot_intro(
     }
 
     // ----- Card modes 0..3 -----
+    // Advance only after the current card has been displayed at least once.
     let can_advance = boot.rendered_mode == boot.mode as i8;
-
-    if can_advance
-        && (pressed || boot.t >= MODE_SECS[boot.mode as usize])
-    {
-        // Queue despawns now. Do not publish or spawn the next mode until the
-        // following frame, after these commands have been applied.
-        for e in boot.spawned.drain(..) {
-            commands.entity(e).despawn();
-        }
-
-        boot.pending_mode = Some(boot.mode + 1);
+    if can_advance && (pressed || boot.t >= MODE_SECS[boot.mode as usize]) {
+        boot.mode += 1;
         boot.t = 0.0;
-        return;
+        boot.rendered_mode = -1;
+
+        if boot.mode == 4 {
+            // Vlambeer/Alarm_0 mode >= 3: SpiralCont + portal drone.
+            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
+                commands.insert_resource(SpiralCtl {
+                    angle: rand::random::<f32>() * 360.0,
+                });
+                for _ in 0..150 {
+                    spawn_spiral_wisp(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        cam,
+                        &map,
+                        SpiralCtl {
+                            angle: rand::random::<f32>() * 360.0,
+                        },
+                        Some(rand::random::<f32>() * 1.2),
+                    );
+                }
+                play_loop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    "sndPortalLoop",
+                    0.5,
+                    PortalLoop,
+                );
+            }
+        } else {
+            play_cue(&mut commands, &catalog, &asset_server, "sndRestart", 0.7);
+        }
+    } else {
+        boot.t += dt;
     }
 
-    boot.t += dt;
+    // Atomic card swap: outgoing and incoming Visibility flips are queued in
+    // the same frame, so they apply together. This MUST run for every mode
+    // change INCLUDING the 3->4 hand-off to the logo stage, which otherwise
+    // never hides the credits text group.
+    if let Some(icon) = boot.icon
+        && let Ok(mut vis) = visibilities.get_mut(icon)
+    {
+        *vis = if boot.mode == 0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for e in &boot.vlambeer {
+        if let Ok(mut vis) = visibilities.get_mut(*e) {
+            *vis = if boot.mode == 2 {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+    if let Some(logo) = boot.logo
+        && let Ok(mut vis) = visibilities.get_mut(logo)
+    {
+        *vis = if boot.mode == 4 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for (group_mode, ents) in &boot.texts {
+        for e in ents {
+            if let Ok(mut vis) = visibilities.get_mut(*e) {
+                *vis = if *group_mode == boot.mode {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        }
+    }
 
     if boot.mode >= 4 {
         return;
@@ -842,108 +1119,30 @@ fn boot_intro(
     // Draw_0: da += 0.5 once per 30-FPS game tick.
     boot.da += dt * 15.0;
 
-    // Rebuild sprites when the mode changes.
     if boot.rendered_mode != boot.mode as i8 {
         boot.rendered_mode = boot.mode as i8;
-        for e in boot.spawned.drain(..) {
-            commands.entity(e).despawn();
-        }
-        let Some((cam, map)) = view_setup(&windows, &cam_q) else {
-            return;
-        };
-        match boot.mode {
-            0 => {
-                // Vlambeer/Create_0 plays the jingle once with the first card.
-                play_cue(&mut commands, &catalog, &asset_server, "sndVlambeer", 0.7);
-                let (spr, tf) = gm_sprite(
-                    &catalog,
-                    &asset_server,
-                    &map,
-                    "images/sprSaving.png",
-                    0,
-                    GUI_W / 2.0,
-                    GUI_H / 2.0 - 16.0,
-                    1.0,
-                    1.0,
-                    Color::WHITE,
-                    -890.0,
-                );
-                boot.spawned
-                    .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
-            }
-            2 => {
-                // Vlambeer/Draw_0:
-                //   _px = (view_width  - sprite_width)  div 2
-                //   _py = (view_height - sprite_height)
-                // draw point is TOP-LEFT of the sprite (origin 0,0 for this card).
-                let m = meta_of(&catalog, "images/sprVlambeer.png");
-                let fw = m[1].max(1.0);
-                let fh = m[2].max(1.0);
-                let ox = m[4];
-                let oy = m[5];
-                // Convert top-left (_px,_py) into a GM draw point (origin-relative).
-                let px = ((GUI_W - fw) * 0.5).floor() + ox;
-                let py = (GUI_H - fh) + oy;
+    }
 
-                let (spr, tf) = gm_sprite(
-                    &catalog,
-                    &asset_server,
-                    &map,
-                    "images/sprVlambeer.png",
-                    0,
-                    px,
-                    py,
-                    1.0,
-                    1.0,
-                    Color::WHITE,
-                    -890.0,
-                );
-                boot.spawned
-                    .push(commands.spawn((BootArt, ChildOf(cam), spr, tf)).id());
-
-                // repeat(10) additive orandom(4) copies — positions re-jittered below.
-                for _ in 0..10 {
-                    let (g, gtf) = gm_sprite(
-                        &catalog,
-                        &asset_server,
-                        &map,
-                        "images/sprVlambeer.png",
-                        0,
-                        px,
-                        py,
-                        1.0,
-                        1.0,
-                        Color::srgba(1.0, 1.0, 1.0, 0.1),
-                        -889.0,
-                    );
-                    boot.spawned
-                        .push(commands.spawn((BootArt, ChildOf(cam), g, gtf)).id());
-                }
-            }
-            // modes 1 and 3 are text-only (Repose splash_ui)
-            _ => {}
-        }
-    } else if boot.mode == 0 {
-        // sprSaving animates: da += 0.5/tick
-        if let Some(e) = boot.spawned.first().copied()
-            && let Ok(mut spr) = sprites.get_mut(e)
-        {
-            let m = meta_of(&catalog, "images/sprSaving.png");
-            let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
-            let n = sprite_frame_count(&catalog, "images/sprSaving.png").max(1);
-            let frame = (boot.da.floor() as usize) % n;
-            spr.rect = Some(Rect::new(
-                frame as f32 * fw,
-                0.0,
-                (frame + 1) as f32 * fw,
-                fh,
-            ));
-        }
-    } else if boot.mode == 2 && boot.spawned.len() > 1 {
-        // Re-jitter the 10 glow copies every frame (orandom(4)).
-        let Some((_, map)) = view_setup(&windows, &cam_q) else {
-            return;
-        };
+    if boot.mode == 0
+        && let Some(icon) = boot.icon
+        && let Ok(mut spr) = sprites.get_mut(icon)
+    {
+        // sprSaving animates: da += 0.5 per tick.
+        let m = meta_of(&catalog, "images/sprSaving.png");
+        let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+        let n = sprite_frame_count(&catalog, "images/sprSaving.png").max(1);
+        let frame = (boot.da.floor() as usize) % n;
+        spr.rect = Some(Rect::new(
+            frame as f32 * fw,
+            0.0,
+            (frame + 1) as f32 * fw,
+            fh,
+        ));
+    } else if boot.mode == 2 && boot.vlambeer.len() > 1
+        && let Some((_, map)) = view_setup(&windows, &cam_q)
+    {
+        // Re-jitter the ten glow copies every frame (orandom(4)); the main
+        // card itself never advances frames.
         let m = meta_of(&catalog, "images/sprVlambeer.png");
         let fw = m[1].max(1.0);
         let fh = m[2].max(1.0);
@@ -951,7 +1150,7 @@ fn boot_intro(
         let oy = m[5];
         let px = ((GUI_W - fw) * 0.5).floor() + ox;
         let py = (GUI_H - fh) + oy;
-        for e in boot.spawned.iter().copied().skip(1) {
+        for e in boot.vlambeer.iter().copied().skip(1) {
             if let Ok(mut tf) = transforms.get_mut(e) {
                 let jx = rand::rng().random_range(-4..=4) as f32;
                 let jy = rand::rng().random_range(-4..=4) as f32;
@@ -1158,7 +1357,7 @@ fn spiral_field(
         wisp.anim += 2.0;
 
         if wisp.s > 2.5 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             continue;
         }
 
@@ -1185,7 +1384,7 @@ fn despawn_title_art(
     ctl: Option<Res<SpiralCtl>>,
 ) {
     for e in &q {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     if art.is_some() {
         commands.remove_resource::<CharSelectArt>();
@@ -1780,7 +1979,7 @@ fn spawn_char_select(
                 } else {
                     Color::srgb_u8(192, 192, 192)
                 },
-                -851.0,
+                -847.0,
             );
             let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
             art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
@@ -2191,12 +2390,15 @@ fn char_select_tick(
         let pointed = cursor_gui.is_some_and(|m| {
             m.x >= GUI_W - 28.0 && m.x <= GUI_W - 4.0 && m.y >= GUI_H - 54.0 && m.y <= GUI_H - 30.0
         });
-        if let Ok(mut spr) = sprites.get_mut(e) {
-            spr.color = if avail {
-                if pointed { Color::WHITE } else { C_UIGRAY }
+        if let Ok(mut vis) = visibility.get_mut(e) {
+            *vis = if avail {
+                Visibility::Visible
             } else {
-                Color::NONE
+                Visibility::Hidden
             };
+        }
+        if let Ok(mut spr) = sprites.get_mut(e) {
+            spr.color = if pointed { Color::WHITE } else { C_UIGRAY };
             let (x0, x1) = if open { (24.0, 48.0) } else { (0.0, 24.0) };
             spr.rect = Some(Rect::new(x0, 0.0, x1, 24.0));
         }
@@ -2844,7 +3046,7 @@ fn despawn_hud_art(
     refs: Option<Res<HudArtRefs>>,
 ) {
     for e in &q {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
     if refs.is_some() {
         commands.remove_resource::<HudArtRefs>();

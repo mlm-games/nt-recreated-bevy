@@ -236,7 +236,12 @@ pub enum NtSimSet {
 
 /// Pixel font standing in for NT's bitmap `fntM1` (OFL, see
 /// assets/fonts/Silkscreen-OFL.txt).
-const NT_UI_FONT: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Regular.ttf");
+pub const NT_UI_FONT: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Regular.ttf");
+
+/// The loaded UI font, so sprite-side systems (splash Text2d) share the exact
+/// face the Repose panels use.
+#[derive(Resource, Clone)]
+pub struct UiFont(pub Handle<Font>);
 
 pub struct AppPlugin;
 
@@ -246,6 +251,12 @@ impl Plugin for AppPlugin {
         let actions = Arc::new(Mutex::new(Vec::<UiAction>::new()));
         let shared_ui = shared.clone();
         let actions_ui = actions.clone();
+
+        {
+            let mut fonts = app.world_mut().resource_mut::<Assets<Font>>();
+            let ui_font = fonts.add(Font::from_bytes(NT_UI_FONT.to_vec()));
+            app.insert_resource(UiFont(ui_font));
+        }
 
         app.init_state::<AppState>()
             .insert_resource(ClearColor(Color::BLACK))
@@ -493,6 +504,7 @@ fn play_ui_sfx(
     volume: f32,
 ) {
     let Some(path) = catalog.resolve_audio_path(stem) else {
+        bevy::log::warn!("missing ui sfx: {stem}");
         return;
     };
 
