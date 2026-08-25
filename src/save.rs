@@ -5,7 +5,7 @@ use game_utils::save::Versioned;
 use serde::{Deserialize, Serialize};
 
 use crate::game::components::RaceLoadout;
-use crate::game::content::{RaceId, WeaponId};
+use crate::game::content::{RaceId, WeaponId, character_def};
 
 pub const SAVE_VERSION: u32 = 2;
 
@@ -59,7 +59,7 @@ impl Default for SaveData {
             races.insert(
                 r,
                 RaceLoadout {
-                    unlocked: true,
+                    unlocked: r == RaceId::Fish,
                     unlocked_skins: [true, true, false, false],
                     stored_weapon: WeaponId(0),
                     start_weapon: WeaponId(0),
@@ -83,9 +83,28 @@ impl Default for SaveData {
 }
 
 impl SaveData {
+    pub fn race_unlocked(&self, race: RaceId) -> bool {
+        if race == RaceId::Random {
+            return true;
+        }
+
+        if let Some(lo) = self.races.get(&race)
+            && lo.unlocked
+        {
+            return true;
+        }
+
+        let name = character_def(race).name;
+        race == RaceId::Fish
+            || self
+                .unlocked_characters
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(name))
+    }
+
     pub fn race_loadout_mut(&mut self, race: RaceId) -> &mut RaceLoadout {
         self.races.entry(race).or_insert_with(|| RaceLoadout {
-            unlocked: true,
+            unlocked: race == RaceId::Fish,
             unlocked_skins: [true, true, false, false],
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
@@ -95,7 +114,7 @@ impl SaveData {
 
     pub fn race_loadout(&self, race: RaceId) -> RaceLoadout {
         self.races.get(&race).cloned().unwrap_or(RaceLoadout {
-            unlocked: true,
+            unlocked: self.race_unlocked(race),
             unlocked_skins: [true, true, false, false],
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),

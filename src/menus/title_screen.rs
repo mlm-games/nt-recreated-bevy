@@ -214,7 +214,7 @@ fn go_button_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView
 /// Menu/Draw_74 tooltip: race name above the pointed pod.
 fn tooltip_layer(st: &SharedUi, v: &NtView) -> View {
     let hover = st.title_hover_race;
-    if hover < 0 {
+    if hover < 0 || hover == st.selected_character as i32 {
         return Column(Modifier::new().width(0.001).height(0.001));
     }
 

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use bevy::audio::{AudioPlayer, AudioSource, PlaybackMode, PlaybackSettings, Volume};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use repose_bevy::{ReposePlugin, ReposePluginSettings};
@@ -9,6 +10,7 @@ use repose_ui::overlay::OverlayHandle;
 
 use crate::asset_tracking::AssetsLoading;
 use crate::dev_tools::DevToolsPlugin;
+use crate::game::content::AssetCatalog;
 use crate::game::{GamePlugin, MutationChoice, SelectedCharacter};
 use crate::menus::{self, UiAction, UiBridge};
 use crate::save::{SAVE_VERSION, SaveData};
@@ -384,10 +386,16 @@ fn sync_shared_ui(
     };
     ui.phase = state.get().clone();
     if state.is_changed() && *state.get() == AppState::Title {
-        // Menu/Create_0 spawns GoButton with visible = false.
+        // Menu/Create_0 spawns GoButton with visible = false, but the current
+        // player race remains the actual selected race.
         ui.title_go_visible = false;
         ui.loadout_open = false;
         ui.title_hover_race = -1;
+        ui.selected_character = selected.0 as usize;
+        ui.character = match selected.0 {
+            crate::game::content::RaceId::Random => "Random".to_string(),
+            r => crate::game::content::character_def(r).name.to_string(),
+        };
     }
     if state.is_changed() && *state.get() == AppState::MainMenu {
         ui.main_menu_hover = -1;
@@ -456,6 +464,31 @@ fn tick_pending_unpause(
     }
 }
 
+fn play_ui_sfx(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    stem: &str,
+    volume: f32,
+) {
+    for dir in ["audio", "sounds"] {
+        for ext in ["wav", "ogg", "mp3", "flac"] {
+            let path = format!("{dir}/{stem}.{ext}");
+            if catalog.has_audio(&path) {
+                commands.spawn((
+                    AudioPlayer::<AudioSource>::new(asset_server.load(path)),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Despawn,
+                        volume: Volume::Linear(volume),
+                        ..default()
+                    },
+                ));
+                return;
+            }
+        }
+    }
+}
+
 fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
     if let Ok(mut ui) = bridge.shared.lock() {
@@ -476,6 +509,9 @@ fn cycle_weapon_id(id: crate::game::content::WeaponId, dir: i8) -> crate::game::
 }
 
 fn process_ui_actions(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    catalog: Res<AssetCatalog>,
     bridge: Res<UiBridge>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
@@ -502,10 +538,10 @@ fn process_ui_actions(
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
-                // MainMenuButton/Other_10 case 0: straight into the campfire
-                // char select (daily/weekly sub-menu not ported).
+                // MainMenuButton/Other_10 case 0: enter the campfire char-select.
+                // Do NOT force the selected race to Random here; upstream keeps the
+                // player's current race and only hides the Go button.
                 if let Ok(mut ui) = bridge.shared.lock() {
-                    ui.selected_character = crate::game::content::RaceId::Random as usize;
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                     ui.loadout_open = false;
@@ -600,6 +636,15 @@ fn process_ui_actions(
                 }
             }
             UiAction::SelectCharacter(i) => {
+                let Some(race) = crate::game::content::race_from_gml_id(i) else {
+                    continue;
+                };
+
+                if !save.race_unlocked(race) {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
+                    continue;
+                }
+
                 let already_selected = bridge
                     .shared
                     .lock()
@@ -615,16 +660,14 @@ fn process_ui_actions(
                     continue;
                 }
 
-                if let Some(race) = crate::game::content::race_from_gml_id(i) {
-                    selected.0 = race;
-                    if let Ok(mut ui) = bridge.shared.lock() {
-                        ui.selected_character = i;
-                        ui.character = match race {
-                            crate::game::content::RaceId::Random => "Random".to_string(),
-                            r => crate::game::content::character_def(r).name.to_string(),
-                        };
-                        ui.title_go_visible = true;
-                    }
+                selected.0 = race;
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.selected_character = i;
+                    ui.character = match race {
+                        crate::game::content::RaceId::Random => "Random".to_string(),
+                        r => crate::game::content::character_def(r).name.to_string(),
+                    };
+                    ui.title_go_visible = true;
                 }
             }
             UiAction::SelectSkin(s) => {

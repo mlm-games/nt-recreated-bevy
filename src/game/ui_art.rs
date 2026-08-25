@@ -14,6 +14,7 @@ use crate::game::components::{Health, Inventory, Player};
 use crate::game::content::AmmoKind;
 use crate::game::content::{AssetCatalog, CHAR_SELECT_RACES, WeaponId, sprite_exact};
 use crate::menus::UiBridge;
+use crate::save::SaveData;
 use game_utils_bevy::screen_effects::CameraBase;
 use game_utils_bevy::transitions::Transition;
 
@@ -913,6 +914,7 @@ fn spawn_char_select(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
+    save: Res<SaveData>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
 ) {
@@ -929,16 +931,21 @@ fn spawn_char_select(
         let race_id = *race as usize;
         let x = slot_x(i, step);
 
+        let unlocked = save.race_unlocked(*race);
+        let sprite_path = if unlocked {
+            "images/sprCharSelect.png"
+        } else {
+            "images/sprCharSelectLocked.png"
+        };
+
         // CharSelect/Draw_0:
-        //   draw_sprite_ext(can ? sprite_index : sprCharSelectLocked,
-        //                   race, x, y, 1, 1, 0, color, 1)
-        // The port has no unlock gating yet, so every pod uses the real
-        // sprite; frame index == race id.
+        // draw_sprite_ext(can ? sprite_index : sprCharSelectLocked,
+        //                 race, x, y, 1, 1, 0, color, 1)
         let (pod_spr, pod_tf) = gm_sprite(
             &catalog,
             &asset_server,
             &map,
-            "images/sprCharSelect.png",
+            sprite_path,
             race_id,
             x,
             ystart,
@@ -1550,6 +1557,7 @@ fn char_select_tick(
     cam_q: Query<(&Camera, &GlobalTransform, &Projection), With<Camera2d>>,
     mut art: ResMut<CharSelectArt>,
     bridge: Res<UiBridge>,
+    save: Res<SaveData>,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut sprites: Query<&mut Sprite>,
@@ -1599,10 +1607,21 @@ fn char_select_tick(
         let Ok(mut sprite) = sprites.get_mut(*entity) else {
             continue;
         };
-        // CharSelect/Draw_0: _color = (can && selected) ? c_white : c_gray.
-        // Hover only raises the tooltip; it does NOT whiten the pod.
-        let is_mine = selected_race == *race_id;
-        sprite.color = if is_mine { Color::WHITE } else { C_GRAY };
+
+        let pointed = hovered_race == *race_id as i32;
+        let this_race = selected_race == *race_id;
+        let unlocked = crate::game::content::race_from_gml_id(*race_id)
+            .map(|r| save.race_unlocked(r))
+            .unwrap_or(true);
+
+        // CharSelect/Draw_0:
+        // _color = (can && selected) ? c_white : c_gray
+        // selected is driven by (_pointed || _this_race)
+        sprite.color = if unlocked && (pointed || this_race) {
+            Color::WHITE
+        } else {
+            C_GRAY
+        };
     }
 
     // Big name + splat follow the selected mutant (not Random).
