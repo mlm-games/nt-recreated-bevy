@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::game::components::RaceLoadout;
 use crate::game::content::{RaceId, WeaponId, character_def};
 
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SaveData {
@@ -113,13 +113,35 @@ impl SaveData {
     }
 
     pub fn race_loadout(&self, race: RaceId) -> RaceLoadout {
-        self.races.get(&race).cloned().unwrap_or(RaceLoadout {
+        let mut lo = self.races.get(&race).cloned().unwrap_or(RaceLoadout {
             unlocked: self.race_unlocked(race),
             unlocked_skins: [true, true, false, false],
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
             start_crown: 0,
-        })
+        });
+
+        // Stored weapon without an explicit start weapon is almost always
+        // stale/debug data and causes an accidental two-gun run.
+        if lo.start_weapon == WeaponId(0) {
+            lo.stored_weapon = WeaponId(0);
+        }
+
+        lo
+    }
+
+    pub fn sanitize_loadouts(&mut self) {
+        for lo in self.races.values_mut() {
+            // A non-default starting weapon is valid only when it is the
+            // weapon actually stored for this race.
+            if lo.start_weapon.0 != 0 && lo.start_weapon != lo.stored_weapon {
+                lo.start_weapon = WeaponId(0);
+            }
+
+            if lo.stored_weapon.0 == 0 {
+                lo.start_weapon = WeaponId(0);
+            }
+        }
     }
 }
 

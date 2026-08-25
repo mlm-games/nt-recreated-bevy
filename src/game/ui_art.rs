@@ -223,6 +223,9 @@ fn gm_sprite(
 #[derive(Resource)]
 struct BootState {
     mode: u8,
+    /// Mode changes are committed on the next frame, after the previous
+    /// mode's deferred despawns have been applied.
+    pending_mode: Option<u8>,
     t: f32,
     da: f32,
     shake: f32,
@@ -236,6 +239,7 @@ impl Default for BootState {
     fn default() -> Self {
         Self {
             mode: 0,
+            pending_mode: None,
             t: 0.0,
             da: 0.0,
             shake: 0.0,
@@ -324,6 +328,47 @@ fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>
     }
 }
 
+/// The GameMaker splash draw event calls draw_clear(c_black). In this port the
+/// splash cards are Bevy world sprites, so the clear must live in the same
+/// camera layer as BootArt, not in Repose.
+#[derive(Component)]
+struct BootClear;
+
+fn set_splash_camera_clear(mut q: Query<&mut Camera, With<Camera2d>>) {
+    for mut camera in &mut q {
+        camera.clear_color = bevy::camera::ClearColorConfig::Custom(Color::BLACK);
+    }
+}
+
+fn restore_camera_clear(mut q: Query<&mut Camera, With<Camera2d>>) {
+    for mut camera in &mut q {
+        camera.clear_color = bevy::camera::ClearColorConfig::Default;
+    }
+}
+
+fn spawn_boot_clear(
+    mut commands: Commands,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
+) {
+    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+        return;
+    };
+
+    let c = map.to_world(GUI_W * 0.5, GUI_H * 0.5);
+    commands.spawn((
+        BootArt,
+        BootClear,
+        ChildOf(cam),
+        Sprite {
+            color: Color::BLACK,
+            custom_size: Some(Vec2::new(GUI_W * map.s, GUI_H * map.s)),
+            ..default()
+        },
+        Transform::from_xyz(c.x, c.y, -999.0),
+    ));
+}
+
 fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>>) {
     for e in &q {
         commands.entity(e).despawn();
@@ -331,16 +376,7 @@ fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>
 }
 
 fn resolve_audio_path(catalog: &AssetCatalog, stem: &str) -> Option<String> {
-    // Prefer original imported OGG over placeholder/generated WAV.
-    for dir in ["audio", "sounds"] {
-        for ext in ["ogg", "wav", "mp3", "flac"] {
-            let path = format!("{dir}/{stem}.{ext}");
-            if catalog.has_audio(&path) {
-                return Some(path);
-            }
-        }
-    }
-    None
+    catalog.resolve_audio_path(stem)
 }
 
 fn play_cue(
@@ -609,7 +645,7 @@ fn wall0_out_frame(catalog: &AssetCatalog) -> usize {
 /// Card stage lengths. Upstream Vlambeer/Create_0 sets alarm[0]=120 and
 /// Alarm_0 re-arms 60 (+60 for the Vlambeer card) at a game speed of
 /// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
-const MODE_SECS: [f32; 4] = [2.0, 1.0, 2.0, 1.0];
+const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
 
 /// Vlambeer + Logo boot driver.
 #[allow(clippy::type_complexity)]
@@ -635,6 +671,53 @@ fn boot_intro(
     let Some(catalog) = catalog else {
         return;
     };
+    // Commands from the previous frame have now been applied, so it is safe
+    // to publish and render the next card without compositing it over the old
+    // card.
+    if let Some(next) = boot.pending_mode.take() {
+        boot.mode = next;
+        boot.t = 0.0;
+        boot.rendered_mode = -1;
+
+        if boot.mode == 4 {
+            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
+                commands.insert_resource(SpiralCtl {
+                    angle: rand::random::<f32>() * 360.0,
+                });
+
+                for _ in 0..150 {
+                    spawn_spiral_wisp(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        cam,
+                        &map,
+                        SpiralCtl {
+                            angle: rand::random::<f32>() * 360.0,
+                        },
+                        Some(rand::random::<f32>() * 1.2),
+                    );
+                }
+
+                play_loop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    "sndPortalLoop",
+                    0.5,
+                    PortalLoop,
+                );
+            }
+        } else {
+            play_cue(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                "sndRestart",
+                0.7,
+            );
+        }
+    }
     let dt = time.delta_secs();
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
@@ -670,8 +753,16 @@ fn boot_intro(
         // before the assembled frame. guns == image_index after each step.
         // Times (seconds @ 60fps): 0.5, 0.533, 0.566, 0.6, 0.633, 0.666, then
         // boom at 0.666+20/60 ≈ 1.0 when guns reaches 7.
-        let step_t = [0.5, 0.533_333, 0.566_666, 0.6, 0.633_333, 0.666_666, 1.0];
-        while (boot.guns as usize) < step_t.len() && boot.t >= step_t[boot.guns as usize] {
+        const STEP_T: [f32; 7] = [
+            1.0,
+            1.0 + 2.0 / 30.0,
+            1.0 + 4.0 / 30.0,
+            1.0 + 6.0 / 30.0,
+            1.0 + 8.0 / 30.0,
+            1.0 + 10.0 / 30.0,
+            1.0 + 10.0 / 30.0 + 20.0 / 30.0,
+        ];
+        while (boot.guns as usize) < STEP_T.len() && boot.t >= STEP_T[boot.guns as usize] {
             boot.guns += 1;
             if boot.guns >= 7 {
                 if !boot.booms {
@@ -696,7 +787,7 @@ fn boot_intro(
         }
 
         // Draw_0: frame + orandom(shake) jitter, shake--
-        boot.shake = (boot.shake - dt * 60.0).max(0.0);
+        boot.shake = (boot.shake - dt * 30.0).max(0.0);
         if let Some(logo) = boot.spawned.first().copied() {
             if let Ok(mut spr) = sprites.get_mut(logo) {
                 let m = meta_of(&catalog, "images/sprLogo.png");
@@ -717,7 +808,7 @@ fn boot_intro(
         // Logo/Mouse_53
         if pressed {
             if boot.guns == 0 {
-                boot.t = boot.t.max(0.334); // speed alarm toward first shot
+                boot.t = boot.t.max(1.0 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
             }
@@ -726,57 +817,30 @@ fn boot_intro(
     }
 
     // ----- Card modes 0..3 -----
-    // Advance only after the current card has been shown at least one frame.
     let can_advance = boot.rendered_mode == boot.mode as i8;
-    if can_advance && (pressed || boot.t >= MODE_SECS[boot.mode as usize]) {
-        // Despawn previous card sprites FIRST so they never composite.
+
+    if can_advance
+        && (pressed || boot.t >= MODE_SECS[boot.mode as usize])
+    {
+        // Queue despawns now. Do not publish or spawn the next mode until the
+        // following frame, after these commands have been applied.
         for e in boot.spawned.drain(..) {
             commands.entity(e).despawn();
         }
-        boot.mode += 1;
-        boot.t = 0.0;
-        boot.rendered_mode = -1;
-        sync_boot_mode_ui(&bridge, boot.mode);
 
-        if boot.mode == 4 {
-            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
-                commands.insert_resource(SpiralCtl {
-                    angle: rand::random::<f32>() * 360.0,
-                });
-                for _ in 0..150 {
-                    spawn_spiral_wisp(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
-                        cam,
-                        &map,
-                        SpiralCtl {
-                            angle: rand::random::<f32>() * 360.0,
-                        },
-                        Some(rand::random::<f32>() * 1.2),
-                    );
-                }
-                play_loop(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
-                    "sndPortalLoop",
-                    0.5,
-                    PortalLoop,
-                );
-            }
-        } else {
-            play_cue(&mut commands, &catalog, &asset_server, "sndRestart", 0.7);
-        }
-    } else {
-        boot.t += dt;
+        boot.pending_mode = Some(boot.mode + 1);
+        boot.t = 0.0;
+        return;
     }
+
+    boot.t += dt;
 
     if boot.mode >= 4 {
         return;
     }
 
-    boot.da += dt * 30.0; // da += 0.5 per tick
+    // Draw_0: da += 0.5 once per 30-FPS game tick.
+    boot.da += dt * 15.0;
 
     // Rebuild sprites when the mode changes.
     if boot.rendered_mode != boot.mode as i8 {
@@ -889,8 +953,8 @@ fn boot_intro(
         let py = (GUI_H - fh) + oy;
         for e in boot.spawned.iter().copied().skip(1) {
             if let Ok(mut tf) = transforms.get_mut(e) {
-                let jx = rand::rng().random_range(-4.0..=4.0);
-                let jy = rand::rng().random_range(-4.0..=4.0);
+                let jx = rand::rng().random_range(-4..=4) as f32;
+                let jy = rand::rng().random_range(-4..=4) as f32;
                 let left = (px + jx) - ox;
                 let top = (py + jy) - oy;
                 let c = map.to_world(left + fw * 0.5, top + fh * 0.5);
@@ -925,14 +989,21 @@ impl Plugin for UiArtPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CharSelectArt>()
             .init_resource::<BootState>()
-            .add_systems(OnEnter(AppState::Splash), (reset_camera_view, reset_boot))
+            .add_systems(
+                OnEnter(AppState::Splash),
+                (reset_camera_view, set_splash_camera_clear, reset_boot, spawn_boot_clear).chain(),
+            )
             .add_systems(
                 OnEnter(AppState::MainMenu),
                 (reset_camera_view, spawn_spiral_field),
             )
             .add_systems(
                 OnExit(AppState::Splash),
-                (despawn_boot_art, despawn_splash_loop),
+                (
+                    despawn_boot_art,
+                    despawn_splash_loop,
+                    restore_camera_clear,
+                ),
             )
             .add_systems(
                 OnEnter(AppState::Title),
@@ -2167,11 +2238,10 @@ fn char_select_tick(
         let Some((e, cur)) = art.wep_icons[slot] else {
             continue;
         };
-        let should_show = if fullview {
-            avail && show_name
-        } else {
-            avail && show_name && (slot == 0 || id != 0)
-        };
+        // Weapon id 0 is "no weapon". Never draw an icon for it. Previously
+        // slot 0 was always visible, causing id 0 to render using WEAPONS[0]
+        // metadata and appear as a bogus gun for some characters.
+        let should_show = avail && show_name && id != 0;
         if let Ok(mut vis) = visibility.get_mut(e) {
             *vis = if should_show {
                 Visibility::Visible
@@ -2186,6 +2256,12 @@ fn char_select_tick(
             let c = map.to_world(wep_pos[slot].0, wep_pos[slot].1);
             tf.translation.x = c.x;
             tf.translation.y = c.y;
+        }
+        if id == 0 {
+            if let Ok(mut vis) = visibility.get_mut(e) {
+                *vis = Visibility::Hidden;
+            }
+            continue;
         }
         if cur != id {
             art.wep_icons[slot] = Some((e, id));

@@ -6,6 +6,8 @@
 use bevy::prelude::*;
 use game_utils_bevy::audio::AudioM;
 
+use crate::game::content::AssetCatalog;
+
 #[derive(Resource)]
 pub struct GameAudio {
     pub shoot: Handle<AudioSource>,
@@ -29,30 +31,49 @@ pub struct GameAudio {
     pub pickup_disappear: Handle<AudioSource>,
 }
 
-fn load_sfx(asset_server: &AssetServer, stem: &str) -> Handle<AudioSource> {
-    asset_server.load(format!("audio/{stem}.wav"))
+fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
+    // Original imported files are OGG. Generated placeholders are WAV.
+    // Prefer originals whenever present.
+    for dir in ["audio", "sounds"] {
+        for ext in ["ogg", "wav", "mp3", "flac"] {
+            let path = format!("{dir}/{stem}.{ext}");
+            if catalog.has_audio(&path) {
+                return path;
+            }
+        }
+    }
+
+    // Keep the old fallback so dev builds with generated placeholders still run.
+    format!("audio/{stem}.wav")
 }
 
+fn load_sfx(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    stem: &str,
+) -> Handle<AudioSource> {
+    asset_server.load(resolve_sfx(catalog, stem))
+}
 impl GameAudio {
-    pub fn load(asset_server: &AssetServer) -> Self {
+    pub fn load(asset_server: &AssetServer, catalog: &AssetCatalog) -> Self {
         Self {
-            shoot: load_sfx(asset_server, "sndPistol"),
-            machine: load_sfx(asset_server, "sndMachinegun"),
-            shotgun: load_sfx(asset_server, "sndShotgun"),
-            bolt: load_sfx(asset_server, "sndCrossbow"),
-            melee: load_sfx(asset_server, "sndHammer"),
-            explode: load_sfx(asset_server, "sndExplosion"),
-            boom: load_sfx(asset_server, "sndExplosionL"),
-            hit: load_sfx(asset_server, "sndHitWall"),
-            hurt: load_sfx(asset_server, "sndPlayerHit"),
-            pickup: load_sfx(asset_server, "sndAmmoPickup"),
-            levelup: load_sfx(asset_server, "sndLevelUp"),
-            portal: load_sfx(asset_server, "sndPortalOpen"),
-            death: load_sfx(asset_server, "sndPlayerDeath"),
-            chest: load_sfx(asset_server, "sndChest"),
-            weapon_chest: load_sfx(asset_server, "sndWeaponChest"),
-            ammo_chest: load_sfx(asset_server, "sndAmmoChest"),
-            pickup_disappear: load_sfx(asset_server, "sndPickupDisappear"),
+            shoot: load_sfx(asset_server, catalog, "sndPistol"),
+            machine: load_sfx(asset_server, catalog, "sndMachinegun"),
+            shotgun: load_sfx(asset_server, catalog, "sndShotgun"),
+            bolt: load_sfx(asset_server, catalog, "sndCrossbow"),
+            melee: load_sfx(asset_server, catalog, "sndHammer"),
+            explode: load_sfx(asset_server, catalog, "sndExplosion"),
+            boom: load_sfx(asset_server, catalog, "sndExplosionL"),
+            hit: load_sfx(asset_server, catalog, "sndHitWall"),
+            hurt: load_sfx(asset_server, catalog, "sndPlayerHit"),
+            pickup: load_sfx(asset_server, catalog, "sndAmmoPickup"),
+            levelup: load_sfx(asset_server, catalog, "sndLevelUp"),
+            portal: load_sfx(asset_server, catalog, "sndPortalOpen"),
+            death: load_sfx(asset_server, catalog, "sndPlayerDeath"),
+            chest: load_sfx(asset_server, catalog, "sndChest"),
+            weapon_chest: load_sfx(asset_server, catalog, "sndWeaponChest"),
+            ammo_chest: load_sfx(asset_server, catalog, "sndAmmoChest"),
+            pickup_disappear: load_sfx(asset_server, catalog, "sndPickupDisappear"),
         }
     }
 

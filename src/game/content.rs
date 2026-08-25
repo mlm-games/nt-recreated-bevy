@@ -111,6 +111,19 @@ impl AssetCatalog {
         self.audio.contains(path)
     }
 
+    pub fn resolve_audio_path(&self, stem: &str) -> Option<String> {
+        for dir in ["audio", "sounds"] {
+            for ext in ["ogg", "wav", "mp3", "flac"] {
+                let path = format!("{dir}/{stem}.{ext}");
+                if self.has_audio(&path) {
+                    return Some(path);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Strip metadata for an animated sprite, if any.
     pub fn anim_def(&self, path: &str) -> Option<crate::game::anim::AnimDef> {
         self.anims.get(path).map(|a| crate::game::anim::AnimDef {
@@ -294,6 +307,17 @@ impl WeaponId {
     pub const SMG: Self = Self(16);
     pub const ASSAULT_RIFLE: Self = Self(17);
     pub const SLEDGEHAMMER: Self = Self(88);
+}
+
+pub const WEAPON_NONE: WeaponId = WeaponId(0);
+pub const WEAPON_REVOLVER: WeaponId = WeaponId(1);
+
+pub fn resolve_start_weapon(raw: WeaponId) -> WeaponId {
+    if raw == WEAPON_NONE {
+        WEAPON_REVOLVER
+    } else {
+        raw
+    }
 }
 
 impl From<WeaponKind> for WeaponId {
@@ -1089,6 +1113,10 @@ pub fn sanitize_weapon_id(id: WeaponId) -> WeaponId {
 
 /// Ammo family of a weapon, safe for any id.
 pub fn weapon_ammo(id: WeaponId) -> AmmoKind {
+    if id == WeaponId::NONE {
+        return AmmoKind::None;
+    }
+
     match weapon_meta(sanitize_weapon_id(id)).wep_type {
         crate::game::weapons_data::AmmoType::None => AmmoKind::None,
         crate::game::weapons_data::AmmoType::Bullets => AmmoKind::Bullets,
@@ -1100,6 +1128,10 @@ pub fn weapon_ammo(id: WeaponId) -> AmmoKind {
 }
 
 pub fn weapon_id_name(id: WeaponId) -> &'static str {
+    if id == WeaponId::NONE {
+        return "NONE";
+    }
+
     weapon_meta(id).wep_name
 }
 

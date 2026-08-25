@@ -67,23 +67,27 @@ pub fn setup_run(
     let loadout = save.race_loadout(character.0);
     let crown = CrownKind::from_u8(loadout.start_crown);
 
-    let primary = {
-        let saved = sanitize_weapon_id(loadout.start_weapon);
-        if saved == WeaponId::NONE {
-            WeaponId::REVOLVER
-        } else {
-            saved
-        }
-    };
+    let primary =
+        crate::game::content::resolve_start_weapon(sanitize_weapon_id(loadout.start_weapon));
 
-    let secondary = {
+    // If no explicit start weapon is stored, this is the normal NT start:
+    // one revolver only. Do not pair the fallback revolver with a stale
+    // stored_weapon from an old/debug save.
+    let explicit_start = sanitize_weapon_id(loadout.start_weapon) != WeaponId::NONE;
+
+    let mut secondary = {
         let saved = sanitize_weapon_id(loadout.stored_weapon);
-        if saved == primary {
+        if !explicit_start || saved == primary {
             WeaponId::NONE
         } else {
             saved
         }
     };
+
+    // Steroids is the character-specific dual-wield exception.
+    if character.0 == crate::game::content::RaceId::Steroids && secondary == WeaponId::NONE {
+        secondary = crate::game::content::WEAPON_REVOLVER;
+    }
 
     let equipped = [primary, secondary, WeaponId::NONE];
     let starting_ammo = starting_ammo_for(&equipped);

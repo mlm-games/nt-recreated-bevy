@@ -306,6 +306,7 @@ impl Plugin for AppPlugin {
             .add_systems(
                 Update,
                 (
+                    sanitize_save,
                     apply_saved_settings,
                     sync_shared_ui,
                     sync_ui_viewport,
@@ -332,6 +333,15 @@ fn sync_ui_viewport(windows: Query<&Window, With<PrimaryWindow>>, bridge: Res<Ui
     ui.viewport_width = window.width();
     ui.viewport_height = window.height();
     ui.hud_compact = crate::menus::is_compact_viewport(ui.viewport_width, ui.viewport_height);
+}
+
+fn sanitize_save(mut save: ResMut<SaveData>) {
+    if save.version < crate::save::SAVE_VERSION {
+        save.sanitize_loadouts();
+        save.version = crate::save::SAVE_VERSION;
+    } else if save.is_added() {
+        save.sanitize_loadouts();
+    }
 }
 
 fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>) {
@@ -433,16 +443,27 @@ fn sync_shared_ui(
         let def = crate::game::content::character_def(sel);
         ui.character = def.name.to_string();
         ui.selected_character = sel as usize;
-        ui.start_weapon_name = crate::game::content::weapon_id_name(lo.start_weapon).to_string();
-        ui.stored_weapon_name = crate::game::content::weapon_id_name(lo.stored_weapon).to_string();
+        let equipped_start =
+            crate::game::content::resolve_start_weapon(lo.start_weapon);
+
+        ui.start_weapon_name =
+            crate::game::content::weapon_id_name(equipped_start).to_string();
+
+        ui.stored_weapon_name =
+            if lo.stored_weapon == crate::game::content::WEAPON_NONE {
+                "NONE".to_string()
+            } else {
+                crate::game::content::weapon_id_name(lo.stored_weapon).to_string()
+            };
+
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
-        ui.start_weapon_id = lo.start_weapon.0;
+        ui.start_weapon_id = equipped_start.0;
         ui.stored_weapon_id = lo.stored_weapon.0;
         ui.crown_id = lo.start_crown;
         ui.loadout_summary = format!(
             "{} | start {} | stored {} | crown {} | {}",
             def.name,
-            crate::game::content::weapon_id_name(lo.start_weapon),
+            crate::game::content::weapon_id_name(equipped_start),
             crate::game::content::weapon_id_name(lo.stored_weapon),
             crate::game::content::crown_short_name(lo.start_crown),
             crate::game::content::ability_name(def.ability)
@@ -471,22 +492,18 @@ fn play_ui_sfx(
     stem: &str,
     volume: f32,
 ) {
-    for dir in ["audio", "sounds"] {
-        for ext in ["ogg", "wav", "mp3", "flac"] {
-            let path = format!("{dir}/{stem}.{ext}");
-            if catalog.has_audio(&path) {
-                commands.spawn((
-                    AudioPlayer::<AudioSource>::new(asset_server.load(path)),
-                    PlaybackSettings {
-                        mode: PlaybackMode::Despawn,
-                        volume: Volume::Linear(volume),
-                        ..default()
-                    },
-                ));
-                return;
-            }
-        }
-    }
+    let Some(path) = catalog.resolve_audio_path(stem) else {
+        return;
+    };
+
+    commands.spawn((
+        AudioPlayer::<AudioSource>::new(asset_server.load(path)),
+        PlaybackSettings {
+            mode: PlaybackMode::Despawn,
+            volume: Volume::Linear(volume),
+            ..default()
+        },
+    ));
 }
 
 fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32) -> f32 {
@@ -495,17 +512,6 @@ fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32)
         *field(&mut ui) = v;
     }
     v
-}
-
-fn cycle_weapon_id(id: crate::game::content::WeaponId, dir: i8) -> crate::game::content::WeaponId {
-    const POOL: [u8; 10] = [0, 1, 3, 4, 5, 6, 7, 16, 17, 88];
-    let cur = POOL.iter().position(|&x| x == id.0).unwrap_or(0);
-    let next = if dir >= 0 {
-        (cur + 1) % POOL.len()
-    } else {
-        (cur + POOL.len() - 1) % POOL.len()
-    };
-    crate::game::content::WeaponId(POOL[next])
 }
 
 fn process_ui_actions(
@@ -680,17 +686,25 @@ fn process_ui_actions(
                     ui.loadout_open = !ui.loadout_open;
                 }
             }
-            UiAction::CycleStartWeapon(dir) => {
+            UiAction::CycleStartWeapon(_) => {
                 let race = selected.0;
                 let lo = save.race_loadout_mut(race);
-                lo.start_weapon = cycle_weapon_id(lo.start_weapon, dir);
-                let _ = manager.save(&*save);
+
+                // The start selector toggles between the normal Revolver and this race's
+                // stored weapon. It is not a global weapon browser.
+                if lo.stored_weapon.0 != 0 {
+                    lo.start_weapon = if lo.start_weapon.0 == 0 {
+                        lo.stored_weapon
+                    } else {
+                        crate::game::content::WEAPON_NONE
+                    };
+
+                    let _ = manager.save(&*save);
+                }
             }
-            UiAction::CycleStoredWeapon(dir) => {
-                let race = selected.0;
-                let lo = save.race_loadout_mut(race);
-                lo.stored_weapon = cycle_weapon_id(lo.stored_weapon, dir);
-                let _ = manager.save(&*save);
+            UiAction::CycleStoredWeapon(_) => {
+                // Stored weapons are earned and persisted by gameplay. The character
+                // menu must not manufacture/cycle arbitrary stored weapons.
             }
             UiAction::CycleCrown(dir) => {
                 let race = selected.0;

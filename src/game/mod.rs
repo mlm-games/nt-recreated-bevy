@@ -68,8 +68,7 @@ impl Plugin for GamePlugin {
             .init_resource::<reactive_audio::ReactiveAudioState>()
             .init_resource::<reactive_audio::CombatIntensityState>()
             .add_message::<FloorStarted>()
-            .add_systems(Startup, load_game_audio)
-            .add_systems(Startup, scan_assets)
+            .add_systems(Startup, scan_assets_and_audio)
             // Nuclear Throne's shake is positional-only: rotation jitter pivots on the
             // camera center, so it reads as near-zero when the player is centered and
             // increasingly violent toward screen edges. Disable it.
@@ -237,13 +236,14 @@ fn gameplay_active(
     *state.get() == AppState::InGame && !paused.0 && !transition.block_input && !run.game_over
 }
 
-fn load_game_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.insert_resource(GameAudio::load(&asset_server));
-}
-
-fn scan_assets(mut commands: Commands) {
+fn scan_assets_and_audio(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
     let catalog = content::scan_asset_catalog();
+    let audio = GameAudio::load(&asset_server, &catalog);
     commands.insert_resource(catalog);
+    commands.insert_resource(audio);
 }
 
 fn setup_game(
