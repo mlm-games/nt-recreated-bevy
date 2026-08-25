@@ -369,6 +369,59 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
             "sprRatIdle": 8.0, "sprRatWalk": 10.0,
         }
 
+        def _infer_fps(name: str, frames: int) -> float:
+            if name in ANIM_SPRITES:
+                return ANIM_SPRITES[name]
+            if frames <= 1:
+                return 0.0
+            # Variant sheets (level tiles, portraits, UI splats) are not animated
+            # even when they have many frames - frames are variants, not timeline.
+            variant_keywords = (
+                "Portrait",
+                "Floor",
+                "Wall",
+                "TopDecal",
+                "NightCactus",
+                "Bones",
+                "Detail",
+                "Splat",
+                "Letterbox",
+                "Spiral",
+                "Vlambeer",
+                "Logo",
+                "Saving",
+                "CharSelect",
+                "BigName",
+                "BossName",
+                "CrownPed",
+            )
+            if frames >= 16 and any(k in name for k in variant_keywords):
+                # Large variant sheets like sprBigPortrait(64), sprFloor* etc.
+                if not name.endswith(("Idle", "Walk", "Hurt", "Dead")):
+                    return 0.0
+            if name.endswith("Idle"):
+                return 8.0
+            if name.endswith("Walk"):
+                return 10.0
+            if name.endswith("Hurt"):
+                return 14.0
+            if name.endswith("Dead"):
+                return 10.0
+            if name.endswith(("Fire", "Spawn", "Appear", "Disappear", "Burrow", "Charge", "Loop")):
+                return 10.0
+            if "Idle" in name:
+                return 8.0
+            if "Walk" in name:
+                return 10.0
+            if "Hurt" in name:
+                return 14.0
+            if "Dead" in name:
+                return 10.0
+            # Default for small strips: assume 8 fps (upstream image_speed 0.4 at 30 FPS = 12, but we use 8 to match prior art)
+            if frames <= 6:
+                return 8.0
+            return 6.0
+
         spr_off = chunks["SPRT"]
         spr_cnt = struct.unpack_from("<I", data, spr_off + 8)[0]
 
@@ -539,7 +592,7 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                             "frames": img_num,
                             "w": w,
                             "h": h,
-                            "fps": ANIM_SPRITES.get(name, 0.0),
+                            "fps": _infer_fps(name, img_num),
                             "xorigin": xorigin,
                             "yorigin": yorigin,
                         }

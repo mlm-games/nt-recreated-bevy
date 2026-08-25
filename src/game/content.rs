@@ -2678,6 +2678,23 @@ pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &s
     sprite
 }
 
+/// Bevy `Anchor` for a sprite path, derived from GameMaker xorigin/yorigin.
+/// Centered origins return `Anchor::Center` (default); custom origins (weapons,
+/// projectiles) return a custom anchor so rotation pivots at the handle/muzzle
+/// exactly as in the ~/Documents reference (fixes positional discrepancies).
+pub fn sprite_anchor(catalog: &AssetCatalog, path: &str) -> bevy::sprite::Anchor {
+    if let Some(m) = catalog.anims.get(path) {
+        let (w, h) = (m[1].max(1.0), m[2].max(1.0));
+        let (xorigin, yorigin) = (m[4], m[5]);
+        let ax = xorigin / w - 0.5;
+        let ay = 0.5 - yorigin / h;
+        if ax.abs() > 0.001 || ay.abs() > 0.001 {
+            return bevy::sprite::Anchor(Vec2::new(ax, ay));
+        }
+    }
+    bevy::sprite::Anchor::CENTER
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MutationId {
     RhinoSkin,

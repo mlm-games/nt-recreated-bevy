@@ -1748,6 +1748,7 @@ pub fn ensure_weapon_visual(
     spr.custom_size = spr.custom_size.or(Some(Vec2::new(24.0, 12.0)));
     let angle = aim.0.y.atan2(aim.0.x);
     let pos = tf.translation.truncate() + aim.0 * 14.0;
+    let anchor = crate::game::content::sprite_anchor(&catalog, path);
     commands.entity(player_e).insert(WeaponVisualOwner);
     commands.spawn((
         GameCleanup,
@@ -1757,6 +1758,7 @@ pub fn ensure_weapon_visual(
             wep_id: id,
         },
         spr,
+        anchor,
         Transform::from_translation(pos.extend(21.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));
 }
@@ -1776,24 +1778,24 @@ pub fn tick_weapon_visuals(
         ),
         With<Player>,
     >,
-    mut vis_q: Query<(Entity, &mut WeaponVisual, &mut Transform, &mut Sprite), Without<Player>>,
+    mut vis_q: Query<(Entity, &mut WeaponVisual, &mut Transform, &mut Sprite, &mut bevy::sprite::Anchor), Without<Player>>,
 ) {
     let dt = time.delta_secs();
     let Ok((player_e, ptf, aim, inv, sucking)) = player_q.single() else {
-        for (e, _, _, _) in &vis_q {
+        for (e, _, _, _, _) in &vis_q {
             commands.entity(e).despawn();
         }
         return;
     };
     if sucking.is_some() {
-        for (e, _, _, _) in &vis_q {
+        for (e, _, _, _, _) in &vis_q {
             commands.entity(e).despawn();
         }
         commands.entity(player_e).remove::<WeaponVisualOwner>();
         return;
     }
     let id = inv.weapons[inv.current];
-    for (_e, mut wv, mut tf, mut sprite) in &mut vis_q {
+    for (_e, mut wv, mut tf, mut sprite, mut anchor) in &mut vis_q {
         if wv.owner != player_e {
             continue;
         }
@@ -1810,6 +1812,7 @@ pub fn tick_weapon_visuals(
             } else {
                 sprite.rect = None;
             }
+            *anchor = crate::game::content::sprite_anchor(&catalog, path);
         }
         let angle = aim.0.y.atan2(aim.0.x);
         let forward = aim.0.normalize_or_zero();
