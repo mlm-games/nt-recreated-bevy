@@ -48,26 +48,34 @@ impl AssetCatalog {
         // optional content: an empty set is fine and every cue stays silent.
         let mut audio = HashSet::new();
         const AUDIO_EXTS: [&str; 4] = ["ogg", "wav", "mp3", "flac"];
-        for entry in std::fs::read_dir("assets").into_iter().flatten() {
-            let Ok(dir) = entry else {
-                continue;
+        fn scan_audio_recursive(base: &str, dir: &std::path::Path, out: &mut HashSet<String>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
             };
-            let sub = dir.file_name().to_string_lossy().to_string();
-            if !matches!(
-                sub.as_str(),
-                "audio" | "sounds" | "music" | "ambient" | "ambience"
-            ) {
-                continue;
-            }
-            for f in std::fs::read_dir(dir.path()).into_iter().flatten() {
-                let Ok(f) = f else { continue };
-                let name = f.file_name().to_string_lossy().to_string();
-                let ext = name.rsplit('.').next().unwrap_or("");
-                if AUDIO_EXTS.contains(&ext) {
-                    audio.insert(format!("{sub}/{name}"));
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    scan_audio_recursive(base, &p, out);
+                } else if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                    let ext = name.rsplit('.').next().unwrap_or("");
+                    if AUDIO_EXTS.contains(&ext) {
+                        if let Ok(rel) = p.strip_prefix("assets") {
+                            out.insert(rel.to_string_lossy().to_string());
+                        } else {
+                            out.insert(format!("{base}/{name}"));
+                        }
+                    }
                 }
             }
         }
+        for sub in ["audio", "sounds", "music", "ambient", "ambience"] {
+            let dir = std::path::Path::new("assets").join(sub);
+            if dir.is_dir() {
+                scan_audio_recursive(sub, &dir, &mut audio);
+            }
+        }
+        // Also accept flat sfx candidates like "audio/sfx/snd_levelup.ogg" by mapping to flat file "audio/sndLevelUp.wav" pattern.
+        // No extra alias map needed; resolve_audio_path does case-insensitive fallback.
 
         let mut anims = HashMap::new();
         if let Ok(txt) = std::fs::read_to_string("assets/images/anims.json")
@@ -112,15 +120,42 @@ impl AssetCatalog {
     }
 
     pub fn resolve_audio_path(&self, stem: &str) -> Option<String> {
-        for dir in ["audio", "sounds"] {
+        // Direct match in indexed paths (supports sfx subfolders)
+        for dir in ["audio", "sounds", "audio/sfx", "audio/music", "sounds/sfx"] {
             for ext in ["ogg", "wav", "mp3", "flac"] {
                 let path = format!("{dir}/{stem}.{ext}");
                 if self.has_audio(&path) {
                     return Some(path);
                 }
+                // Case-insensitive stem match against flat files (e.g., stem "snd_levelup" vs file "sndLevelUp.wav")
+                let lower_path = path.to_ascii_lowercase();
+                for existing in &self.audio {
+                    if existing.to_ascii_lowercase() == lower_path {
+                        return Some(existing.clone());
+                    }
+                }
+                // Also try without snd_ prefix normalization: snd_levelup -> sndLevelUp
+                // Check stem substring containment fallback (flat folder contains file with stem substring)
+                let stem_lower = stem.to_ascii_lowercase().replace('_', "");
+                for existing in &self.audio {
+                    let exist_lower = existing.to_ascii_lowercase().replace('_', "");
+                    if exist_lower.contains(&stem_lower) {
+                        return Some(existing.clone());
+                    }
+                }
             }
         }
-
+        // Final fallback: any audio file containing stem substring (useful for renamed flat placeholders like levelup.wav)
+        let stem_norm = stem
+            .to_ascii_lowercase()
+            .replace("snd", "")
+            .replace('_', "");
+        for existing in &self.audio {
+            let ex_norm = existing.to_ascii_lowercase().replace('_', "");
+            if ex_norm.contains(&stem_norm) {
+                return Some(existing.clone());
+            }
+        }
         None
     }
 
@@ -1967,7 +2002,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 28.0,
             size: 56.0,
             color: Color::srgb(0.55, 0.85, 0.35),
-            sprite: "images/sprMomIdle.png",
+            sprite: "images/sprBigMaggotIdle.png",
             score: 1200,
             touch_damage: 4,
             rad_drop: 50,
@@ -1997,7 +2032,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 22.0,
             size: 44.0,
             color: Color::srgb(0.55, 0.35, 0.85),
-            sprite: "images/sprTechnoMancerIdle.png",
+            // Fix: WAD has sprTechnoMancer (no Idle suffix); use that strip directly.
+            sprite: "images/sprTechnoMancer.png",
             score: 1500,
             touch_damage: 0,
             rad_drop: 45,
@@ -2027,7 +2063,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 16.0,
             size: 32.0,
             color: Color::srgb(0.35, 0.55, 0.95),
-            sprite: "images/sprPopoCaptainIdle.png",
+            sprite: "images/sprPopoFreakIdle.png",
             score: 4000,
             touch_damage: 6,
             rad_drop: 80,
@@ -2057,7 +2093,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 11.0,
             size: 20.0,
             color: Color::srgb(0.45, 0.9, 0.4),
-            sprite: "images/sprBallIdle.png",
+
+            sprite: "images/sprMaggotIdle.png",
             score: 12,
             touch_damage: 2,
             rad_drop: 3,
@@ -2177,7 +2214,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 12.0,
             size: 24.0,
             color: Color::srgb(0.85, 0.45, 1.0),
-            sprite: "images/sprCrystalIdle.png",
+            // Fix: original has no sprCrystalIdle; use LaserCrystal (same family, exists in WAD/assets)
+            sprite: "images/sprLaserCrystalIdle.png",
             score: 16,
             touch_damage: 0,
             rad_drop: 4,

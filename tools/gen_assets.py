@@ -329,11 +329,30 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
 
         # Metadata for every extracted sprite. Multi-frame sprites are full horizontal strips.
         anim_manifest: dict[str, dict] = {}
+        # Anim discrepancy fix: expand curated set to cover all mutant variants (B/C/D) and core combat loops.
+        # Without this, mutants 5+ and many enemies had fps=0 (static) despite frames>1.
         ANIM_SPRITES = {
             "sprMutant1Idle": 10.0, "sprMutant1Walk": 12.0,
             "sprMutant2Idle": 10.0, "sprMutant2Walk": 12.0,
             "sprMutant3Idle": 10.0, "sprMutant3Walk": 12.0,
             "sprMutant4Idle": 10.0, "sprMutant4Walk": 12.0,
+            "sprMutant5Idle": 8.0, "sprMutant5Walk": 10.0,
+            "sprMutant6Idle": 8.0, "sprMutant6Walk": 10.0,
+            "sprMutant7Idle": 10.0, "sprMutant7Walk": 12.0,
+            "sprMutant8Idle": 10.0, "sprMutant8Walk": 12.0,
+            "sprMutant9Idle": 8.0, "sprMutant9Walk": 10.0,
+            "sprMutant10Idle": 8.0, "sprMutant10Walk": 10.0,
+            "sprMutant11Idle": 8.0, "sprMutant11Walk": 10.0,
+            "sprMutant12Idle": 8.0, "sprMutant12Walk": 10.0,
+            "sprMutant13Idle": 8.0, "sprMutant13Walk": 10.0,
+            "sprMutant14Idle": 8.0, "sprMutant14Walk": 10.0,
+            "sprMutant15Idle": 8.0, "sprMutant15Walk": 10.0,
+            "sprMutant16Idle": 8.0, "sprMutant16Walk": 10.0,
+            "sprMutant5BIdle": 8.0, "sprMutant5BWalk": 10.0,
+            "sprMutant6BIdle": 8.0, "sprMutant6BWalk": 10.0,
+            "sprMutant7BIdle": 10.0, "sprMutant7BWalk": 12.0,
+            "sprMutant8BIdle": 10.0, "sprMutant8BWalk": 12.0,
+            "sprMutant9BIdle": 8.0, "sprMutant9BWalk": 10.0,
             "sprBanditIdle": 8.0, "sprBanditWalk": 10.0,
             "sprJungleAssassinIdle": 8.0, "sprJungleAssassinWalk": 10.0,
             "sprMaggotIdle": 6.0,
@@ -342,6 +361,12 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
             "sprExploFreakIdle": 8.0,
             "sprBanditBossIdle": 8.0, "sprBanditBossWalk": 10.0,
             "sprPortal": 10.0,
+            "sprBigMaggotIdle": 6.0,
+            "sprLaserCrystalIdle": 6.0,
+            "sprHyperCrystalIdle": 6.0,
+            "sprSnowBotIdle": 6.0, "sprSnowBotWalk": 8.0,
+            "sprWolfIdle": 8.0, "sprWolfWalk": 10.0,
+            "sprRatIdle": 8.0, "sprRatWalk": 10.0,
         }
 
         spr_off = chunks["SPRT"]

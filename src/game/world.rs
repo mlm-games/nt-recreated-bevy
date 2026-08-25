@@ -867,13 +867,9 @@ fn populate(
     } else {
         match run.area {
             AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
-            AreaId::Labs if run.loop_count >= 1 => {
-                plan.boss = Some(EnemyKind::Technomancer)
-            }
+            AreaId::Labs if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Technomancer),
             AreaId::CrystalCaves if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Hyper),
-            AreaId::CrownVault | AreaId::Vault => {
-                plan.boss = Some(EnemyKind::OldGuardian)
-            }
+            AreaId::CrownVault | AreaId::Vault => plan.boss = Some(EnemyKind::OldGuardian),
             AreaId::HQ => plan.boss = Some(EnemyKind::Captain),
             _ => {}
         }
@@ -1036,7 +1032,8 @@ fn walls_cover_tile(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: 
 
 fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
     // Keep palace throne room sparse: remove clutter traps/mines.
-    plan.props.retain(|(k, _)| !matches!(k, PropKind::Mine | PropKind::FireTrap));
+    plan.props
+        .retain(|(k, _)| !matches!(k, PropKind::Mine | PropKind::FireTrap));
     plan.enemies.clear();
 
     let gens = [
@@ -1165,7 +1162,15 @@ fn wall_out_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &st
     raw % sprite_frames(catalog, path).max(1)
 }
 
-fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+fn area_sprites(
+    floor: u32,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+) {
     // (floor, wall bot, wall top, wall out, ground decal)
     // Upstream sprite families are named by _area id.
     let rf = ((floor.max(1) - 1) % 15) + 1;
@@ -1235,7 +1240,13 @@ fn area_sprites(floor: u32) -> (&'static str, &'static str, &'static str, &'stat
 pub(crate) fn area_sprites_for_run(
     run: &Run,
     catalog: &AssetCatalog,
-) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+) {
     use crate::game::areas::AreaId;
     let route = area_sprites(run.floor);
     let is_secret_tile_family = matches!(
@@ -1508,7 +1519,15 @@ pub fn spawn_level(
 
     // Props.
     for (kind, pos) in &plan.props {
-        spawn_prop(commands, catalog, asset_server, *kind, *pos, decal_prop_png, run);
+        spawn_prop(
+            commands,
+            catalog,
+            asset_server,
+            *kind,
+            *pos,
+            decal_prop_png,
+            run,
+        );
     }
 
     // Secret entrances (destructible markers; destroying one queues the
@@ -1770,6 +1789,8 @@ fn spawn_prop(
                         "images/sprCobweb.png",
                         "images/sprSpiderWeb.png",
                         "images/sprWeb.png",
+                        "images/sprCocoon.png",
+                        "images/sprBones.png",
                     ],
                     Color::srgba(0.78, 0.78, 0.72, 0.62),
                     Vec2::splat(36.0),
@@ -1816,6 +1837,9 @@ fn spawn_prop(
                         "images/sprFireTrap.png",
                         "images/sprFireTrapIdle.png",
                         "images/sprTorchFire.png",
+                        // Fix: fallback to existing Torch and Flame assets (WAD has sprTorch but not FireTrap)
+                        "images/sprTorch.png",
+                        "images/sprFlameBall.png",
                     ],
                     spec.kind.color(),
                     Vec2::splat(32.0),

@@ -734,13 +734,7 @@ fn build_boot_cards(
     );
     boot.icon = Some(
         commands
-            .spawn((
-                BootArt,
-                ChildOf(cam),
-                Visibility::Hidden,
-                spr,
-                tf,
-            ))
+            .spawn((BootArt, ChildOf(cam), Visibility::Hidden, spr, tf))
             .id(),
     );
 
@@ -771,13 +765,7 @@ fn build_boot_cards(
     );
     boot.vlambeer.push(
         commands
-            .spawn((
-                BootArt,
-                ChildOf(cam),
-                Visibility::Hidden,
-                spr,
-                tf,
-            ))
+            .spawn((BootArt, ChildOf(cam), Visibility::Hidden, spr, tf))
             .id(),
     );
     for _ in 0..10 {
@@ -796,13 +784,7 @@ fn build_boot_cards(
         );
         boot.vlambeer.push(
             commands
-                .spawn((
-                    BootArt,
-                    ChildOf(cam),
-                    Visibility::Hidden,
-                    g,
-                    gtf,
-                ))
+                .spawn((BootArt, ChildOf(cam), Visibility::Hidden, g, gtf))
                 .id(),
         );
     }
@@ -823,13 +805,7 @@ fn build_boot_cards(
     );
     boot.logo = Some(
         commands
-            .spawn((
-                BootArt,
-                ChildOf(cam),
-                Visibility::Hidden,
-                spr,
-                tf,
-            ))
+            .spawn((BootArt, ChildOf(cam), Visibility::Hidden, spr, tf))
             .id(),
     );
 
@@ -841,7 +817,16 @@ fn build_boot_cards(
             .iter()
             .enumerate()
             .map(|(i, (s, col))| {
-                splash_text_line(commands, cam, map, font, s, GUI_W / 2.0, base_y + step * i as f32, *col)
+                splash_text_line(
+                    commands,
+                    cam,
+                    map,
+                    font,
+                    s,
+                    GUI_W / 2.0,
+                    base_y + step * i as f32,
+                    *col,
+                )
             })
             .collect()
     };
@@ -856,11 +841,7 @@ fn build_boot_cards(
     );
     boot.texts.push((0, mode0));
 
-    let mode1 = group(
-        vec![("MADE IN GAMEMAKER", Color::WHITE)],
-        cy,
-        10.0,
-    );
+    let mode1 = group(vec![("MADE IN GAMEMAKER", Color::WHITE)], cy, 10.0);
     boot.texts.push((1, mode1));
 
     const CREDITS: [(&str, bool); 9] = [
@@ -1138,7 +1119,8 @@ fn boot_intro(
             (frame + 1) as f32 * fw,
             fh,
         ));
-    } else if boot.mode == 2 && boot.vlambeer.len() > 1
+    } else if boot.mode == 2
+        && boot.vlambeer.len() > 1
         && let Some((_, map)) = view_setup(&windows, &cam_q)
     {
         // Re-jitter the ten glow copies every frame (orandom(4)); the main
@@ -1190,7 +1172,13 @@ impl Plugin for UiArtPlugin {
             .init_resource::<BootState>()
             .add_systems(
                 OnEnter(AppState::Splash),
-                (reset_camera_view, set_splash_camera_clear, reset_boot, spawn_boot_clear).chain(),
+                (
+                    reset_camera_view,
+                    set_splash_camera_clear,
+                    reset_boot,
+                    spawn_boot_clear,
+                )
+                    .chain(),
             )
             .add_systems(
                 OnEnter(AppState::MainMenu),
@@ -1198,11 +1186,7 @@ impl Plugin for UiArtPlugin {
             )
             .add_systems(
                 OnExit(AppState::Splash),
-                (
-                    despawn_boot_art,
-                    despawn_splash_loop,
-                    restore_camera_clear,
-                ),
+                (despawn_boot_art, despawn_splash_loop, restore_camera_clear),
             )
             .add_systems(
                 OnEnter(AppState::Title),
@@ -1572,8 +1556,9 @@ fn spawn_char_select(
                     commands.spawn((TitleArt, ChildOf(cam), spr, tf));
                 }
             } else if catalog.has("images/sprNightDesertTopDecal.png") {
-                let frame = rand::rng()
-                    .random_range(0..sprite_frame_count(&catalog, "images/sprNightDesertTopDecal.png"));
+                let frame = rand::rng().random_range(
+                    0..sprite_frame_count(&catalog, "images/sprNightDesertTopDecal.png"),
+                );
                 let (spr, tf) = gm_sprite(
                     &catalog,
                     &asset_server,
@@ -1773,12 +1758,12 @@ fn spawn_char_select(
                 RaceId::Rebel => ("images/sprRebelMenu.png", ""),
                 RaceId::Horror => ("images/sprHorrorMenu.png", ""),
                 RaceId::Rogue => ("images/sprRogueMenu.png", "images/sprRogueMenuDeselect.png"),
-                RaceId::BigDog => ("images/sprBigDogMenu.png", "images/sprDogMenu.png"),
+                RaceId::BigDog => ("images/sprDogMenu.png", "images/sprDogMenuDeselect.png"),
                 RaceId::Skeleton => (
-                    "images/sprSkeletonMenu.png",
-                    "images/sprSkeletonMenuDeselect.png",
+                    "images/sprSteroidsMenu.png",
+                    "images/sprSteroidsMenuDeselect.png",
                 ),
-                RaceId::Frog => ("images/sprFrogMenu.png", "images/sprFrogMenuDeselect.png"),
+                RaceId::Frog => ("images/sprFishMenu.png", "images/sprFishMenuDeselect.png"),
                 RaceId::Cuz => ("images/sprCuzMenu.png", ""),
                 RaceId::Random => return None,
             };

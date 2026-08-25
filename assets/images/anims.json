@@ -691,7 +691,7 @@
   "frames": 6,
   "w": 32,
   "h": 32,
-  "fps": 0.0,
+  "fps": 6.0,
   "xorigin": 16,
   "yorigin": 16
  },
@@ -6003,7 +6003,7 @@
   "frames": 6,
   "w": 96,
   "h": 96,
-  "fps": 0.0,
+  "fps": 6.0,
   "xorigin": 48,
   "yorigin": 64
  },
@@ -6587,7 +6587,7 @@
   "frames": 5,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 6.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -7755,7 +7755,7 @@
   "frames": 6,
   "w": 32,
   "h": 32,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 16,
   "yorigin": 16
  },
@@ -7779,7 +7779,7 @@
   "frames": 6,
   "w": 32,
   "h": 32,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 16,
   "yorigin": 16
  },
@@ -7907,7 +7907,7 @@
   "frames": 6,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -7931,7 +7931,7 @@
   "frames": 6,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -8059,7 +8059,7 @@
   "frames": 10,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8083,7 +8083,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8115,7 +8115,7 @@
   "frames": 6,
   "w": 96,
   "h": 96,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 48,
   "yorigin": 48
  },
@@ -8139,7 +8139,7 @@
   "frames": 8,
   "w": 96,
   "h": 96,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 48,
   "yorigin": 48
  },
@@ -8219,7 +8219,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8243,7 +8243,7 @@
   "frames": 7,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8275,7 +8275,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8299,7 +8299,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8451,7 +8451,7 @@
   "frames": 4,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -8475,7 +8475,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9115,7 +9115,7 @@
   "frames": 4,
   "w": 32,
   "h": 32,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 16,
   "yorigin": 16
  },
@@ -9131,7 +9131,7 @@
   "frames": 4,
   "w": 32,
   "h": 32,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 16,
   "yorigin": 16
  },
@@ -9211,7 +9211,7 @@
   "frames": 4,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9235,7 +9235,7 @@
   "frames": 4,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9267,7 +9267,7 @@
   "frames": 14,
   "w": 24,
   "h": 32,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 16
  },
@@ -9283,7 +9283,7 @@
   "frames": 14,
   "w": 24,
   "h": 32,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 16
  },
@@ -9363,7 +9363,7 @@
   "frames": 4,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9387,7 +9387,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9419,7 +9419,7 @@
   "frames": 11,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9435,7 +9435,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 12.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9515,7 +9515,7 @@
   "frames": 11,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9539,7 +9539,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 12.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9571,7 +9571,7 @@
   "frames": 26,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9587,7 +9587,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 12.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9715,7 +9715,7 @@
   "frames": 26,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9739,7 +9739,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 12.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9779,7 +9779,7 @@
   "frames": 11,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -9795,7 +9795,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -10011,7 +10011,7 @@
   "frames": 11,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -10043,7 +10043,7 @@
   "frames": 6,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -11667,7 +11667,7 @@
   "frames": 4,
   "w": 24,
   "h": 24,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 12,
   "yorigin": 12
  },
@@ -11675,7 +11675,7 @@
   "frames": 6,
   "w": 48,
   "h": 24,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 24,
   "yorigin": 12
  },
@@ -13155,7 +13155,7 @@
   "frames": 6,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 6.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -13203,7 +13203,7 @@
   "frames": 6,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -15787,7 +15787,7 @@
   "frames": 11,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 8.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -15795,7 +15795,7 @@
   "frames": 6,
   "w": 48,
   "h": 48,
-  "fps": 0.0,
+  "fps": 10.0,
   "xorigin": 24,
   "yorigin": 24
  },
@@ -16057,6 +16057,182 @@
  },
  "sprVenuzMenu": {
   "frames": 33,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprBallIdle": {
+  "frames": 4,
+  "w": 16,
+  "h": 16,
+  "fps": 6.0,
+  "xorigin": 8,
+  "yorigin": 8
+ },
+ "sprMomIdle": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 6.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprCrystalIdle": {
+  "frames": 5,
+  "w": 48,
+  "h": 48,
+  "fps": 6.0,
+  "xorigin": 24,
+  "yorigin": 24
+ },
+ "sprTechnoMancerIdle": {
+  "frames": 10,
+  "w": 118,
+  "h": 120,
+  "fps": 0.0,
+  "xorigin": 59,
+  "yorigin": 60
+ },
+ "sprPopoCaptainIdle": {
+  "frames": 10,
+  "w": 48,
+  "h": 48,
+  "fps": 0.0,
+  "xorigin": 24,
+  "yorigin": 24
+ },
+ "sprBigDogMenu": {
+  "frames": 17,
+  "w": 96,
+  "h": 96,
+  "fps": 0.0,
+  "xorigin": 48,
+  "yorigin": 48
+ },
+ "sprSkeletonMenu": {
+  "frames": 38,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 18
+ },
+ "sprSkeletonMenuDeselect": {
+  "frames": 6,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 18
+ },
+ "sprFrogMenu": {
+  "frames": 48,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprFrogMenuDeselect": {
+  "frames": 16,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprCobweb": {
+  "frames": 8,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprSpiderWeb": {
+  "frames": 8,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprWeb": {
+  "frames": 8,
+  "w": 24,
+  "h": 24,
+  "fps": 0.0,
+  "xorigin": 12,
+  "yorigin": 12
+ },
+ "sprFireTrap": {
+  "frames": 5,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 17
+ },
+ "sprFireTrapIdle": {
+  "frames": 5,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 17
+ },
+ "sprTorchFire": {
+  "frames": 5,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 17
+ },
+ "sprFloorEx1": {
+  "frames": 4,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 0,
+  "yorigin": 0
+ },
+ "sprGenerator": {
+  "frames": 11,
+  "w": 96,
+  "h": 96,
+  "fps": 0.0,
+  "xorigin": 32,
+  "yorigin": 32
+ },
+ "sprIcePatch": {
+  "frames": 2,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 24
+ },
+ "sprIcyCar": {
+  "frames": 1,
+  "w": 32,
+  "h": 32,
+  "fps": 0.0,
+  "xorigin": 16,
+  "yorigin": 16
+ },
+ "sprMineIdle": {
+  "frames": 2,
+  "w": 12,
+  "h": 12,
+  "fps": 0.0,
+  "xorigin": 6,
+  "yorigin": 6
+ },
+ "sprSnowManIdle": {
+  "frames": 1,
   "w": 32,
   "h": 32,
   "fps": 0.0,
