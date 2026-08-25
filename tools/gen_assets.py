@@ -327,7 +327,7 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 "sprRevolver", "sprShotgun", "sprMachinegun", "sprCrossbow",
             }
 
-        # Sprites exported as full horizontal animation strips (all frames).
+        # Metadata for every extracted sprite. Multi-frame sprites are full horizontal strips.
         anim_manifest: dict[str, dict] = {}
         ANIM_SPRITES = {
             "sprMutant1Idle": 10.0, "sprMutant1Walk": 12.0,
@@ -354,6 +354,20 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 if n == name:
                     return pos
             return None
+
+        def sprite_origin(pos: int, w: int, h: int) -> tuple[int, int]:
+            # Standard GameMaker sprite fields. Keep a guarded fallback for
+            # unusual WAD versions / bad offset guesses.
+            try:
+                xorigin = struct.unpack_from("<i", data, pos + 48)[0]
+                yorigin = struct.unpack_from("<i", data, pos + 52)[0]
+
+                if abs(xorigin) > w * 8 or abs(yorigin) > h * 8:
+                    raise ValueError("implausible sprite origin")
+            except (struct.error, ValueError):
+                xorigin = w // 2
+                yorigin = h // 2
+            return xorigin, yorigin
 
         copied = 0
         # Limit to 50 per run unless --all-sprites to avoid 2113-at-once overhead
@@ -469,8 +483,7 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                         continue
                 dst = dest_sprites / f"{name}.png"
                 dst_og = dest_og_sprites / f"{name}.png"
-                if dst.exists() and not dry_run:
-                    continue
+                already_extracted = dst.exists() and dst_og.exists()
                 if dry_run:
                     copied += 1
                     continue
@@ -478,8 +491,11 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 dest_og_sprites.mkdir(parents=True, exist_ok=True)
                 with Image.open(tex_path) as atlas:
                     is_strip = img_num > 1
+                    xorigin, yorigin = sprite_origin(pos, w, h)
+
                     if is_strip:
-                        # Horizontal strip: every frame's own tPageItem.
+                        # Horizontal strip: every frame's own tPageItem,
+                        # laid into its native GameMaker sprite rectangle.
                         out = Image.new("RGBA", (w * img_num, h), (0, 0, 0, 0))
 
                         for k in range(img_num):
@@ -494,18 +510,6 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                             crop = atlas.crop((kx, ky, kx + kw, ky + kh))
                             out.paste(crop, (k * w + ktx, kty))
 
-                        # Standard GameMaker sprite fields. Keep a guarded fallback for
-                        # unusual WAD versions.
-                        try:
-                            xorigin = struct.unpack_from("<i", data, pos + 48)[0]
-                            yorigin = struct.unpack_from("<i", data, pos + 52)[0]
-
-                            if abs(xorigin) > w * 8 or abs(yorigin) > h * 8:
-                                raise ValueError("implausible sprite origin")
-                        except (struct.error, ValueError):
-                            xorigin = w // 2
-                            yorigin = h // 2
-
                         anim_manifest[name] = {
                             "frames": img_num,
                             "w": w,
@@ -519,16 +523,6 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                         crop = atlas.crop((sx, sy, sx + sw, sy + sh))
                         out.paste(crop, (tx, ty))
 
-                        try:
-                            xorigin = struct.unpack_from("<i", data, pos + 48)[0]
-                            yorigin = struct.unpack_from("<i", data, pos + 52)[0]
-
-                            if abs(xorigin) > w * 8 or abs(yorigin) > h * 8:
-                                raise ValueError("implausible sprite origin")
-                        except (struct.error, ValueError):
-                            xorigin = w // 2
-                            yorigin = h // 2
-
                         anim_manifest[name] = {
                             "frames": 1,
                             "w": w,
@@ -537,10 +531,14 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                             "xorigin": xorigin,
                             "yorigin": yorigin,
                         }
-                    out.save(dst)
-                    out.save(dst_og)
-                copied += 1
-                if copied <= 3:
+
+                    if not already_extracted:
+                        out.save(dst)
+                        out.save(dst_og)
+
+                if not already_extracted:
+                    copied += 1
+                if copied <= 3 and not already_extracted:
                     kind = "frame strip" if img_num > 1 else "sprite"
                     print(f"extracted sprites/{name}.png ({w}x{h}, {kind})")
             except Exception as e:
@@ -592,6 +590,11 @@ def main() -> int:
         "--no-mirror",
         action="store_true",
         help="Do not also mirror into assets/og/",
+    )
+    parser.add_argument(
+        "--all-sprites",
+        action="store_true",
+        help="Extract all sprites as strips (not just curated auto-wire set)",
     )
     args = parser.parse_args()
 

@@ -1190,6 +1190,53 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
+fn hud_weapon_ammo(st: &SharedUi, slot: usize) -> i32 {
+    let Some(name) = st.weapons.get(slot) else {
+        return 0;
+    };
+
+    let n = name.to_ascii_lowercase();
+
+    let ammo_index = if n == "none" || n.is_empty() {
+        0
+    } else if n.contains("shotgun")
+        || n.contains("super shotgun")
+        || n.contains("sawed")
+        || n.contains("flak")
+    {
+        2 // shells
+    } else if n.contains("crossbow")
+        || n.contains("splinter")
+        || n.contains("disc")
+        || n.contains("seeker")
+        || n.contains("bolt")
+    {
+        3 // bolts
+    } else if n.contains("grenade")
+        || n.contains("bazooka")
+        || n.contains("missile")
+        || n.contains("launcher")
+        || n.contains("nuke")
+    {
+        4 // explosives
+    } else if n.contains("laser")
+        || n.contains("plasma")
+        || n.contains("lightning")
+        || n.contains("energy")
+        || n.contains("flame")
+    {
+        5 // energy
+    } else {
+        1 // bullets
+    };
+
+    if ammo_index == 0 {
+        0
+    } else {
+        st.ammo[ammo_index].max(0)
+    }
+}
+
 /// Original HUD text pass — everything scrDrawPlayerHUD draws as text,
 /// placed in NT GUI coordinates scaled into window space. Sprite art
 /// (health bar, fills, rad meter, ammo/weapon icons) lives in ui_art.rs.
@@ -1223,7 +1270,7 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
     // Ammo counts left-aligned at (dx + 18, dy + 5) per weapon slot; the
     // stored weapon renders in silver (c_silver) like upstream.
     for slot in 0..2usize {
-        let amount = st.weapon_ammo[slot];
+        let amount = hud_weapon_ammo(st, slot);
         let color = if slot == st.current_weapon {
             col(255, 255, 255)
         } else {

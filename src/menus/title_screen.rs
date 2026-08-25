@@ -159,8 +159,8 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
     }
 
     // The whole strip is one row; every pod rect forwards its own race id.
-    // Hitboxes sit exactly on the sprite rects (step == POD_W at 17 slots).
-    let _ = st;
+    // Hitboxes sit exactly on the sprite pitch from Menu/Create_0.
+    let _selected = st.selected_character;
     Row(Modifier::new()
         .fill_max_size()
         .padding_values(PaddingValues {
@@ -186,7 +186,9 @@ fn go_button_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView
     const GO_H: f32 = 19.0;
     const GO_YORIGIN: f32 = -2.0;
     let visible = st.title_go_visible;
-
+    if !visible {
+        return Column(Modifier::new().width(0.001).height(0.001));
+    }
     let a = actions.clone();
     Column(
         Modifier::new()
@@ -203,10 +205,8 @@ fn go_button_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView
         Modifier::new()
             .width(GO_W * v.s)
             .height(GO_H * v.s)
-            .clickable_ext(visible, None, None, move || {
-                if visible {
-                    push(&a, UiAction::StartGame);
-                }
+            .clickable_ext(true, None, None, move || {
+                push(&a, UiAction::StartGame);
             }),
     ))
 }

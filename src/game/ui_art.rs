@@ -136,6 +136,33 @@ fn meta_of(catalog: &AssetCatalog, path: &str) -> SpriteMeta {
         .unwrap_or([1.0, 16.0, 16.0, 0.0, 8.0, 8.0])
 }
 
+fn race_skin_subimage(race: usize, skin: u8) -> i32 {
+    if race == 0 {
+        return -1;
+    }
+    let r = race as i32;
+    let s = skin as i32;
+    if s < 2 {
+        s + (r - 1) * 2
+    } else {
+        s * 16 + (r - 1)
+    }
+}
+
+fn loadout_available(race: usize) -> bool {
+    // Mirrors scr_loadout_is_available_for_race: false for BigDog(13), Skeleton(14), Frog(15)
+    !matches!(race, 13 | 14 | 15)
+}
+
+fn max_skin_count(race: usize) -> usize {
+    match race {
+        13 | 15 => 1, // BigDog, Frog
+        14 => 2,      // Skeleton (without secret, 2; with secret also 2)
+        8 => 4,       // Robot
+        _ => 3,
+    }
+}
+
 /// One `draw_sprite_ext(sprite, subimage, x, y, xscale, yscale, angle,
 /// blend, alpha)` translation. `gui_x/gui_y` are the GM drawing point
 /// (origin-relative): left = x - xorigin*xscale, top = y - yorigin*yscale.
@@ -157,7 +184,8 @@ fn gm_sprite(
     let (_frames, w, h, _fps, xorigin, yorigin) = (m[0], m[1], m[2], m[3], m[4], m[5]);
     let fw = w.max(1.0);
     let fh = h.max(1.0);
-
+    let frame_count = m[0].max(1.0) as usize;
+    let frame = frame % frame_count.max(1);
     let mut sprite = sprite_exact(catalog, assets, path);
     // Source rectangle = frame rectangle (strips are horizontal).
     sprite.rect = Some(Rect::new(
@@ -352,6 +380,9 @@ fn boot_intro(
         return;
     };
     let dt = time.delta_secs();
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.boot_mode = boot.mode;
+    }
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
@@ -869,6 +900,7 @@ struct CharSelectArt {
     /// sprLoadoutOpen panel + crown grid entries (entity, gui x, gui y).
     open_panel: Option<Entity>,
     crown_grid: Vec<(Entity, f32, f32)>,
+    skin_grid: Vec<(Entity, f32, f32)>,
 }
 
 const GO_W: f32 = 31.0;
@@ -982,6 +1014,40 @@ fn spawn_char_select(
         for j in -1..10i32 {
             for i in -1..12i32 {
                 spawn_tile(i as f32 * 32.0 + 16.0, j as f32 * 32.0 + 16.0);
+            }
+        }
+        // Walls around the floor field (mcr_floor_make_walls): one-tile thick border.
+        {
+            for j in -2..12i32 {
+                for i in -2..14i32 {
+                    let is_floor = i >= -1 && i <= 12 && j >= -1 && j <= 10;
+                    let is_edge = i == -2 || i == 13 || j == -2 || j == 11;
+                    if is_edge && !is_floor {
+                        let (wall_path, frame) = if j == -2 {
+                            ("images/sprWall0Top.png", 0)
+                        } else if j == 11 {
+                            ("images/sprWall0Bot.png", 0)
+                        } else {
+                            ("images/sprWall0Out.png", 0)
+                        };
+                        if catalog.has(wall_path) {
+                            let (spr, tf) = gm_sprite(
+                                &catalog,
+                                &asset_server,
+                                &map,
+                                wall_path,
+                                frame,
+                                i as f32 * 32.0 + 16.0,
+                                j as f32 * 32.0 + 16.0,
+                                1.0,
+                                1.0,
+                                Color::WHITE,
+                                -889.0,
+                            );
+                            commands.spawn((TitleArt, ChildOf(cam), spr, tf));
+                        }
+                    }
+                }
             }
         }
     }
@@ -1099,7 +1165,13 @@ fn spawn_char_select(
             } else if !fallback.is_empty() && catalog.anims.contains_key(fallback) {
                 fallback
             } else {
-                return None;
+                // Gamemaker fallback: scr_race_get_sprite(_name, "Menu", _default) where _default is mutant idle.
+                let mutant_path = format!("images/sprMutant{}Idle.png", race as u8);
+                if catalog.has(&mutant_path) {
+                    Box::leak(mutant_path.into_boxed_str())
+                } else {
+                    return None;
+                }
             };
             let m = meta_of(&catalog, chosen);
             let (frames, fw, fh) = (m[0].max(1.0), m[1].max(1.0), m[2].max(1.0));
@@ -1343,6 +1415,36 @@ fn spawn_char_select(
                 gy,
             ));
         }
+        // Skins (left side of loadout panel) – 4 entries max (Robot has 4)
+        {
+            let crown_left = 220.0;
+            let crown_size = 28.0;
+            let skins_x = crown_left - crown_size * 0.5 - 22.0;
+            let skins_y_start = GUI_H * 0.5 - (28.0 * 0.5) * 4.0 - 2.0;
+            let skin_size = 28.0;
+            for idx in 0..4 {
+                let gy = skins_y_start + idx as f32 * skin_size;
+                let gx = skins_x;
+                let (spr, tf) = gm_sprite(
+                    &catalog,
+                    &asset_server,
+                    &map,
+                    "images/sprLoadoutSkin.png",
+                    0,
+                    gx,
+                    gy,
+                    1.0,
+                    1.0,
+                    C_UIGRAY,
+                    -848.0,
+                );
+                art.skin_grid.push((
+                    commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                    gx,
+                    gy,
+                ));
+            }
+        }
     }
 
     // Menu/Create_0 spawns GoButton right of the last slot, hidden.
@@ -1497,14 +1599,10 @@ fn char_select_tick(
         let Ok(mut sprite) = sprites.get_mut(*entity) else {
             continue;
         };
-        let pointed = hovered_race == *race_id as i32;
+        // CharSelect/Draw_0: _color = (can && selected) ? c_white : c_gray.
+        // Hover only raises the tooltip; it does NOT whiten the pod.
         let is_mine = selected_race == *race_id;
-        // _color = (can && selected) ? c_white : c_gray
-        sprite.color = if pointed || is_mine {
-            Color::WHITE
-        } else {
-            C_GRAY
-        };
+        sprite.color = if is_mine { Color::WHITE } else { C_GRAY };
     }
 
     // Big name + splat follow the selected mutant (not Random).
@@ -1533,10 +1631,11 @@ fn char_select_tick(
             };
         }
         if show_name && let Ok(mut spr) = sprites.get_mut(e) {
-            // Subimages are per-race skin portraits; frame = race id.
             let m = meta_of(&catalog, "images/sprBigPortrait.png");
             let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
-            let f = (selected_race as f32).min(m[0] - 1.0);
+            let skin = ui.selected_skin;
+            let sub = race_skin_subimage(selected_race, skin);
+            let f = (sub as f32).clamp(0.0, m[0] - 1.0);
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
     }
@@ -1587,6 +1686,7 @@ fn char_select_tick(
         (art.loadout_anim - step).max(target)
     };
     let fullview = art.loadout_anim >= 2.0;
+    let avail = show_name && loadout_available(selected_race);
 
     if let Some(e) = art.open_panel {
         if let Ok(mut vis) = visibility.get_mut(e) {
@@ -1603,19 +1703,52 @@ fn char_select_tick(
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
     }
-    for (e, _, _) in &art.crown_grid {
+    // Crowns grid: unlocked = sprLoadoutCrown white/gray, locked = sprLockedLoadoutCrown gray
+    for (idx, (e, _, _)) in art.crown_grid.iter().enumerate() {
         if let Ok(mut vis) = visibility.get_mut(*e) {
-            *vis = if fullview {
+            *vis = if fullview && avail {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
             };
         }
-        if fullview && let Ok(mut spr) = sprites.get_mut(*e) {
+        if fullview
+            && avail
+            && let Ok(mut spr) = sprites.get_mut(*e)
+        {
+            let crown_id = idx as u8;
+            let is_selected = crown_id == ui.crown_id;
             let (fw, fh) = (32.0, 32.0);
-            let f = (ui.crown_id as f32).min(13.0);
+            let f = (crown_id as f32).min(13.0);
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
-            spr.color = C_UIGRAY;
+            spr.color = if is_selected { Color::WHITE } else { C_UIGRAY };
+        }
+    }
+    // Skins grid: left side of panel, 4 entries max
+    for (idx, (e, _, _)) in art.skin_grid.iter().enumerate() {
+        let skin_count = if avail {
+            max_skin_count(selected_race)
+        } else {
+            0
+        };
+        if let Ok(mut vis) = visibility.get_mut(*e) {
+            *vis = if fullview && avail && idx < skin_count {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+        if fullview
+            && avail
+            && idx < skin_count
+            && let Ok(mut spr) = sprites.get_mut(*e)
+        {
+            let sub = race_skin_subimage(selected_race, idx as u8);
+            let f = (sub as f32).clamp(0.0, 63.0);
+            let (fw, fh) = (32.0, 32.0);
+            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
+            let is_selected = idx as u8 == ui.selected_skin;
+            spr.color = if is_selected { Color::WHITE } else { C_UIGRAY };
         }
     }
 
@@ -1624,7 +1757,7 @@ fn char_select_tick(
             m.x >= GUI_W - 28.0 && m.x <= GUI_W - 4.0 && m.y >= GUI_H - 54.0 && m.y <= GUI_H - 30.0
         });
         if let Ok(mut spr) = sprites.get_mut(e) {
-            spr.color = if show_name {
+            spr.color = if avail {
                 if pointed { Color::WHITE } else { C_UIGRAY }
             } else {
                 Color::NONE
@@ -1636,7 +1769,7 @@ fn char_select_tick(
     if let Some(e) = art.loadout_splat
         && let Ok(mut spr) = sprites.get_mut(e)
     {
-        spr.color = if art.loadout_anim < 0.5 {
+        spr.color = if art.loadout_anim < 0.5 && avail {
             Color::WHITE
         } else {
             Color::NONE
@@ -1644,13 +1777,13 @@ fn char_select_tick(
     }
     if let Some(e) = art.crown_icon {
         if let Ok(mut vis) = visibility.get_mut(e) {
-            *vis = if show_name && !fullview {
+            *vis = if avail && !fullview {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
             };
         }
-        if show_name
+        if avail
             && !fullview
             && let Ok(mut spr) = sprites.get_mut(e)
         {
@@ -1660,7 +1793,7 @@ fn char_select_tick(
         }
     }
     // Weapon icons: closed row at (254,190)/(278,190), open slots at
-    // (252,163)/(296,163); art swaps on equipment changes.
+    // (252,163)/(296,163); art swaps on equipment change.
     let wep_pos: [(f32, f32); 2] = if fullview {
         [(252.0, 163.0), (296.0, 163.0)]
     } else {
@@ -1670,14 +1803,19 @@ fn char_select_tick(
         let Some((e, cur)) = art.wep_icons[slot] else {
             continue;
         };
+        let should_show = if fullview {
+            avail && show_name
+        } else {
+            avail && show_name && (slot == 0 || id != 0)
+        };
         if let Ok(mut vis) = visibility.get_mut(e) {
-            *vis = if show_name {
+            *vis = if should_show {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
             };
         }
-        if !show_name {
+        if !should_show {
             continue;
         }
         if let Ok(mut tf) = transforms.get_mut(e) {
@@ -1687,14 +1825,33 @@ fn char_select_tick(
         }
         if cur != id {
             art.wep_icons[slot] = Some((e, id));
-            if let Some(path) = crate::game::content::weapon_hud_sprite(id) {
-                let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+            let data = crate::game::content::weapon_meta(WeaponId(id));
+            let mut chosen_path: Option<(&'static str, bool)> = None;
+            if let Some(lout) = data.wep_lout {
+                let p = format!("images/{lout}.png");
+                if catalog.has(&p) {
+                    chosen_path = Some((Box::leak(p.into_boxed_str()), true));
+                }
+            }
+            if chosen_path.is_none() {
+                let p = format!("images/{}.png", data.wep_sprt);
+                if catalog.has(&p) {
+                    chosen_path = Some((Box::leak(p.into_boxed_str()), false));
+                } else if let Some(hud) = crate::game::content::weapon_hud_sprite(id) {
+                    chosen_path = Some((hud, false));
+                }
+            }
+            if let Some((path, is_lout)) = chosen_path {
                 let m = meta_of(&catalog, path);
                 let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
                 if let Ok(mut spr) = sprites.get_mut(e) {
                     spr.image = asset_server.load(path.to_string());
                     spr.rect = Some(Rect::new(0.0, 0.0, fw, fh));
-                    spr.custom_size = Some(Vec2::new(fw * 2.0 * map.s, fh * 2.0 * map.s));
+                    if is_lout {
+                        spr.custom_size = Some(Vec2::new(fw * map.s, fh * map.s));
+                    } else {
+                        spr.custom_size = Some(Vec2::new(fw * 2.0 * map.s, fh * 2.0 * map.s));
+                    }
                 }
             }
         }
@@ -1750,9 +1907,14 @@ fn char_select_tick(
         }
     }
 
-    // Publish hover for the Repose tooltip layer.
-    if ui.title_hover_race != hovered_race {
-        ui.title_hover_race = hovered_race;
+    // Reference: tooltip = (!_this_race && keyboard_pointed).
+    let tooltip_race = if hovered_race >= 0 && hovered_race as usize != selected_race {
+        hovered_race
+    } else {
+        -1
+    };
+    if ui.title_hover_race != tooltip_race {
+        ui.title_hover_race = tooltip_race;
     }
 }
 
@@ -1803,14 +1965,12 @@ fn spawn_hud_art(
         return;
     };
 
-    // Healthbar shell: draw_sprite(sprHealthBar, 2, 20, 4). Single frame,
-    // so the out-of-range subimage wraps to 0.
     let (bar_spr, bar_tf) = gm_sprite(
         &catalog,
         &asset_server,
         &map,
         "images/sprHealthBar.png",
-        0,
+        2,
         20.0,
         4.0,
         1.0,
@@ -1994,8 +2154,30 @@ fn gm_loadout_weapon(
     tint: Color,
     z: f32,
 ) -> (Sprite, Transform) {
-    let path = crate::game::content::weapon_hud_sprite(id.0).unwrap_or("images/sprRevolver.png");
-    let path: &'static str = Box::leak(path.to_string().into_boxed_str());
+    // Gamemaker: scr_weapon_get_loadout_sprite(_weapon) ? loadout art 1x : regular sprite 2x @30°
+    let data = crate::game::content::weapon_meta(id);
+    if let Some(lout) = data.wep_lout {
+        let lout_path = format!("images/{lout}.png");
+        if catalog.has(&lout_path) {
+            let path: &'static str = Box::leak(lout_path.into_boxed_str());
+            let m = meta_of(catalog, path);
+            let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
+            let mut sprite = sprite_exact(catalog, assets, path);
+            sprite.rect = Some(Rect::new(0.0, 0.0, fw, fh));
+            sprite.color = tint;
+            sprite.custom_size = Some(Vec2::new(fw * map.s, fh * map.s));
+            let center = map.to_world(gui_x, gui_y);
+            return (sprite, Transform::from_xyz(center.x, center.y, z));
+        }
+    }
+    let sprt = data.wep_sprt;
+    let sprt_path = format!("images/{sprt}.png");
+    let path: &'static str = if catalog.has(&sprt_path) {
+        Box::leak(sprt_path.into_boxed_str())
+    } else {
+        // Fallback: HUD sprite or revolver
+        crate::game::content::weapon_hud_sprite(id.0).unwrap_or("images/sprRevolver.png")
+    };
     let m = meta_of(catalog, path);
     let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
 

@@ -85,9 +85,9 @@ impl AssetCatalog {
                             frames,
                             w,
                             h,
-                            e.get("fps").copied().unwrap_or(8.0),
-                            e.get("xorigin").copied().unwrap_or((w / 2.0).floor()),
-                            e.get("yorigin").copied().unwrap_or((h / 2.0).floor()),
+                            e.get("fps").copied().unwrap_or(0.0),
+                            e.get("xorigin").copied().unwrap_or(w * 0.5),
+                            e.get("yorigin").copied().unwrap_or(h * 0.5),
                         ],
                     );
                 }

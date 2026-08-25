@@ -495,11 +495,21 @@ fn process_ui_actions(
     for action in q.drain(..) {
         match action {
             UiAction::StartGame => {
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.title_go_visible = false;
+                    ui.title_hover_race = -1;
+                }
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
                 // MainMenuButton/Other_10 case 0: straight into the campfire
                 // char select (daily/weekly sub-menu not ported).
+                if let Ok(mut ui) = bridge.shared.lock() {
+                    ui.selected_character = crate::game::content::RaceId::Random as usize;
+                    ui.title_go_visible = false;
+                    ui.title_hover_race = -1;
+                    ui.loadout_open = false;
+                }
                 transition.begin_to_state(AppState::Title);
             }
             UiAction::OpenSettings => {
@@ -589,22 +599,32 @@ fn process_ui_actions(
                     locale.set_locale(lang);
                 }
             }
-            UiAction::SelectCharacter(race_id) => {
-                // nt-rewrite CharSelect/Mouse_4: first click selects and
-                // reveals the Go button; clicking the chosen mutant again
-                // starts the run. Locked mutants reject with sndNoSelect
-                // (no unlock gating exists yet, so everything can).
-                let Some(race) = crate::game::content::race_from_gml_id(race_id) else {
-                    break;
-                };
-                if selected.0 == race {
-                    transition.begin_to_state(AppState::Loading);
-                } else {
+            UiAction::SelectCharacter(i) => {
+                let already_selected = bridge
+                    .shared
+                    .lock()
+                    .map(|ui| ui.selected_character == i)
+                    .unwrap_or(false);
+
+                if already_selected {
                     if let Ok(mut ui) = bridge.shared.lock() {
-                        ui.selected_character = race_id;
+                        ui.title_go_visible = false;
+                        ui.title_hover_race = -1;
+                    }
+                    transition.begin_to_state(AppState::Loading);
+                    continue;
+                }
+
+                if let Some(race) = crate::game::content::race_from_gml_id(i) {
+                    selected.0 = race;
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.selected_character = i;
+                        ui.character = match race {
+                            crate::game::content::RaceId::Random => "Random".to_string(),
+                            r => crate::game::content::character_def(r).name.to_string(),
+                        };
                         ui.title_go_visible = true;
                     }
-                    selected.0 = race;
                 }
             }
             UiAction::SelectSkin(s) => {
