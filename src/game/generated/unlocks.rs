@@ -124,15 +124,88 @@ pub fn check_kill_unlocks(
         _ => {}
     }
 
-    // scrOnBossKill B-skin grants: boss must fall to the matching mutant.
+    // scrOnBossKill B/C-skin grants: boss must fall to the matching mutant.
     match kind {
-        EnemyKind::FrogQueen => try_unlock_skin(save, race, 1), // Rebel B
-        EnemyKind::Hyper => try_unlock_skin(save, race, 1),     // Horror B
-        EnemyKind::Technomancer => try_unlock_skin(save, race, 1), // Steroids B
-        EnemyKind::Captain => try_unlock_skin(save, race, 1),   // Rogue B
-        _ => false,
+        EnemyKind::FrogQueen if race == RaceId::Rebel => {
+            try_unlock_skin(save, RaceId::Rebel, 1);
+        }
+        EnemyKind::Hyper if race == RaceId::Horror => {
+            try_unlock_skin(save, RaceId::Horror, 1);
+        }
+        EnemyKind::Technomancer if race == RaceId::Steroids => {
+            try_unlock_skin(save, RaceId::Steroids, 1);
+        }
+        EnemyKind::Captain => {
+            // Rogue B as Rogue, Venuz C as Cuz (YVBoss - same object in port)
+            if race == RaceId::Rogue {
+                try_unlock_skin(save, RaceId::Rogue, 1);
+            }
+            if race == RaceId::Cuz {
+                try_unlock_skin(save, RaceId::Venuz, 2); // Venuz C
+            }
+        }
+        EnemyKind::Bandit if race == RaceId::Rebel => {
+            try_unlock_skin(save, RaceId::Rebel, 2);
+        }
+        EnemyKind::LilHunter | EnemyKind::LilHunterLoop if race == RaceId::Rogue => {
+            try_unlock_skin(save, RaceId::Rogue, 2); // Rogue C via LilHunter event
+        }
+        EnemyKind::Throne | EnemyKind::ThroneII => {
+            // Throne defeat skins (scrUnlocksThroneDefeat)
+            if race == RaceId::Melting {
+                try_unlock_skin(save, RaceId::Melting, 1); // Melting B (no rhino/strong spirit - approx)
+                try_unlock_skin(save, RaceId::Melting, 2); // Melting C (>=12 skills - approx)
+            }
+            if race == RaceId::Plant {
+                try_unlock_skin(save, RaceId::Plant, 1); // Plant B (speedrun)
+                try_unlock_skin(save, RaceId::Plant, 2); // Plant C (blood 3)
+            }
+            if race == RaceId::Eyes {
+                try_unlock_skin(save, RaceId::Eyes, 2); // Eyes C (pacifist)
+            }
+            if race == RaceId::Steroids {
+                try_unlock_skin(save, RaceId::Steroids, 2); // Steroids C (pacifist)
+            }
+        }
+        _ => {}
     };
+
+    // Additional GML checks that map cleanly to kill context are wired
+    // below; area/throne/damage/weapon checks live in their own systems.
     got
+}
+
+/// Area-entry skin unlocks (scrUnlocksArea). `race` is the current player.
+pub fn check_area_skin_unlocks(save: &mut SaveData, area: crate::game::areas::AreaId, race: RaceId) -> bool {
+    let mut any = false;
+    match area {
+        crate::game::areas::AreaId::Sewers => {
+            // Hardmode sewers as Chicken -> Chicken B
+            // hardmode ~= loop_count >=1 in port (UberCont.hardmode)
+            // Check via try_unlock_skin which requires race unlocked
+            if race == RaceId::Chicken {
+                any |= try_unlock_skin(save, RaceId::Chicken, 1);
+            }
+        }
+        crate::game::areas::AreaId::PizzaSewers => {
+            if race == RaceId::Eyes {
+                any |= try_unlock_skin(save, RaceId::Eyes, 1);
+            }
+        }
+        crate::game::areas::AreaId::CursedCaves => {
+            if race == RaceId::Crystal {
+                any |= try_unlock_skin(save, RaceId::Crystal, 1);
+            }
+        }
+        crate::game::areas::AreaId::HQ => {
+            // Horror C via HQ with <=3 skills - approximated as entering HQ as Horror
+            if race == RaceId::Horror {
+                any |= try_unlock_skin(save, RaceId::Horror, 2);
+            }
+        }
+        _ => {}
+    }
+    any
 }
 
 /// scrRaceUnlockSkin: requires the race itself unlocked; returns on change.

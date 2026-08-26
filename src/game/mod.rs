@@ -25,6 +25,7 @@ pub mod projectile_archetypes;
 pub mod projectile_math;
 pub mod reactive_audio;
 pub mod secret_areas;
+pub mod skin_unlocks;
 pub mod ui_art;
 pub mod vortex;
 pub mod walls;
@@ -66,6 +67,7 @@ impl Plugin for GamePlugin {
             .init_resource::<LoopTransition>()
             .init_resource::<HammerheadBudget>()
             .init_resource::<LastDamageTaken>()
+            .init_resource::<skin_unlocks::CrystalDamageTaken>()
             .init_resource::<ThroneRoomState>()
             .init_resource::<ambience::AreaAudioState>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
@@ -117,6 +119,13 @@ impl Plugin for GamePlugin {
                             crown::tick_crown_pedestal,
                             loop_transition::tick_campfire,
                             enemies::flush_pending_enemy_spawns,
+                        )
+                            .in_set(NtSimSet::Always),
+                        (
+                            skin_unlocks::tick_area_skins,
+                            skin_unlocks::tick_global_skins,
+                            skin_unlocks::tick_crystal_damage,
+                            skin_unlocks::tick_robot_skins,
                         )
                             .in_set(NtSimSet::Always),
                         (
