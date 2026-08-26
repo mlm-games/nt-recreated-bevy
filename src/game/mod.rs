@@ -26,6 +26,7 @@ pub mod projectile_math;
 pub mod reactive_audio;
 pub mod secret_areas;
 pub mod ui_art;
+pub mod vortex;
 pub mod walls;
 pub mod weapon_runtime;
 pub mod weapons_data;
@@ -82,6 +83,7 @@ impl Plugin for GamePlugin {
             })
             .add_systems(PreUpdate, input::sample_input.run_if(gameplay_active))
             .add_plugins(ui_art::UiArtPlugin)
+            .add_plugins(vortex::VortexPlugin)
             .add_systems(OnEnter(AppState::InGame), setup_game)
             .add_systems(
                 OnEnter(AppState::InGame),

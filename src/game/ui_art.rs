@@ -47,8 +47,8 @@ pub struct HudArtRefs {
 }
 
 /// nt-rewrite GUI constants (macros_general.gml, scrDrawSpiral.gml).
-const GUI_W: f32 = 320.0;
-const GUI_H: f32 = 240.0;
+pub(crate) const GUI_W: f32 = 320.0;
+pub(crate) const GUI_H: f32 = 240.0;
 const LETTERBOX_SIZE: f32 = 36.0;
 const POD_W: f32 = 16.0;
 const POD_H: f32 = 24.0;
@@ -62,15 +62,15 @@ pub const CAM_SCALE: f32 = 0.45;
 /// `s` is world units per NT pixel; `ox`/`oy` are the centered margins in
 /// world units. Derived from the *live* ortho scale so gameplay zoom keeps
 /// the surface glued to the same screen rect.
-struct GuiMap {
-    s: f32,
-    ox: f32,
-    oy: f32,
-    hw: f32,
-    hh: f32,
+pub(crate) struct GuiMap {
+    pub(crate) s: f32,
+    pub(crate) ox: f32,
+    pub(crate) oy: f32,
+    pub(crate) hw: f32,
+    pub(crate) hh: f32,
 }
 
-fn gui_map(win_w: f32, win_h: f32, cam_scale: f32) -> GuiMap {
+pub(crate) fn gui_map(win_w: f32, win_h: f32, cam_scale: f32) -> GuiMap {
     let hw = win_w * cam_scale * 0.5;
     let hh = win_h * cam_scale * 0.5;
     let s = ((hw * 2.0) / GUI_W).min((hh * 2.0) / GUI_H);
@@ -84,14 +84,14 @@ fn gui_map(win_w: f32, win_h: f32, cam_scale: f32) -> GuiMap {
 }
 
 impl GuiMap {
-    fn to_world(&self, x: f32, y: f32) -> Vec2 {
+    pub(crate) fn to_world(&self, x: f32, y: f32) -> Vec2 {
         Vec2::new(
             -self.hw + self.ox + x * self.s,
             self.hh - self.oy - y * self.s,
         )
     }
 
-    fn to_gui(&self, p: Vec2) -> Vec2 {
+    pub(crate) fn to_gui(&self, p: Vec2) -> Vec2 {
         Vec2::new(
             (p.x + self.hw - self.ox) / self.s,
             (self.hh - p.y - self.oy) / self.s,
@@ -279,16 +279,16 @@ fn despawn_boot_art(mut commands: Commands, q: Query<Entity, With<BootArt>>) {
 }
 
 /// Quit-to-menu path: SpiralCont was destroyed with the run, rebuild it.
+/// The swirl itself is the WGSL vortex quad (`game::vortex`); this only
+/// re-arms the controller resource and the portal ambience.
 #[allow(clippy::type_complexity)]
 fn spawn_spiral_field(
     mut commands: Commands,
     state: Res<State<AppState>>,
-    ctl: Option<Res<SpiralCtl>>,
+    ctl: Option<Res<crate::game::vortex::SpiralCtl>>,
     portal: Query<(), With<PortalLoop>>,
     catalog: Option<Res<AssetCatalog>>,
     asset_server: Res<AssetServer>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
 ) {
     if *state.get() != AppState::MainMenu || ctl.is_some() {
         return;
@@ -296,25 +296,7 @@ fn spawn_spiral_field(
     let Some(catalog) = catalog else {
         return;
     };
-    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
-        return;
-    };
-    commands.insert_resource(SpiralCtl {
-        angle: rand::random::<f32>() * 360.0,
-    });
-    for _ in 0..150 {
-        spawn_spiral_wisp(
-            &mut commands,
-            &catalog,
-            &asset_server,
-            cam,
-            &map,
-            SpiralCtl {
-                angle: rand::random::<f32>() * 360.0,
-            },
-            Some(rand::random::<f32>() * 1.2),
-        );
-    }
+    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
     if portal.is_empty() {
         play_loop(
             &mut commands,
@@ -337,7 +319,7 @@ struct SplashLoop;
 
 /// Looping portal drone started with SpiralCont; lives until the run starts.
 #[derive(Component)]
-struct PortalLoop;
+pub(crate) struct PortalLoop;
 
 fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>>) {
     for e in &q {
@@ -384,12 +366,6 @@ fn spawn_boot_clear(
         },
         Transform::from_xyz(c.x, c.y, -999.0),
     ));
-}
-
-fn despawn_portal_loop(mut commands: Commands, q: Query<Entity, With<PortalLoop>>) {
-    for e in &q {
-        commands.entity(e).try_despawn();
-    }
 }
 
 fn resolve_audio_path(catalog: &AssetCatalog, stem: &str) -> Option<String> {
@@ -703,7 +679,7 @@ fn splash_text_line(
             },
             TextColor(color),
             TextLayout::justify(Justify::Center),
-            Transform::from_xyz(c.x, c.y, -888.0),
+            Transform::from_xyz(c.x, c.y, -802.0),
         ))
         .id()
 }
@@ -730,7 +706,7 @@ fn build_boot_cards(
         1.0,
         1.0,
         Color::WHITE,
-        -890.0,
+        -801.0,
     );
     boot.icon = Some(
         commands
@@ -761,7 +737,7 @@ fn build_boot_cards(
         1.0,
         1.0,
         Color::WHITE,
-        -890.0,
+        -801.0,
     );
     boot.vlambeer.push(
         commands
@@ -780,7 +756,7 @@ fn build_boot_cards(
             1.0,
             1.0,
             Color::srgba(1.0, 1.0, 1.0, 0.1),
-            -889.0,
+            -800.5,
         );
         boot.vlambeer.push(
             commands
@@ -801,7 +777,7 @@ fn build_boot_cards(
         1.0,
         1.0,
         Color::WHITE,
-        -890.0,
+        -801.0,
     );
     boot.logo = Some(
         commands
@@ -991,7 +967,7 @@ fn boot_intro(
                 let jx = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
                 let jy = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
                 let c = map.to_world(GUI_W / 2.0 + jx, GUI_H / 2.0 + jy);
-                tf.translation = c.extend(-890.0);
+                tf.translation = c.extend(-801.0);
             }
         }
 
@@ -1017,32 +993,17 @@ fn boot_intro(
 
         if boot.mode == 4 {
             // Vlambeer/Alarm_0 mode >= 3: SpiralCont + portal drone.
-            if let Some((cam, map)) = view_setup(&windows, &cam_q) {
-                commands.insert_resource(SpiralCtl {
-                    angle: rand::random::<f32>() * 360.0,
-                });
-                for _ in 0..150 {
-                    spawn_spiral_wisp(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
-                        cam,
-                        &map,
-                        SpiralCtl {
-                            angle: rand::random::<f32>() * 360.0,
-                        },
-                        Some(rand::random::<f32>() * 1.2),
-                    );
-                }
-                play_loop(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
-                    "sndPortalLoop",
-                    0.5,
-                    PortalLoop,
-                );
-            }
+            // The swirl is the WGSL vortex quad; just arm the controller
+            // (pre-warmed so the field is established immediately).
+            commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
+            play_loop(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                "sndPortalLoop",
+                0.5,
+                PortalLoop,
+            );
         } else {
             play_cue(&mut commands, &catalog, &asset_server, "sndRestart", 0.7);
         }
@@ -1190,22 +1151,23 @@ impl Plugin for UiArtPlugin {
             )
             .add_systems(
                 OnEnter(AppState::Title),
-                (reset_camera_view, spawn_char_select),
+                (
+                    reset_camera_view,
+                    spawn_char_select,
+                    // PlayButton/Other_10: SpiralCont dies before the campfire
+                    // menu exists — no swirl (and no portal drone) on char select.
+                    crate::game::vortex::teardown_vortex,
+                ),
             )
             .add_systems(
                 OnExit(AppState::Title),
                 (despawn_title_art, despawn_hud_art),
             )
-            .add_systems(
-                Update,
-                (char_select_tick.run_if(in_state(AppState::Title))).chain(),
-            )
             .add_systems(Update, main_menu_hover)
             .add_systems(Update, boot_intro)
+            .add_systems(Update, char_select_tick.run_if(in_state(AppState::Title)))
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
-            .add_systems(OnEnter(AppState::Loading), despawn_portal_loop)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
-            .add_systems(FixedUpdate, spiral_field)
             .add_systems(FixedUpdate, sync_hud_art);
     }
 }
@@ -1228,144 +1190,16 @@ fn view_setup<F: QueryFilter>(
 }
 
 // ---------------------------------------------------------------------------
-// Title: rotating spiral field + logo
+// Title: rotating spiral field + logo — now rendered by game::vortex (WGSL).
+// SpiralCtl lives in crate::game::vortex; ensure_vortex_quad/vortex_tick run
+// from VortexPlugin. despawn_title_art below still tears the resource down.
 // ---------------------------------------------------------------------------
-
-/// One growing spiral wisp (nt-rewrite object `Spiral`).
-#[derive(Component)]
-struct SpiralWisp {
-    /// Current image_xscale/yscale (NT sprite-scale units).
-    s: f32,
-    /// Per-tick growth, compounding like upstream `grow`.
-    grow: f32,
-    /// Animation clock (image_speed = 2).
-    anim: f32,
-}
-
-/// The `SpiralCont` driver state.
-#[derive(Resource)]
-struct SpiralCtl {
-    angle: f32,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_spiral_wisp(
-    commands: &mut Commands,
-    catalog: &AssetCatalog,
-    asset_server: &AssetServer,
-    cam: Entity,
-    map: &GuiMap,
-    ctl: SpiralCtl,
-    initial_scale: Option<f32>,
-) {
-    let a = ctl.angle.to_radians();
-    // SpiralCont/Step_0 orbit around the GUI centre.
-    let cx = GUI_W / 2.0 + (a / 921.0).sin() * (a / 500.0).sin() * 80.0;
-    let cy = GUI_H / 2.0 + (a / 583.0).cos() * (a / 500.0).sin() * 50.0;
-
-    // draw_sprite_ext(..., image_xscale * 10, ..., image_angle + 45, ...);
-    // sprSpiral origin is its centre, so rotation about the entity is right.
-    let wisp_scale = initial_scale.unwrap_or(0.0);
-    let draw_scale = wisp_scale * 10.0;
-    let (mut spr, mut tf) = gm_sprite(
-        catalog,
-        asset_server,
-        map,
-        "images/sprSpiral.png",
-        0,
-        cx,
-        cy,
-        draw_scale,
-        draw_scale,
-        Color::WHITE,
-        -895.0,
-    );
-    spr.color = Color::srgba(0.55, 0.52, 0.66, 1.0);
-    tf.rotation = Quat::from_rotation_z(a + 45.0f32.to_radians());
-    commands.spawn((
-        TitleArt,
-        SpiralWisp {
-            s: wisp_scale,
-            grow: 0.0002,
-            anim: rand::random::<f32>() * 2.0,
-        },
-        ChildOf(cam),
-        spr,
-        tf,
-    ));
-}
-
-/// SpiralCont/Step_0 + Spiral/Step_0: orbit, emit, grow, dissolve.
-#[allow(clippy::type_complexity)]
-fn spiral_field(
-    state: Res<State<AppState>>,
-    mut commands: Commands,
-    catalog: Res<AssetCatalog>,
-    asset_server: Res<AssetServer>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
-    mut ctl: Option<ResMut<SpiralCtl>>,
-    mut wisps: Query<(Entity, &mut SpiralWisp, &mut Sprite)>,
-) {
-    if !matches!(
-        state.get(),
-        AppState::Splash | AppState::MainMenu | AppState::Title
-    ) {
-        return;
-    }
-    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
-        return;
-    };
-    let Some(ctl) = ctl.as_mut() else {
-        return;
-    };
-
-    spawn_spiral_wisp(
-        &mut commands,
-        &catalog,
-        &asset_server,
-        cam,
-        &map,
-        SpiralCtl { angle: ctl.angle },
-        None,
-    );
-    ctl.angle = (ctl.angle + 8.0) % 360.0;
-
-    let m = meta_of(&catalog, "images/sprSpiral.png");
-    let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
-    for (entity, mut wisp, mut spr) in &mut wisps {
-        // Upstream growth law, rate lifted 0.0005 -> 0.004 so wisps live
-        // seconds at our fixed tick rate instead of minutes.
-        wisp.grow = (wisp.grow + 1.0) * (1.0 + 0.004 * wisp.s) - 1.0;
-        wisp.s += wisp.grow;
-        wisp.anim += 2.0;
-
-        if wisp.s > 2.5 {
-            commands.entity(entity).try_despawn();
-            continue;
-        }
-
-        let draw_scale = wisp.s * 10.0;
-        spr.custom_size = Some(Vec2::new(fw * draw_scale * map.s, fh * draw_scale * map.s));
-        // Upstream draws white + black(0.8 - xscale) overlays: young wisps
-        // are nearly black, mature ones full art. Emulate by scaling the tint.
-        let f = (wisp.s * 1.25 + 0.2).clamp(0.2, 1.0);
-        spr.color = Color::srgb(0.55 * f, 0.52 * f, 0.66 * f);
-        let frame = (wisp.anim.floor() as usize) % 2;
-        spr.rect = Some(Rect::new(
-            frame as f32 * fw,
-            0.0,
-            (frame + 1) as f32 * fw,
-            fh,
-        ));
-    }
-}
 
 fn despawn_title_art(
     mut commands: Commands,
     q: Query<Entity, With<TitleArt>>,
     art: Option<Res<CharSelectArt>>,
-    ctl: Option<Res<SpiralCtl>>,
+    ctl: Option<Res<crate::game::vortex::SpiralCtl>>,
 ) {
     for e in &q {
         commands.entity(e).try_despawn();
@@ -1374,7 +1208,7 @@ fn despawn_title_art(
         commands.remove_resource::<CharSelectArt>();
     }
     if ctl.is_some() {
-        commands.remove_resource::<SpiralCtl>();
+        commands.remove_resource::<crate::game::vortex::SpiralCtl>();
     }
 }
 
@@ -2597,7 +2431,7 @@ fn spawn_hud_art(
         &asset_server,
         &map,
         "images/sprHealthBar.png",
-        2,
+        0, // was 2; strip is 1 frame post-extract
         20.0,
         4.0,
         1.0,
@@ -2882,16 +2716,24 @@ fn sync_hud_art(
     };
     let map = gui_map(window.width(), window.height(), scale);
 
-    // Health fills anchored at gui x=22; width = 84 * hp fraction (NT px).
-    let frac = (health.hp.max(0) as f32 / health.max.max(1) as f32).clamp(0.0, 1.0);
-    for entity in [refs.hp_bg, refs.hp_fg] {
-        let w = 84.0 * frac;
+    // Health fills: 1×8 sprHealthFill stretched to width = 84 * frac.
+    // GM draws at (22, 7) with xscale=width, origin (0,0).
+    let lst = health.hp.max(0) as f32; // TODO: track lsthealth for lag bar
+    let cur = health.hp.max(0) as f32;
+    let max = health.max.max(1) as f32;
+    let bg_w = (84.0 * (lst / max)).clamp(0.0, 84.0);
+    let fg_w = (84.0 * (cur / max)).clamp(0.0, 84.0);
+
+    for (entity, w) in [(refs.hp_bg, bg_w), (refs.hp_fg, fg_w)] {
         if let Ok(mut spr) = sprites.get_mut(entity) {
-            spr.custom_size = Some(Vec2::new((w.max(0.001)) * map.s, 8.0 * map.s));
+            // gm_sprite baked xscale into custom_size; rebuild width only.
+            spr.custom_size = Some(Vec2::new(w.max(0.001) * map.s, 8.0 * map.s));
         }
         if let Ok(mut tf) = transforms.get_mut(entity) {
-            let center = map.to_world(22.0 + w / 2.0, 7.0 + 4.0);
+            // origin (0,0): center = (22 + w/2, 7 + 4) in GUI
+            let center = map.to_world(22.0 + w * 0.5, 7.0 + 4.0);
             tf.translation.x = center.x;
+            tf.translation.y = center.y;
         }
     }
 
