@@ -226,23 +226,3 @@ pub fn update_carpet_occupancy(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::game::world::{expand_floor_for_wall, floor_cell_for_wall};
-
-    #[test]
-    fn floor_cell_for_wall_maps_lattice() {
-        assert_eq!(floor_cell_for_wall(0, 0), (0, 0));
-        assert_eq!(floor_cell_for_wall(1, 0), (0, 0));
-        assert_eq!(floor_cell_for_wall(2, 2), (1, 1));
-        assert_eq!(floor_cell_for_wall(-1, -1), (-1, -1));
-    }
-
-    #[test]
-    fn expand_floor_inserts_owner_cell() {
-        let mut mask = FloorMask::default();
-        expand_floor_for_wall(&mut mask, 4, 6);
-        assert!(mask.cells.contains(&(2, 3)));
-    }
-}

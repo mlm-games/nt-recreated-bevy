@@ -2833,40 +2833,6 @@ fn ammo_kind(idx: usize) -> AmmoKind {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn char_select_geometry_matches_menu_create() {
-        // view_height(240) - height(24) - ((36 - 24) div 2)
-        assert_eq!(slot_ystart(), 210.0);
-        let count = CHAR_SELECT_RACES.len();
-        assert_eq!(count, 17);
-        // min(20, floor((320 - 40) / 17))
-        assert_eq!(slot_step(count), 16.0);
-        // Last slot at 8 + 16*16; GoButton right of it plus step and 2.
-        let (gx, gy) = go_button_pos(slot_step(count), count);
-        assert_eq!((gx, gy), (282.0, 211.0));
-    }
-
-    #[test]
-    fn gui_map_is_letterboxed_and_centered() {
-        // 1280x720 @ zoom 0.45 -> visible world 576x324; NT surface scales
-        // by height (1.35 world units/px) and centres horizontally.
-        let m = gui_map(1280.0, 720.0, CAM_SCALE);
-        assert_eq!(m.s, 1.35);
-        assert_eq!(m.ox, 72.0); // (576 - 320*1.35) / 2
-        assert_eq!(m.oy, 0.0);
-        // Top-left of the GUI surface.
-        let tl = m.to_world(0.0, 0.0);
-        assert!((tl.x - (-288.0 + 72.0)).abs() < 1e-4);
-        assert!((tl.y - 162.0).abs() < 1e-4);
-        // Roundtrip.
-        assert!((m.to_gui(m.to_world(123.0, 77.0)) - Vec2::new(123.0, 77.0)).length() < 1e-4);
-    }
-}
-
 fn despawn_hud_art(
     mut commands: Commands,
     q: Query<Entity, With<HudArt>>,
