@@ -632,11 +632,14 @@ fn populate(
                 AreaId::Jungle => Some(pick_kind(
                     &mut rng,
                     &[
+                        EnemyKind::JungleBandit,
+                        EnemyKind::JungleBandit,
+                        EnemyKind::JungleBandit,
+                        EnemyKind::JungleBandit,
+                        EnemyKind::JungleBandit,
+                        EnemyKind::Maggot,
                         EnemyKind::Assassin,
                         EnemyKind::Assassin,
-                        EnemyKind::Freak,
-                        EnemyKind::Bandit,
-                        EnemyKind::Spider,
                     ],
                 )),
                 AreaId::CursedCaves => Some(pick_kind(
@@ -718,15 +721,18 @@ fn populate(
                 }
             }
             2 => {
-                // Sewers: rats dominate, with maggots/freaks/bandits mixed in.
-                // Loop Sewers swaps most fodder for Ballguys (upstream).
+                // Sewers: rats dominate. Style-B swaps fodder for Gators;
+                // loop Sewers mixes Ratkings / BuffGators / Exploders (upstream).
                 if run.loop_count > 0 && rng.random::<f32>() * 3.0 >= 1.0 {
                     let mut cands = vec![
-                        EnemyKind::Ballguy,
-                        EnemyKind::Ballguy,
-                        EnemyKind::Ballguy,
+                        EnemyKind::Ratking,
+                        EnemyKind::Ratking,
+                        EnemyKind::BuffGator,
+                        EnemyKind::LaserCrystal,
                         EnemyKind::Rat,
-                        EnemyKind::Freak,
+                        EnemyKind::Ballguy,
+                        EnemyKind::Ballguy,
+                        EnemyKind::FrogEgg,
                     ];
                     cands.extend(loop_extras.iter().copied());
                     let k = pick_kind(&mut rng, &cands);
@@ -735,10 +741,9 @@ fn populate(
                     let k = pick_kind(
                         &mut rng,
                         &[
-                            EnemyKind::BigRat,
-                            EnemyKind::Freak,
-                            EnemyKind::Bandit,
-                            EnemyKind::Scorpion,
+                            EnemyKind::Ballguy,
+                            EnemyKind::Ratking,
+                            EnemyKind::MeleeBandit,
                         ],
                     );
                     enemy_tiles.push((k, center));
@@ -748,7 +753,7 @@ fn populate(
                         EnemyKind::Rat,
                         EnemyKind::Rat,
                         EnemyKind::Maggot,
-                        EnemyKind::Freak,
+                        EnemyKind::Gator,
                         EnemyKind::Bandit,
                     ];
                     cands.extend(loop_extras.iter().copied());
@@ -757,73 +762,154 @@ fn populate(
                 }
             }
             3 => {
-                // Scrapyards: robot guards, turrets, assassins.
-                let mut cands = vec![
-                    EnemyKind::RobotGuard,
-                    EnemyKind::RobotGuard,
-                    EnemyKind::Assassin,
-                    EnemyKind::Turret,
-                    EnemyKind::Bandit,
-                ];
+                // Scrapyards: Ravens rule the skies, with bandit packs, snipers
+                // and exploders below (upstream scrPopEnemies area_scrapyards).
+                let roll: f32 = rng.random();
+                let mut cands = if roll * 4.0 < 1.0 {
+                    // 1-in-4: sniper / melee-bandit skirmish pack.
+                    vec![
+                        EnemyKind::MeleeBandit,
+                        EnemyKind::Sniper,
+                        EnemyKind::MeleeBandit,
+                        EnemyKind::Sniper,
+                        EnemyKind::Ballguy,
+                    ]
+                } else if roll * 10.0 < 1.0 {
+                    // Rare raven flock.
+                    vec![
+                        EnemyKind::Raven,
+                        EnemyKind::Raven,
+                        EnemyKind::Raven,
+                        EnemyKind::Raven,
+                    ]
+                } else if roll * 20.0 < 1.0 {
+                    vec![EnemyKind::Salamander]
+                } else {
+                    vec![
+                        EnemyKind::Raven,
+                        EnemyKind::Raven,
+                        EnemyKind::Raven,
+                        EnemyKind::Bandit,
+                    ]
+                };
                 cands.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &cands);
                 enemy_tiles.push((k, center));
             }
             4 => {
-                // Crystal Caves: spiders, crystals, and laser crystals.
-                let mut cands = vec![
-                    EnemyKind::Spider,
-                    EnemyKind::Spider,
-                    EnemyKind::Crystal,
-                    EnemyKind::LaserCrystal,
-                    EnemyKind::Freak,
-                ];
+                // Crystal Caves: spider nests; loops bring freaks + lightning
+                // crystals (upstream scrPopEnemies area_caves).
+                let mut cands = if run.loop_count > 0 && rng.random_bool(0.5) {
+                    vec![
+                        EnemyKind::LaserCrystal,
+                        EnemyKind::LaserCrystal,
+                        EnemyKind::RhinoFreak,
+                        EnemyKind::LightningCrystal,
+                        EnemyKind::BuffGator,
+                        EnemyKind::ExploFreak,
+                        EnemyKind::Spider,
+                        EnemyKind::Spider,
+                    ]
+                } else {
+                    vec![
+                        EnemyKind::Spider,
+                        EnemyKind::Spider,
+                        EnemyKind::Spider,
+                        EnemyKind::Spider,
+                        EnemyKind::LaserCrystal,
+                        EnemyKind::Crystal,
+                    ]
+                };
                 cands.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &cands);
                 enemy_tiles.push((k, center));
             }
             5 => {
-                // Frozen City: snow bandits, wolves, snipers; IDPD on loops.
-                let mut frozen = vec![
-                    EnemyKind::SnowBandit,
-                    EnemyKind::SnowBandit,
-                    EnemyKind::Wolf,
-                    EnemyKind::Sniper,
-                    EnemyKind::Assassin,
-                ];
-                if run.loop_count > 0 {
-                    frozen.extend(std::iter::repeat_n(
-                        EnemyKind::IdpdGrunt,
-                        (run.loop_count.min(3) * 2) as usize,
-                    ));
-                }
+                // Frozen City: snowbot garrison with tanks and wolves
+                // (upstream scrPopEnemies area_city).
+                let mut frozen = if run.loop_count > 0 && rng.random_bool(0.5) {
+                    vec![
+                        EnemyKind::RobotGuard,
+                        EnemyKind::RobotGuard,
+                        EnemyKind::SnowTank,
+                        EnemyKind::DogGuardian,
+                        EnemyKind::ExploGuardian,
+                        EnemyKind::Wolf,
+                        EnemyKind::Necromancer,
+                    ]
+                } else {
+                    vec![
+                        EnemyKind::RobotGuard,
+                        EnemyKind::RobotGuard,
+                        EnemyKind::RobotGuard,
+                        EnemyKind::SnowTank,
+                        EnemyKind::Wolf,
+                        EnemyKind::Wolf,
+                    ]
+                };
                 frozen.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &frozen);
                 enemy_tiles.push((k, center));
             }
-            6 | 7 => {
-                // Labs / Palace: mixed late-game garrisons with necromancers;
-                // IDPD squads scale with loop count.
-                let mut late = vec![
-                    EnemyKind::RobotGuard,
-                    EnemyKind::Necromancer,
-                    EnemyKind::Assassin,
-                    EnemyKind::Freak,
-                    EnemyKind::Turret,
-                ];
+            6 => {
+                // Labs: freak swarms under necromancer supervision; rhino and
+                // explo freaks patrol (upstream area_labs).
+                let mut late = if run.loop_count > 0 && rng.random_bool(0.5) {
+                    vec![
+                        EnemyKind::Ratking,
+                        EnemyKind::RhinoFreak,
+                        EnemyKind::ExploFreak,
+                        EnemyKind::Necromancer,
+                        EnemyKind::LaserCrystal,
+                        EnemyKind::Turret,
+                    ]
+                } else {
+                    vec![
+                        EnemyKind::Freak,
+                        EnemyKind::Freak,
+                        EnemyKind::Freak,
+                        EnemyKind::Necromancer,
+                        EnemyKind::ExploFreak,
+                        EnemyKind::RhinoFreak,
+                    ]
+                };
                 late.extend(std::iter::repeat_n(
                     EnemyKind::IdpdGrunt,
                     (run.loop_count.min(3) * 2) as usize,
                 ));
-                late.extend(std::iter::repeat_n(
-                    EnemyKind::IdpdShield,
-                    run.loop_count.min(3) as usize,
-                ));
-                if run.loop_count >= 2 {
-                    late.push(EnemyKind::IdpdElite);
-                }
                 late.extend(loop_extras.iter().copied());
                 let k = pick_kind(&mut rng, &late);
+                enemy_tiles.push((k, center));
+            }
+            7 => {
+                // Palace: guardian squads (orb / explo / dog variants);
+                // loops leak snipers, explo freaks and jungle bandits.
+                let mut palace = if run.loop_count > 0 && rng.random_bool(0.5) {
+                    vec![
+                        EnemyKind::ExploGuardian,
+                        EnemyKind::DogGuardian,
+                        EnemyKind::DogGuardian,
+                        EnemyKind::Sniper,
+                        EnemyKind::ExploFreak,
+                        EnemyKind::JungleBandit,
+                        EnemyKind::JungleBandit,
+                    ]
+                } else {
+                    vec![
+                        EnemyKind::Guardian,
+                        EnemyKind::Guardian,
+                        EnemyKind::Guardian,
+                        EnemyKind::ExploGuardian,
+                        EnemyKind::ExploGuardian,
+                        EnemyKind::DogGuardian,
+                    ]
+                };
+                palace.extend(std::iter::repeat_n(
+                    EnemyKind::IdpdGrunt,
+                    (run.loop_count.min(3)) as usize,
+                ));
+                palace.extend(loop_extras.iter().copied());
+                let k = pick_kind(&mut rng, &palace);
                 enemy_tiles.push((k, center));
             }
             _ => {}
@@ -910,30 +996,63 @@ fn apply_loop_elite_substitutions(
 
     match area {
         AreaId::Desert => {
-            table.push((EnemyKind::SnowBandit, 4 + l * 2));
-            table.push((EnemyKind::IdpdGrunt, 3 + l));
+            // Upstream loop Desert: scorpions, melee bandits, snipers.
+            table.push((EnemyKind::Scorpion, 4 + l * 2));
+            table.push((EnemyKind::MeleeBandit, 3 + l));
+            table.push((EnemyKind::Sniper, 3 + l));
+            if loop_count >= 2 {
+                table.push((EnemyKind::GoldScorpion, 2 + l));
+            }
         }
         AreaId::Sewers => {
-            table.push((EnemyKind::BigRat, 5 + l * 2));
+            // Upstream loop Sewers: ratkings and buff gators move in.
+            table.push((EnemyKind::Ratking, 4 + l * 2));
+            table.push((EnemyKind::BuffGator, 3 + l));
             table.push((EnemyKind::IdpdShield, 2 + l));
         }
         AreaId::Scrapyards => {
-            table.push((EnemyKind::RobotGuard, 5 + l * 2));
-            table.push((EnemyKind::Turret, 3 + l));
-            table.push((EnemyKind::IdpdGrunt, 4 + l));
+            // Upstream loop Scrapyards: snipers, salamanders, buff gators.
+            table.push((EnemyKind::Sniper, 4 + l * 2));
+            table.push((EnemyKind::MeleeBandit, 3 + l));
+            table.push((EnemyKind::Salamander, 2 + l));
+            if loop_count >= 2 {
+                table.push((EnemyKind::BuffGator, 3 + l));
+                table.push((EnemyKind::RobotGuard, 2 + l));
+            }
         }
         AreaId::CrystalCaves => {
-            table.push((EnemyKind::Freak, 5 + l * 2));
-            table.push((EnemyKind::Assassin, 4 + l));
+            // Upstream loop Caves: freaks + lightning crystals join the nests.
+            table.push((EnemyKind::RhinoFreak, 4 + l * 2));
+            table.push((EnemyKind::ExploFreak, 3 + l));
+            table.push((EnemyKind::LightningCrystal, 3 + l));
             if loop_count >= 2 {
                 table.push((EnemyKind::IdpdElite, 3 + l));
             }
         }
         AreaId::FrozenCity => {
-            table.push((EnemyKind::Wolf, 4 + l * 2));
-            table.push((EnemyKind::IdpdShield, 4 + l));
+            // Upstream loop City: tanks, dog/explo guardians, necromancers.
+            table.push((EnemyKind::SnowTank, 4 + l));
+            table.push((EnemyKind::DogGuardian, 3 + l));
+            table.push((EnemyKind::ExploGuardian, 3 + l));
+            table.push((EnemyKind::Necromancer, 2 + l));
+            if loop_count >= 2 {
+                table.push((EnemyKind::GoldSnowtank, 2 + l));
+            }
         }
-        AreaId::Labs | AreaId::Palace => {
+        AreaId::Labs => {
+            // Upstream loop Labs: ratkings, rhino/explo freak packs.
+            table.push((EnemyKind::Ratking, 4 + l));
+            table.push((EnemyKind::RhinoFreak, 4 + l * 2));
+            table.push((EnemyKind::ExploFreak, 4 + l));
+            if loop_count >= 2 {
+                table.push((EnemyKind::IdpdElite, 5 + l));
+            }
+        }
+        AreaId::Palace => {
+            // Upstream loop Palace: snipers, explo freaks, jungle bandits.
+            table.push((EnemyKind::Sniper, 3 + l));
+            table.push((EnemyKind::ExploFreak, 3 + l));
+            table.push((EnemyKind::JungleBandit, 3 + l * 2));
             if loop_count >= 2 {
                 table.push((EnemyKind::IdpdElite, 5 + l));
             }
@@ -988,27 +1107,39 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
             EnemyKind::Rat,
             EnemyKind::Rat,
             EnemyKind::Maggot,
-            EnemyKind::Freak,
+            EnemyKind::Gator,
         ],
         3 => vec![
-            EnemyKind::RobotGuard,
-            EnemyKind::Assassin,
-            EnemyKind::Turret,
-            EnemyKind::Bandit,
+            EnemyKind::Raven,
+            EnemyKind::Raven,
+            EnemyKind::Raven,
+            EnemyKind::Sniper,
+            EnemyKind::Ballguy,
         ],
         4 => vec![
             EnemyKind::Spider,
             EnemyKind::Spider,
             EnemyKind::Crystal,
             EnemyKind::LaserCrystal,
-            EnemyKind::Freak,
         ],
         5 => vec![
-            EnemyKind::SnowBandit,
-            EnemyKind::SnowBandit,
+            EnemyKind::RobotGuard,
+            EnemyKind::RobotGuard,
+            EnemyKind::SnowTank,
             EnemyKind::Wolf,
-            EnemyKind::Sniper,
-            EnemyKind::Assassin,
+            EnemyKind::Wolf,
+        ],
+        6 => vec![
+            EnemyKind::Freak,
+            EnemyKind::Freak,
+            EnemyKind::Necromancer,
+            EnemyKind::ExploFreak,
+            EnemyKind::RhinoFreak,
+        ],
+        7 => vec![
+            EnemyKind::Guardian,
+            EnemyKind::ExploGuardian,
+            EnemyKind::DogGuardian,
         ],
         _ => vec![
             EnemyKind::RobotGuard,
@@ -2587,8 +2718,10 @@ mod loop_boss_spawn_tests {
     fn desert_loop_gets_pressure_units() {
         let mut table = vec![(EnemyKind::Bandit, 10)];
         apply_loop_elite_substitutions(&mut table, AreaId::Desert, 1);
-        assert!(table.iter().any(|(k, _)| *k == EnemyKind::SnowBandit));
-        assert!(table.iter().any(|(k, _)| *k == EnemyKind::IdpdGrunt));
+        // Upstream loop Desert: scorpions, melee bandits and snipers.
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::Scorpion));
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::MeleeBandit));
+        assert!(table.iter().any(|(k, _)| *k == EnemyKind::Sniper));
     }
 
     #[test]

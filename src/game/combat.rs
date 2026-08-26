@@ -1591,6 +1591,70 @@ pub fn resolve_deaths(
 
         audio.play_hit(&mut commands);
 
+        // Kind-specific death effects (upstream Exploder / ExploFreak).
+        match enemy.kind {
+            // Exploder (Ballguy): bursts into a ring of bullets.
+            EnemyKind::Ballguy => {
+                for i in 0..8 {
+                    let ang = (i as f32) * std::f32::consts::TAU / 8.0;
+                    let d = Vec2::new(ang.cos(), ang.sin());
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        Team::Enemy,
+                        Projectile {
+                            damage: 2,
+                            life: Timer::from_seconds(0.9, TimerMode::Once),
+                            radius: 3.5,
+                            knockback: 120.0,
+                            explosive: false,
+                            source: Some(DamageSource {
+                                owner: e,
+                                team: Team::Enemy,
+                                hit_id: HitId::Enemy(0),
+                            }),
+                        },
+                        Velocity(d * 190.0),
+                        Sprite {
+                            color: Color::srgb(1.0, 0.75, 0.25),
+                            custom_size: Some(Vec2::splat(7.0)),
+                            ..default()
+                        },
+                        Transform::from_translation(pos.extend(15.0)),
+                    ));
+                }
+            }
+            // Explo Freak: detonates on death.
+            EnemyKind::ExploFreak => {
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    Explosion {
+                        timer: Timer::from_seconds(0.05, TimerMode::Once),
+                        radius: 46.0,
+                        damage: 5,
+                        team: Team::Enemy,
+                        hits_player: true,
+                        source: Some(DamageSource {
+                            owner: e,
+                            team: Team::Enemy,
+                            hit_id: HitId::Explosion(WeaponId::NONE),
+                        }),
+                    },
+                    Transform::from_translation(pos.extend(20.0)),
+                ));
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    18,
+                    Color::srgb(1.0, 0.5, 0.15),
+                    (60.0, 220.0),
+                );
+                ScreenEffects::add_trauma(&mut trauma, 0.12);
+            }
+            _ => {}
+        }
+
         // Kill effects: Bloodlust heals, Lucky Shot grants ammo, Trigger
         // Fingers shortens the next reload.
         if player.bloodlust && rng.random_range(0..15) == 0 {

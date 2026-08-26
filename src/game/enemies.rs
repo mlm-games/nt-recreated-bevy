@@ -9,6 +9,7 @@ use crate::game::content::*;
 use crate::game::world::*;
 use game_utils_bevy::juice::Juice;
 use game_utils_bevy::screen_effects::ScreenEffects;
+use game_utils_bevy::vfx::VfxSpawner;
 
 pub fn spawn_enemy_at(
     commands: &mut Commands,
@@ -229,16 +230,21 @@ pub fn enemy_ai(
         // Emplacements (turrets / crystals) hold position but still fire.
         let emplacement = matches!(
             enemy.kind,
-            EnemyKind::Turret | EnemyKind::Crystal | EnemyKind::LaserCrystal
+            EnemyKind::Turret
+                | EnemyKind::Crystal
+                | EnemyKind::LaserCrystal
+                | EnemyKind::LightningCrystal
         );
 
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
-        // Assassin / Spider: short leap toward the player when in mid range.
+        // Assassin / Spider / Melee Bandit: short leap toward the player when in mid range.
         let was_dashing = brain.dash > 0.0;
-        if matches!(enemy.kind, EnemyKind::Assassin | EnemyKind::Spider)
-            && !was_dashing
+        if matches!(
+            enemy.kind,
+            EnemyKind::Assassin | EnemyKind::Spider | EnemyKind::MeleeBandit
+        ) && !was_dashing
             && dist < 110.0
             && dist > 36.0
             && brain.melee.is_finished()
@@ -246,6 +252,46 @@ pub fn enemy_ai(
             brain.dash = 0.22;
             brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
             vel.0 = dir * 620.0;
+        }
+        // Rhino Freak / Dog Guardian: heavy charge from further out.
+        if matches!(enemy.kind, EnemyKind::RhinoFreak | EnemyKind::DogGuardian)
+            && !was_dashing
+            && dist < 220.0
+            && dist > 40.0
+            && brain.melee.is_finished()
+        {
+            brain.dash = 0.42;
+            brain.melee = Timer::from_seconds(1.6, TimerMode::Once);
+            vel.0 = dir * 700.0;
+        }
+        // Raven: nervous hop-repositioning between bursts (flight feel).
+        if enemy.kind == EnemyKind::Raven && !was_dashing && brain.melee.is_finished() {
+            brain.dash = 0.2;
+            brain.melee = Timer::from_seconds(rng.random_range(0.9..1.8), TimerMode::Once);
+            let side = Vec2::new(-dir.y, dir.x) * brain.strafe_dir;
+            vel.0 = (dir * -0.35 + side).normalize() * 420.0;
+        }
+        // Guardian: short teleport blink toward its preferred range band.
+        if enemy.kind == EnemyKind::Guardian
+            && brain.melee.is_finished()
+            && dist < 480.0
+            && rng.random_bool(0.012)
+        {
+            let want = def.preferred_range.max(140.0);
+            let jump_dir = if dist > want { dir } else { -dir };
+            let cand = pos + jump_dir * rng.random_range(70.0..130.0);
+            if mask.is_walkable(cand) {
+                tf.translation = cand.extend(tf.translation.z);
+                vel.0 = Vec2::ZERO;
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    8,
+                    Color::srgb(0.3, 1.0, 0.45),
+                    (40.0, 120.0),
+                );
+            }
+            brain.melee = Timer::from_seconds(2.2, TimerMode::Once);
         }
         // Palace Guardian: shield-bash dash when close.
         if enemy.kind == EnemyKind::PalaceGuardian
@@ -413,7 +459,7 @@ fn fire_enemy_bullet(
             life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
             radius: def.projectile_radius,
             knockback: 150.0,
-            explosive: false,
+            explosive: explosive_kind(enemy.kind),
             source: Some(DamageSource {
                 owner: Entity::PLACEHOLDER,
                 team: Team::Enemy,
@@ -429,6 +475,14 @@ fn fire_enemy_bullet(
         Transform::from_translation((pos + shot_dir * 20.0).extend(15.0)),
     ));
     let _ = enemy;
+}
+
+/// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
+fn explosive_kind(kind: EnemyKind) -> bool {
+    matches!(
+        kind,
+        EnemyKind::SnowTank | EnemyKind::GoldSnowtank | EnemyKind::ExploGuardian
+    )
 }
 
 fn fire_enemy_shot(
@@ -458,7 +512,7 @@ fn fire_enemy_shot(
                 life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
                 radius: def.projectile_radius,
                 knockback: 150.0,
-                explosive: false,
+                explosive: explosive_kind(enemy.kind),
                 source: Some(DamageSource {
                     owner: Entity::PLACEHOLDER,
                     team: Team::Enemy,
@@ -476,7 +530,6 @@ fn fire_enemy_shot(
     }
     let _ = enemy;
 }
-
 /// Big Bandit bursts in once enough of the floor's trash is dead, charging
 /// from a wall-adjacent cell near the player (upstream BanditBoss behaviour).
 pub fn tick_delayed_boss_spawns(
