@@ -233,6 +233,7 @@ struct BootState {
     shake: f32,
     guns: u8,
     booms: bool,
+    wave: f32,
     /// Last mode whose sprites were made visible (one-shot gating).
     rendered_mode: i8,
     /// All card art built and parked hidden.
@@ -243,6 +244,8 @@ struct BootState {
     vlambeer: Vec<Entity>,
     /// NT logo (mode 4).
     logo: Option<Entity>,
+    /// NT logo glow (mode 4, image_index 7): 8 additive copies.
+    logo_glow: Vec<Entity>,
     /// Per-mode Repose-replacement text lines, pre-spawned hidden:
     /// (mode, entities). Rendered as Text2d so text and sprite cards share
     /// ONE visibility timeline — no cross-renderer timing at all.
@@ -258,11 +261,13 @@ impl Default for BootState {
             shake: 0.0,
             guns: 0,
             booms: false,
+            wave: 0.0,
             rendered_mode: -1,
             built: false,
             icon: None,
             vlambeer: Vec::new(),
             logo: None,
+            logo_glow: Vec::new(),
             texts: Vec::new(),
         }
     }
@@ -784,6 +789,28 @@ fn build_boot_cards(
             .spawn((BootArt, ChildOf(cam), Visibility::Hidden, spr, tf))
             .id(),
     );
+    // Mode 4 glow: Logo/Draw_0 draws 8 additive sprLogoGlow copies around
+    // the logo when image_index == 7, radius 4 + sin(wave)*(2+random(1)).
+    for _ in 0..8 {
+        let (g, gtf) = gm_sprite(
+            catalog,
+            asset_server,
+            map,
+            "images/sprLogoGlow.png",
+            0,
+            GUI_W / 2.0,
+            GUI_H / 2.0,
+            1.0,
+            1.0,
+            Color::srgba(1.0, 1.0, 1.0, 0.05),
+            -800.8,
+        );
+        boot.logo_glow.push(
+            commands
+                .spawn((BootArt, ChildOf(cam), Visibility::Hidden, g, gtf))
+                .id(),
+        );
+    }
 
     // Text cards (modes 0/1/3) — same hidden-until-switched lifecycle as the
     // sprite cards above.
@@ -968,6 +995,49 @@ fn boot_intro(
                 let jy = (rand::random::<f32>() - 0.5) * 2.0 * boot.shake;
                 let c = map.to_world(GUI_W / 2.0 + jx, GUI_H / 2.0 + jy);
                 tf.translation = c.extend(-801.0);
+            }
+        }
+
+        // Logo/Draw_0 glow: sprLogoGlow additive at image_index == 7.
+        let show_glow = boot.guns >= 7;
+        for &e in &boot.logo_glow.clone() {
+            if let Ok(mut v) = visibilities.get_mut(e) {
+                *v = if show_glow {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        }
+        if show_glow {
+            boot.wave += dt * 3.9;
+            // Reuse the shaken centre; fallback to GUI centre if logo missing.
+            let (base_x, base_y) = if let Some(logo) = boot.logo
+                && let Ok(tf) = transforms.get(logo)
+            {
+                // tf already at shaken world pos; convert back to GUI for radial offset.
+                if let Some((_, map)) = view_setup(&windows, &cam_q) {
+                    let g = map.to_gui(tf.translation.truncate());
+                    (g.x, g.y)
+                } else {
+                    (GUI_W / 2.0, GUI_H / 2.0)
+                }
+            } else {
+                (GUI_W / 2.0, GUI_H / 2.0)
+            };
+            if let Some((_, map)) = view_setup(&windows, &cam_q) {
+                for (i, &e) in boot.logo_glow.iter().enumerate() {
+                    if let Ok(mut tf) = transforms.get_mut(e) {
+                        let ang = i as f32 * 45.0;
+                        let r_extra: f32 = rand::random::<f32>();
+                        let radius = 4.0 + (boot.wave + i as f32 * 0.02).sin() * (2.0 + r_extra);
+                        let jx = radius * ang.to_radians().cos();
+                        let jy = radius * ang.to_radians().sin();
+                        // GML lengthdir_y is +sin in GUI coords (y-down positive), so jy as is.
+                        let c = map.to_world(base_x + jx, base_y + jy);
+                        tf.translation = c.extend(-800.8);
+                    }
+                }
             }
         }
 
