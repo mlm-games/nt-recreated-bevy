@@ -14,6 +14,9 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var spiral_smp: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(5) var bolt_tex: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(6) var bolt_smp: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(7) var<uniform> debris: array<vec4<f32>, 32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(8) var debris_tex: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(9) var debris_smp: sampler;
 
 const N: u32 = 128u;
 const BOLT_FRAMES: f32 = 6.0;
@@ -113,6 +116,33 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             // GML two-pass: white (c_white, alpha tex.a) then black 0.8 - s
             acc = mix(acc, tex.rgb, tex.a);
             let black_a = clamp(0.8 - s, 0.0, 1.0);
+            if (black_a > 0.001) {
+                acc = mix(acc, vec3<f32>(0.0), tex.a * black_a);
+            }
+        }
+    }
+
+    // SpiralDebris pass — drawn AFTER all wisps (scrDrawSpiral order), on top.
+    // CPU supplies [x, y, rot_rad, frame + xscale/32]; x < -100 = empty slot.
+    for (var i: u32 = 0u; i < 32u; i = i + 1u) {
+        let d = debris[i];
+        if (d.x < -100.0) { continue; }
+        let xs = fract(d.w) * 32.0;
+        let frame = floor(d.w);
+        let half_ext = 4.0 * xs; // sprDebris0: 8x8 px, origin centre
+        var rel = gui - d.xy;
+        let c = cos(d.z);
+        let sn = sin(d.z);
+        rel = vec2<f32>(c * rel.x + sn * rel.y, -sn * rel.x + c * rel.y);
+        let duv = rel / half_ext * 0.5 + vec2<f32>(0.5, 0.5);
+        if (all(duv > vec2<f32>(0.0)) & all(duv < vec2<f32>(1.0))) {
+            // 8x8 frames in a 32x8 strip, half-texel inset
+            let uv_x = (frame * 8.0 + 0.5 + duv.x * 7.0) / 32.0;
+            let uv_y = (0.5 + duv.y * 7.0) / 8.0;
+            let tex = textureSampleLevel(debris_tex, debris_smp, vec2<f32>(uv_x, uv_y), 0.0);
+            // scrDrawSpiral: white 1, then black (1 - xscale)
+            acc = mix(acc, tex.rgb, tex.a);
+            let black_a = clamp(1.0 - xs, 0.0, 1.0);
             if (black_a > 0.001) {
                 acc = mix(acc, vec3<f32>(0.0), tex.a * black_a);
             }

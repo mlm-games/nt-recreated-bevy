@@ -24,9 +24,26 @@ use crate::app::AppState;
 use crate::game::ui_art::{GUI_H, GUI_W, TitleArt, gui_map};
 
 pub const MAX_WISPS: usize = 128;
+/// `SpiralDebris` ring size (avg ~1.6 alive, lifetime 66-88 ticks — generous).
+pub const MAX_DEBRIS: usize = 32;
 /// Create_0 `repeat 150` — the exact number of simulated ticks before the
 /// first drawn frame (faithful to SpiralCont/Create_0.gml:36).
 const WARMUP_TICKS: u32 = 150;
+
+/// One `SpiralDebris` instance (objects/SpiralDebris/Create_0.gml + Step_0.gml).
+struct Debris {
+    alive: bool,
+    xstart: f32,
+    ystart: f32,
+    dist: f32,
+    angle: f32,
+    turnspeed: f32,
+    rotspeed: f32,
+    xscale: f32,
+    grow: f32,
+    image_angle: f32,
+    frame: f32,
+}
 
 /// The `SpiralCont` driver state.
 #[derive(Resource)]
@@ -43,6 +60,12 @@ pub struct SpiralCtl {
     /// [x, y, birth_tick, rot_rad]; birth < 0 = empty slot.
     pub ring: Vec<[f32; 4]>,
     head: usize,
+    /// `SpiralDebris` instances (spawned by SpiralCont/Step_0 at 1/48 per tick).
+    debris: Vec<Debris>,
+    /// Render-ready debris mirror: [x, y, rot_rad, frame + xscale/32];
+    /// x < -100 = empty slot.
+    pub debris_ring: Vec<[f32; 4]>,
+    dhead: usize,
 }
 
 impl SpiralCtl {
@@ -59,27 +82,100 @@ impl SpiralCtl {
             acc: 0.0,
             ring: vec![[-1.0; 4]; MAX_WISPS],
             head: 0,
+            debris: (0..MAX_DEBRIS)
+                .map(|_| Debris {
+                    alive: false,
+                    xstart: 0.0,
+                    ystart: 0.0,
+                    dist: 0.0,
+                    angle: 0.0,
+                    turnspeed: 0.0,
+                    rotspeed: 0.0,
+                    xscale: 0.0,
+                    grow: 0.0,
+                    image_angle: 0.0,
+                    frame: 0.0,
+                })
+                .collect(),
+            debris_ring: vec![[-1000.0; 4]; MAX_DEBRIS],
+            dhead: 0,
         };
         for _ in 0..WARMUP_TICKS {
-            ctl.angle += spiral_angle_inc(ctl.angle);
-            let (x, y) = orbit(ctl.angle);
-            ctl.ring[ctl.head] = [x, y, ctl.ticks, (ctl.angle + 45.0).to_radians()];
-            ctl.head = (ctl.head + 1) % MAX_WISPS;
-            ctl.ticks += 1.0;
+            ctl.tick_once();
         }
         ctl
+    }
+
+    /// One 30 Hz tick: SpiralCont/Step_0 + the debris spawn check and every
+    /// SpiralDebris/Step_0 — shared by the warmup and the live clock so the
+    /// field state is identical however the controller was armed.
+    fn tick_once(&mut self) {
+        self.ticks += 1.0;
+        // SpiralCont/Step_0: increment angle, then emit one wisp there.
+        self.angle += spiral_angle_inc(self.angle);
+        let (x, y) = orbit(self.angle);
+        self.ring[self.head] = [x, y, self.ticks, (self.angle + 45.0).to_radians()];
+        self.head = (self.head + 1) % MAX_WISPS;
+
+        // Debris spawn: `random(16) < 1 && random(3) < 1` (Normal type, menus).
+        if rand::random::<f32>() * 16.0 < 1.0 && rand::random::<f32>() * 3.0 < 1.0 {
+            let d = &mut self.debris[self.dhead];
+            *d = Debris {
+                alive: true,
+                xstart: x,
+                ystart: y,
+                dist: rand::random::<f32>() * 135.0 + 10.0,
+                angle: rand::random::<f32>() * 360.0,
+                turnspeed: rand::random::<f32>() * 8.0 - 4.0,
+                rotspeed: rand::random::<f32>() * 16.0 - 8.0,
+                xscale: 0.0,
+                grow: 0.0,
+                image_angle: rand::random::<f32>() * 360.0,
+                frame: (rand::random::<f32>() * 4.0).floor().min(3.0),
+            };
+            self.dhead = (self.dhead + 1) % MAX_DEBRIS;
+        }
+
+        // SpiralDebris/Step_0 (exact order): position from current state,
+        // then advance angle/dist/grow/xscale, then self-rotation.
+        for (i, d) in self.debris.iter_mut().enumerate() {
+            if !d.alive {
+                continue;
+            }
+            let (rad, dir) = (d.dist * d.xscale, d.angle.to_radians());
+            let dx = rad * dir.cos();
+            let dy = -rad * dir.sin(); // lengthdir_y: negative sin (y-down flip)
+            d.angle += d.turnspeed;
+            d.dist += d.grow;
+            d.grow += 0.0005;
+            d.xscale += d.grow / 1.5;
+            d.grow = (d.grow + 1.0) * (1.0 + 0.001 * d.xscale) - 1.0;
+            d.grow *= d.xscale * 0.05 + 1.0;
+            d.image_angle += d.rotspeed;
+            if dx + d.xstart < -16.0
+                || dx + d.xstart > GUI_W + 16.0
+                || dy + d.ystart < -16.0
+                || dy + d.ystart > GUI_H + 16.0
+            {
+                d.alive = false;
+                self.debris_ring[i] = [-1000.0; 4];
+                continue;
+            }
+            // pack: frame + xscale/32 (xscale stays below ~21 before cull)
+            self.debris_ring[i] = [
+                d.xstart + dx,
+                d.ystart + dy,
+                d.image_angle.to_radians(),
+                d.frame + d.xscale / 32.0,
+            ];
+        }
     }
 
     fn step(&mut self, dt_ticks: f32) {
         self.acc += dt_ticks;
         while self.acc >= 1.0 {
             self.acc -= 1.0;
-            self.ticks += 1.0;
-            // SpiralCont/Step_0: increment angle, then emit one wisp there.
-            self.angle += spiral_angle_inc(self.angle);
-            let (x, y) = orbit(self.angle);
-            self.ring[self.head] = [x, y, self.ticks, (self.angle + 45.0).to_radians()];
-            self.head = (self.head + 1) % MAX_WISPS;
+            self.tick_once();
         }
     }
 }
@@ -134,10 +230,24 @@ struct VortexMaterial {
     #[texture(5)]
     #[sampler(6)]
     bolt_tex: Handle<Image>,
+    /// Render-ready debris: [x, y, rot_rad, frame + xscale/32]; x < -100 = empty.
+    #[uniform(7)]
+    debris: [Vec4; MAX_DEBRIS],
+    #[texture(8)]
+    #[sampler(9)]
+    debris_tex: Handle<Image>,
 }
 
 fn ring_to_uniform(ring: &[[f32; 4]]) -> [Vec4; MAX_WISPS] {
     let mut out = [Vec4::NEG_ONE; MAX_WISPS];
+    for (dst, src) in out.iter_mut().zip(ring.iter()) {
+        *dst = Vec4::new(src[0], src[1], src[2], src[3]);
+    }
+    out
+}
+
+fn debris_to_uniform(ring: &[[f32; 4]]) -> [Vec4; MAX_DEBRIS] {
+    let mut out = [Vec4::new(-1000.0, 0.0, 0.0, 0.0); MAX_DEBRIS];
     for (dst, src) in out.iter_mut().zip(ring.iter()) {
         *dst = Vec4::new(src[0], src[1], src[2], src[3]);
     }
@@ -204,6 +314,7 @@ fn vortex_tick(
         return;
     };
     mat.wisps = ring_to_uniform(&ctl.ring);
+    mat.debris = debris_to_uniform(&ctl.debris_ring);
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
     // Lightning is on whenever the swirl draws: scrDrawSpiral only disables it
     // (`_is_menu`) for the char-select `Menu`, where SpiralCont no longer
@@ -255,15 +366,12 @@ fn ensure_vortex_quad(
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
-        glob_a: Vec4::new(
-            ctl.ticks,
-            f32::from(*state.get() != AppState::MainMenu),
-            r,
-            g,
-        ),
+        debris: debris_to_uniform(&ctl.debris_ring),
+        glob_a: Vec4::new(ctl.ticks, 1.0, r, g),
         glob_b: Vec4::new(b, 0.0, 0.0, 0.0),
         spiral_tex: asset_server.load("images/sprSpiral.png"),
         bolt_tex: asset_server.load("images/sprPortalLightning.png"),
+        debris_tex: asset_server.load("images/sprDebris0.png"),
     };
     let mat_handle = materials.add(mat);
 
