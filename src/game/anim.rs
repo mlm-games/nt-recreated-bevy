@@ -249,6 +249,19 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprGuardianIdle.png" => "images/sprGuardianHurt.png",
         "images/sprExploGuardianIdle.png" => "images/sprExploGuardianHurt.png",
         "images/sprDogGuardianWalk.png" => "images/sprDogGuardianHurt.png",
+        // Secret areas & mansion garrison
+        "images/sprBoneFish1Idle.png" => "images/sprBoneFish1Hurt.png",
+        "images/sprTurtleIdle.png" => "images/sprTurtleHurt.png",
+        "images/sprMolefishIdle.png" => "images/sprMolefishHurt.png",
+        "images/sprMolesargeIdle.png" => "images/sprMolesargeHurt.png",
+        "images/sprFireBallerIdle.png" => "images/sprFireBallerHurt.png",
+        "images/sprSuperFireBallerIdle.png" => "images/sprSuperFireBallerHurt.png",
+        "images/sprJockIdle.png" => "images/sprJockHurt.png",
+        "images/sprJungleFlyIdle.png" => "images/sprJungleFlyHurt.png",
+        "images/sprInvSpiderIdle.png" => "images/sprInvSpiderHurt.png",
+        "images/sprInvLaserCrystalIdle.png" => "images/sprInvLaserCrystalHurt.png",
+        "images/sprPopoFreakIdle.png" => "images/sprPopoFreakHurt.png",
+        "images/sprMSpawnIdle.png" => "images/sprMSpawnHurt.png",
         // Mutants
         "images/sprMutant1Idle.png" => "images/sprMutant1Hurt.png",
         "images/sprMutant2Idle.png" => "images/sprMutant2Hurt.png",
@@ -296,6 +309,14 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprSnowTankIdle.png" => Some("images/sprSnowTankWalk.png"),
         "images/sprGoldTankIdle.png" => Some("images/sprGoldTankWalk.png"),
         "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianWalk.png"),
+        // Secret areas & mansion garrison
+        "images/sprBoneFish1Idle.png" => Some("images/sprBoneFish1Walk.png"),
+        "images/sprMolefishIdle.png" => Some("images/sprMolefishWalk.png"),
+        "images/sprMolesargeIdle.png" => Some("images/sprMolesargeWalk.png"),
+        "images/sprJockIdle.png" => Some("images/sprJockWalk.png"),
+        "images/sprJungleFlyIdle.png" => Some("images/sprJungleFlyWalk.png"),
+        "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
+        "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
         _ => None,
     }
 }

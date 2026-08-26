@@ -611,53 +611,76 @@ fn populate(
             let secret_kind = match run.area {
                 AreaId::Oasis => Some(pick_kind(
                     &mut rng,
+                    // Upstream: Crab (1-in-4), else packs of Bone Fish.
                     &[
-                        EnemyKind::Bandit,
-                        EnemyKind::Bandit,
-                        EnemyKind::Scorpion,
-                        EnemyKind::Maggot,
                         EnemyKind::Crab,
+                        EnemyKind::BoneFish,
+                        EnemyKind::BoneFish,
+                        EnemyKind::BoneFish,
                     ],
                 )),
-                AreaId::PizzaSewers => Some(pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::Rat,
-                        EnemyKind::Rat,
-                        EnemyKind::BigRat,
-                        EnemyKind::Freak,
-                        EnemyKind::Ballguy,
-                    ],
-                )),
-                AreaId::Jungle => Some(pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::JungleBandit,
-                        EnemyKind::JungleBandit,
-                        EnemyKind::JungleBandit,
-                        EnemyKind::JungleBandit,
-                        EnemyKind::JungleBandit,
-                        EnemyKind::Maggot,
-                        EnemyKind::Assassin,
-                        EnemyKind::Assassin,
-                    ],
-                )),
+                AreaId::PizzaSewers => Some(EnemyKind::Turtle),
+                AreaId::Jungle => {
+                    // Upstream: JungleFly (1-in-8), else bandit packs.
+                    if rng.random::<f32>() * 8.0 < 1.0 {
+                        Some(EnemyKind::JungleFly)
+                    } else {
+                        Some(pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::JungleBandit,
+                                EnemyKind::JungleBandit,
+                                EnemyKind::JungleBandit,
+                                EnemyKind::JungleBandit,
+                                EnemyKind::JungleBandit,
+                                EnemyKind::Maggot,
+                                EnemyKind::Assassin,
+                                EnemyKind::Assassin,
+                            ],
+                        ))
+                    }
+                }
                 AreaId::CursedCaves => Some(pick_kind(
                     &mut rng,
+                    // Upstream: invisible spiders + cursed laser crystals.
                     &[
-                        EnemyKind::Spider,
-                        EnemyKind::LaserCrystal,
-                        EnemyKind::Crystal,
-                        EnemyKind::Freak,
-                        EnemyKind::Assassin,
+                        EnemyKind::InvSpider,
+                        EnemyKind::InvSpider,
+                        EnemyKind::InvSpider,
+                        EnemyKind::InvSpider,
+                        EnemyKind::InvLaserCrystal,
+                        EnemyKind::InvLaserCrystal,
                     ],
                 )),
                 AreaId::City => {
-                    // Y.V. Mansion — light popo / bandits.
-                    Some(pick_kind(
-                        &mut rng,
-                        &[EnemyKind::Bandit, EnemyKind::IdpdGrunt, EnemyKind::Assassin],
-                    ))
+                    // Y.V. Mansion: 1-in-5 fireballer/jock squads with a
+                    // super fireballer, else 1-in-4 molefish patrols
+                    // (upstream area_mansion).
+                    if rng.random::<f32>() * 5.0 < 1.0 {
+                        Some(pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::FireBaller,
+                                EnemyKind::Jock,
+                                EnemyKind::FireBaller,
+                                EnemyKind::Jock,
+                                EnemyKind::SuperFireBaller,
+                            ],
+                        ))
+                    } else if rng.random::<f32>() * 4.0 < 1.0 {
+                        Some(pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::Molefish,
+                                EnemyKind::Molefish,
+                                EnemyKind::Molefish,
+                                EnemyKind::Molefish,
+                                EnemyKind::Molesarge,
+                            ],
+                        ))
+                    } else {
+                        None
+                    }
                 }
                 AreaId::Vault | AreaId::CrownVault => {
                     // Guardians are the boss; keep trash sparse and elite.
@@ -690,7 +713,8 @@ fn populate(
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
-                    let k = pick_kind(&mut rng, &[EnemyKind::Maggot, EnemyKind::Scorpion]);
+                    // Upstream 1-in-7: a MaggotSpawn nest or a Scorpion.
+                    let k = pick_kind(&mut rng, &[EnemyKind::MaggotSpawn, EnemyKind::Scorpion]);
                     enemy_tiles.push((k, center));
                 } else if rng.random::<f32>() * 30.0 < 1.0 {
                     plan.props.push((PropKind::Barrel, center));
@@ -996,8 +1020,9 @@ fn apply_loop_elite_substitutions(
 
     match area {
         AreaId::Desert => {
-            // Upstream loop Desert: scorpions, melee bandits, snipers.
+            // Upstream loop Desert: scorpions, jungle flies, melee bandits, snipers.
             table.push((EnemyKind::Scorpion, 4 + l * 2));
+            table.push((EnemyKind::JungleFly, 3 + l));
             table.push((EnemyKind::MeleeBandit, 3 + l));
             table.push((EnemyKind::Sniper, 3 + l));
             if loop_count >= 2 {
@@ -1049,10 +1074,14 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Palace => {
-            // Upstream loop Palace: snipers, explo freaks, jungle bandits.
+            // Upstream loop Palace: snipers, explo freaks, jungle bandits,
+            // and rare IDPD popo-freak portal squads (IDPDSpawn).
             table.push((EnemyKind::Sniper, 3 + l));
             table.push((EnemyKind::ExploFreak, 3 + l));
             table.push((EnemyKind::JungleBandit, 3 + l * 2));
+            if loop_count >= 1 {
+                table.push((EnemyKind::PopoFreak, 2 + l));
+            }
             if loop_count >= 2 {
                 table.push((EnemyKind::IdpdElite, 5 + l));
             }

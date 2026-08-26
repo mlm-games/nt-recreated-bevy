@@ -234,6 +234,8 @@ pub fn enemy_ai(
                 | EnemyKind::Crystal
                 | EnemyKind::LaserCrystal
                 | EnemyKind::LightningCrystal
+                | EnemyKind::InvLaserCrystal
+                | EnemyKind::MaggotSpawn
         );
 
         // Melee contact cooldown (reference: 30 frames between hits).
@@ -403,6 +405,20 @@ pub fn enemy_ai(
             }
         }
 
+        // MaggotSpawn nests periodically bubble out a Maggot.
+        if enemy.kind == EnemyKind::MaggotSpawn {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
+                let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                commands.spawn(PendingEnemySpawn {
+                    kind: EnemyKind::Maggot,
+                    pos: pos + Vec2::new(ang.cos(), ang.sin()) * 24.0,
+                    difficulty: 1.0,
+                });
+            }
+        }
+
         // Firing.
         if def.bullets_per_shot > 0 && dist < brain.shoot_range && !dashing {
             if def.burst {
@@ -481,7 +497,10 @@ fn fire_enemy_bullet(
 fn explosive_kind(kind: EnemyKind) -> bool {
     matches!(
         kind,
-        EnemyKind::SnowTank | EnemyKind::GoldSnowtank | EnemyKind::ExploGuardian
+        EnemyKind::SnowTank
+            | EnemyKind::GoldSnowtank
+            | EnemyKind::ExploGuardian
+            | EnemyKind::Jock
     )
 }
 
