@@ -5,6 +5,7 @@
 //! still carries the shared melee-contact timer.
 
 use bevy::prelude::*;
+use rand::RngExt;
 
 use crate::game::boss_patterns::{
     dir_from_angle, fan_angles, hyper_orbit_count, lead_target, ring_angles,
@@ -37,6 +38,8 @@ pub fn boss_ai(
     >,
     props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    // Non-boss children (disjoint from `bosses`) for FrogQueen egg budget.
+    children: Query<(Entity, &'static Enemy, &'static Transform), (With<Enemy>, Without<BossBrain>)>,
 ) {
     let Ok((player_tf, player_vel)) = player_q.single() else {
         return;
@@ -155,6 +158,21 @@ pub fn boss_ai(
             EnemyKind::Mom => mom_ai(
                 &mut commands,
                 &mut trauma,
+                entity,
+                &mut boss,
+                &mut vel,
+                &mut tf,
+                def,
+                pos,
+                player_pos,
+                dir,
+                dt,
+                &props,
+            ),
+            EnemyKind::FrogQueen => frog_queen_ai(
+                &mut commands,
+                &mut trauma,
+                &children,
                 entity,
                 &mut boss,
                 &mut vel,
@@ -1323,6 +1341,85 @@ fn mom_ai(
             });
         }
         ScreenEffects::add_trauma(trauma, 0.18);
+    }
+
+    if matches!(boss.phase, BossPhase::Spawning)
+        && boss.phase_timer.just_finished()
+    {
+        boss.set_phase(BossPhase::Idle, 0.1);
+    }
+}
+
+/// Frog Queen — Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
+/// Alternates aimed MomProjectile volleys with FrogEgg clusters; keeps an
+/// egg budget of 8 on screen (upstream Exploder + SuperFrog*2 < 8 check).
+fn frog_queen_ai(
+    commands: &mut Commands,
+    trauma: &mut ResMut<Trauma>,
+    children: &Query<
+        (Entity, &'static Enemy, &'static Transform),
+        (With<Enemy>, Without<BossBrain>),
+    >,
+    owner: Entity,
+    boss: &mut BossBrain,
+    vel: &mut Velocity,
+    tf: &mut Transform,
+    def: EnemyDef,
+    pos: Vec2,
+    player_pos: Vec2,
+    dir: Vec2,
+    dt: f32,
+    props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
+) {
+    // Relentless chase at loop-scaled speed.
+    vel.0 += dir * def.accel * 0.6 * dt;
+    limit_velocity(vel, def.speed);
+    tf.translation += (vel.0 * dt).extend(0.0);
+    resolve_prop_collision(&mut tf.translation, def.radius, props);
+
+    // Egg budget.
+    let egg_count = children
+        .iter()
+        .filter(|(_, e, _)| e.kind == EnemyKind::FrogEgg)
+        .count();
+
+    if boss.attack_timer.just_finished() {
+        // Aimed MomProjectile: speed 4/frame = 120px/s, orandom(30) jitter.
+        let jitter = rand::rng().random_range(-0.26f32..0.26);
+        let aim = Vec2::new(
+            dir.x * jitter.cos() - dir.y * jitter.sin(),
+            dir.x * jitter.sin() + dir.y * jitter.cos(),
+        );
+        fire_fan(
+            commands,
+            owner,
+            pos,
+            aim.normalize_or_zero(),
+            Team::Enemy,
+            1,
+            0.0,
+            def.projectile_speed,
+            def.projectile_damage,
+            def.projectile_lifetime,
+            def.projectile_radius,
+            def.projectile_color,
+            def.projectile_size,
+        );
+        ScreenEffects::add_trauma(trauma, 0.12);
+    }
+
+    if boss.special_timer.just_finished() && egg_count < 8 {
+        boss.set_phase(BossPhase::Spawning, 0.35);
+        // Cluster of two eggs flanking the queen.
+        for side in [-1.0f32, 1.0] {
+            let offset = Vec2::new(side * 40.0, -20.0);
+            commands.spawn(PendingEnemySpawn {
+                kind: EnemyKind::FrogEgg,
+                pos: pos + offset,
+                difficulty: difficulty_for_loop(boss.enraged),
+            });
+        }
+        ScreenEffects::add_trauma(trauma, 0.15);
     }
 
     if matches!(boss.phase, BossPhase::Spawning)

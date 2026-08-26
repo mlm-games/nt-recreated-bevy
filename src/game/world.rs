@@ -1037,6 +1037,9 @@ fn populate(
         }
     } else {
         match run.area {
+            // Upstream: the Pizza Sewers dead-end room is guarded by the
+            // Frog Queen (secret visits are single-floor here).
+            AreaId::PizzaSewers => plan.boss = Some(EnemyKind::FrogQueen),
             AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
             AreaId::Labs if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Technomancer),
             AreaId::CrystalCaves if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Hyper),
@@ -2700,6 +2703,16 @@ mod tests {
         run.area = crate::game::areas::AreaId::CrownVault;
         let plan = generate_level(&run);
         assert_eq!(plan.boss, Some(EnemyKind::OldGuardian));
+    }
+
+    #[test]
+    fn pizza_sewers_boss_floor_hosts_frog_queen() {
+        // Upstream: the Pizza Sewers dead-end is guarded by FrogQueen,
+        // regardless of which route boss the floor number maps to.
+        let mut run = run_for(6); // route floor 6 → sewers boss sub-area
+        run.area = crate::game::areas::AreaId::PizzaSewers;
+        let plan = generate_level(&run);
+        assert_eq!(plan.boss, Some(EnemyKind::FrogQueen));
     }
 
     #[test]

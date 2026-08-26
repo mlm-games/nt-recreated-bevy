@@ -1219,6 +1219,8 @@ pub enum EnemyKind {
     IdpdVan,
     // Loop / secret bosses (parity with upstream)
     Mom,
+    /// Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
+    FrogQueen,
     Technomancer,
     Captain,
     // Area fodder used by Mom / Techno
@@ -2058,6 +2060,38 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             projectile_lifetime: 0.0,
             projectile_color: Color::srgb(0.45, 1.0, 0.35),
             projectile_size: 10.0,
+            boss: true,
+        },
+        EnemyKind::FrogQueen => EnemyDef {
+            name: "Frog Queen",
+            hp: 490,
+            speed: 55.0,
+            accel: 800.0,
+            radius: 26.0,
+            size: 52.0,
+            color: Color::srgb(0.45, 0.9, 0.4),
+            sprite: "images/sprFrogQueenIdle.png",
+            score: 2000,
+            touch_damage: 10,
+            rad_drop: 30,
+            drop_chance: 100,
+            weapon_chance: 15,
+            // Upstream: chases (1.5 + loops/2 px/frame), alternates aimed
+            // MomProjectile volleys with FrogEgg clusters.
+            preferred_range: 140.0,
+            shoot_range: 999.0,
+            attack_cooldown: 1.3,
+            bullets_per_shot: 0,
+            burst: false,
+            burst_interval: 0.0,
+            fan_spread: 0.0,
+            projectile_speed: 120.0,
+            projectile_spread: 0.13,
+            projectile_damage: 4,
+            projectile_radius: 6.0,
+            projectile_lifetime: 3.0,
+            projectile_color: Color::srgb(0.5, 1.0, 0.4),
+            projectile_size: 11.0,
             boss: true,
         },
         EnemyKind::Technomancer => EnemyDef {

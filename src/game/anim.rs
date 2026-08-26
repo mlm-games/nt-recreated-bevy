@@ -262,6 +262,8 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprInvLaserCrystalIdle.png" => "images/sprInvLaserCrystalHurt.png",
         "images/sprPopoFreakIdle.png" => "images/sprPopoFreakHurt.png",
         "images/sprMSpawnIdle.png" => "images/sprMSpawnHurt.png",
+        // Secret boss
+        "images/sprFrogQueenIdle.png" => "images/sprFrogQueenHurt.png",
         // Mutants
         "images/sprMutant1Idle.png" => "images/sprMutant1Hurt.png",
         "images/sprMutant2Idle.png" => "images/sprMutant2Hurt.png",
@@ -317,6 +319,8 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprJungleFlyIdle.png" => Some("images/sprJungleFlyWalk.png"),
         "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
         "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
+        // Secret boss
+        "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenWalk.png"),
         _ => None,
     }
 }
