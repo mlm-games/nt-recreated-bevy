@@ -10,13 +10,8 @@ pub fn is_race_unlocked(save: &SaveData, race: RaceId) -> bool {
 }
 
 pub fn is_skin_unlocked(save: &SaveData, race: RaceId, skin: SkinLetter) -> bool {
-    if skin as u8 <= 1 {
-        return is_race_unlocked(save, race);
-    }
-    save.races
-        .get(&race)
-        .map(|r| r.unlocked_skins[skin as usize])
-        .unwrap_or(false)
+    // scr_race_is_skin_unlocked: only A(0) is free; B/C/D via cskingot.
+    save.skin_unlocked(race, skin as u8)
 }
 
 /// Marks a race unlocked in the save; returns true when this changed state.
@@ -103,9 +98,12 @@ pub fn check_progress_unlocks(
 }
 
 /// Kill-based unlocks (call from resolve_deaths on boss kills).
+/// `race` is the playing character — some B-skins only unlock when that
+/// specific race lands the kill (scrOnBossKill).
 pub fn check_kill_unlocks(
     save: &mut SaveData,
     kind: crate::game::content::EnemyKind,
+    race: RaceId,
 ) -> Vec<RaceId> {
     use crate::game::content::EnemyKind;
     let mut got = Vec::new();
@@ -125,7 +123,28 @@ pub fn check_kill_unlocks(
         }
         _ => {}
     }
+
+    // scrOnBossKill B-skin grants: boss must fall to the matching mutant.
+    match kind {
+        EnemyKind::FrogQueen => try_unlock_skin(save, race, 1), // Rebel B
+        EnemyKind::Hyper => try_unlock_skin(save, race, 1),     // Horror B
+        EnemyKind::Technomancer => try_unlock_skin(save, race, 1), // Steroids B
+        EnemyKind::Captain => try_unlock_skin(save, race, 1),   // Rogue B
+        _ => false,
+    };
     got
+}
+
+/// scrRaceUnlockSkin: requires the race itself unlocked; returns on change.
+fn try_unlock_skin(save: &mut SaveData, race: RaceId, skin: usize) -> bool {
+    let Some(lo) = save.races.get_mut(&race) else {
+        return false;
+    };
+    if !lo.unlocked || lo.unlocked_skins.get(skin).copied() != Some(false) {
+        return false;
+    }
+    lo.unlocked_skins[skin] = true;
+    true
 }
 
 /// Skeleton: Melting dies inside a living Necromancer's circle → unlock + mid-run transform.
@@ -173,8 +192,13 @@ mod tests {
     #[test]
     fn big_dog_and_mom_kill_unlocks() {
         let mut save = SaveData::default();
-        assert!(check_kill_unlocks(&mut save, EnemyKind::BigDog).contains(&RaceId::BigDog));
-        assert!(check_kill_unlocks(&mut save, EnemyKind::Mom).contains(&RaceId::Frog));
+        assert!(
+            check_kill_unlocks(&mut save, EnemyKind::BigDog, RaceId::Fish)
+                .contains(&RaceId::BigDog)
+        );
+        assert!(
+            check_kill_unlocks(&mut save, EnemyKind::Mom, RaceId::Fish).contains(&RaceId::Frog)
+        );
     }
 
     #[test]
@@ -182,7 +206,25 @@ mod tests {
         let mut save = SaveData::default();
         check_progress_unlocks(&mut save, 4, 0, false, false, false);
         assert!(is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::A));
-        assert!(is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::B));
+        // Upstream scrInit: B is NOT free with the race — it is earned
+        // (scrOnBossKill grants per boss/race pair).
+        assert!(!is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::B));
         assert!(!is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::C));
+    }
+
+    /// scrOnBossKill: FrogQueen killed AS Rebel unlocks Rebel's B-skin;
+    /// the same kill as another race does not.
+    #[test]
+    fn frog_queen_grants_rebel_b_skin_only_as_rebel() {
+        let mut save = SaveData::default();
+        check_progress_unlocks(&mut save, 9, 0, false, false, false); // unlock Rebel+Rogue
+        try_unlock_race(&mut save, RaceId::Rebel);
+
+        check_kill_unlocks(&mut save, EnemyKind::FrogQueen, RaceId::Rogue);
+        assert!(!is_skin_unlocked(&save, RaceId::Rebel, SkinLetter::B));
+
+        check_kill_unlocks(&mut save, EnemyKind::FrogQueen, RaceId::Rebel);
+        assert!(is_skin_unlocked(&save, RaceId::Rebel, SkinLetter::B));
+        assert!(!is_skin_unlocked(&save, RaceId::Rebel, SkinLetter::C));
     }
 }

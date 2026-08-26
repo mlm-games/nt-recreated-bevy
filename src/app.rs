@@ -454,6 +454,8 @@ fn sync_shared_ui(
         let def = crate::game::content::character_def(sel);
         ui.character = def.name.to_string();
         ui.selected_character = sel as usize;
+        // Persisted cskin pick drives the menu portrait + loadout highlight.
+        ui.selected_skin = lo.preferred_skin;
         let equipped_start = crate::game::content::resolve_start_weapon(lo.start_weapon);
 
         ui.start_weapon_name = crate::game::content::weapon_id_name(equipped_start).to_string();
@@ -687,8 +689,29 @@ fn process_ui_actions(
                 }
             }
             UiAction::SelectSkin(s) => {
-                if let Ok(mut ui) = bridge.shared.lock() {
-                    ui.selected_skin = s;
+                let race = selected.0;
+                // Panel is force-closed for Random upstream; zones linger.
+                if race == crate::game::content::RaceId::Random {
+                    continue;
+                }
+                // scrMenuDrawLoadout #region Skins: locked -> sndNoSelect;
+                // re-clicking the current skin is silent; otherwise persist
+                // cskin + play the per-letter cue.
+                let already = save.race_loadout(race).preferred_skin == s;
+                if !already && save.skin_unlocked(race, s) {
+                    save.race_loadout_mut(race).preferred_skin = s;
+                    let _ = manager.save(&*save);
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.selected_skin = s;
+                    }
+                    let cue = match s {
+                        2 => "sndMenuCSkin",
+                        1 => "sndMenuBSkin",
+                        _ => "sndMenuASkin",
+                    };
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, cue, 1.0);
+                } else if !already {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
                 }
             }
             UiAction::ToggleLoadout => {
@@ -724,15 +747,22 @@ fn process_ui_actions(
             }
             UiAction::SelectCrown(crown_id) => {
                 let race = selected.0;
+                // Upstream force-closes the panel for Random; zones can
+                // linger, so treat it as a locked press.
+                if race == crate::game::content::RaceId::Random {
+                    continue;
+                }
                 // scrMenuDrawLoadout: unlocked -> equip + sndMenuCrown,
                 // locked -> sndNoSelect. Zone ids are GML crwn_* ids; the
                 // loadout stores port CrownKind ids (NONE=0, Death=1, ...).
-                if save.crown_unlocked(race, crown_id) {
+                let already = save.race_loadout(race).start_crown
+                    == crate::game::content::crown_gml_to_port(crown_id);
+                if !already && save.crown_unlocked(race, crown_id) {
                     save.race_loadout_mut(race).start_crown =
                         crate::game::content::crown_gml_to_port(crown_id);
                     let _ = manager.save(&*save);
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuCrown", 1.0);
-                } else {
+                } else if !already {
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
                 }
             }

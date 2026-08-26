@@ -64,7 +64,8 @@ impl Default for SaveData {
                 r,
                 RaceLoadout {
                     unlocked: r == RaceId::Fish,
-                    unlocked_skins: [true, true, false, false],
+                    unlocked_skins: [true, false, false, false],
+                    preferred_skin: 0,
                     stored_weapon: WeaponId(0),
                     start_weapon: WeaponId(0),
                     start_crown: 0,
@@ -110,7 +111,8 @@ impl SaveData {
     pub fn race_loadout_mut(&mut self, race: RaceId) -> &mut RaceLoadout {
         self.races.entry(race).or_insert_with(|| RaceLoadout {
             unlocked: race == RaceId::Fish,
-            unlocked_skins: [true, true, false, false],
+            unlocked_skins: [true, false, false, false],
+            preferred_skin: 0,
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
             start_crown: 0,
@@ -120,7 +122,8 @@ impl SaveData {
     pub fn race_loadout(&self, race: RaceId) -> RaceLoadout {
         let mut lo = self.races.get(&race).cloned().unwrap_or(RaceLoadout {
             unlocked: self.race_unlocked(race),
-            unlocked_skins: [true, true, false, false],
+            unlocked_skins: [true, false, false, false],
+            preferred_skin: 0,
             stored_weapon: WeaponId(0),
             start_weapon: WeaponId(0),
             start_crown: 0,
@@ -173,6 +176,20 @@ impl SaveData {
         }
         let row = self.crown_row(race);
         (2..14).any(|i| row[i])
+    }
+
+    /// scr_race_is_skin_unlocked: A(0) is always unlocked; B+ via cskingot.
+    pub fn skin_unlocked(&self, race: RaceId, skin: u8) -> bool {
+        if skin == 0 {
+            return true;
+        }
+        race != RaceId::Random
+            && self.races.get(&race).is_some_and(|lo| {
+                lo.unlocked_skins
+                    .get(skin as usize)
+                    .copied()
+                    .unwrap_or(false)
+            })
     }
 
     /// scr_loadout_race_unlock_crown + set_start_crown auto-equip.
@@ -263,5 +280,43 @@ mod tests {
         assert!(save.crown_got.is_empty());
         assert!(save.crown_unlocked(RaceId::Fish, 1));
         assert!(!save.crown_unlocked(RaceId::Fish, 5));
+    }
+
+    /// scr_race_is_skin_unlocked: A(0) always; B+ only when flagged, and
+    /// never for Random (no cskingot row exists for it).
+    #[test]
+    fn skin_unlock_defaults_match_scrInit() {
+        let mut save = SaveData::default();
+        assert!(save.skin_unlocked(RaceId::Fish, 0));
+        assert!(!save.skin_unlocked(RaceId::Fish, 1)); // B locked by default
+        assert!(save.skin_unlocked(RaceId::Random, 0));
+
+        save.race_loadout_mut(RaceId::Fish).unlocked_skins[2] = true;
+        assert!(save.skin_unlocked(RaceId::Fish, 2));
+        assert!(!save.skin_unlocked(RaceId::Fish, 3));
+    }
+
+    /// preferred_skin persists per race and defaults to A on legacy saves.
+    #[test]
+    fn preferred_skin_persists_and_defaults() {
+        let mut save = SaveData::default();
+        save.race_loadout_mut(RaceId::Fish).preferred_skin = 2;
+        assert_eq!(save.race_loadout(RaceId::Fish).preferred_skin, 2);
+        assert_eq!(
+            save.race_loadout(RaceId::Crystal).preferred_skin,
+            0,
+            "other races keep their own pick"
+        );
+
+        let legacy: SaveData = serde_json::from_value(serde_json::json!({
+            "high_score": 0,
+            "races": { "Fish": { "unlocked": true } },
+        }))
+        .expect("legacy RaceLoadout without preferred_skin");
+        assert_eq!(
+            legacy.races[&RaceId::Fish].preferred_skin,
+            0,
+            "serde(default) fills the new field"
+        );
     }
 }

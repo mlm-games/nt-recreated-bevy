@@ -187,13 +187,29 @@ fn loadout_available(race: usize) -> bool {
     !matches!(race, 13 | 14 | 15)
 }
 
-fn max_skin_count(race: usize) -> usize {
+/// scrRaceGetMaxSkinCount: BigDog/Frog 1, Skeleton 2, Robot 4, else 3.
+pub fn max_skin_count(race: usize) -> usize {
     match race {
-        13 | 15 => 1, // BigDog, Frog
-        14 => 2,      // Skeleton (without secret, 2; with secret also 2)
-        8 => 4,       // Robot
+        13 | 15 => 1,
+        14 => 2,
+        8 => 4,
         _ => 3,
     }
+}
+
+/// scrMenuDrawLoadout skin column: x = _crownleft - _crownsize/2 - 22 = 184;
+/// y starts at gui_h/2 - (skinsize/2)*count - 2 and steps 28 per entry.
+/// Returns `(idx, gui_x, gui_y)` for `count` entries.
+pub fn skin_slot_positions(count: usize) -> Vec<(usize, f32, f32)> {
+    let size = 28.0_f32; // sprLoadoutSkin width (32) - 4
+    let x = 220.0 - 28.0_f32 * 0.5 - 22.0;
+    let mut y = GUI_H * 0.5 - (size * 0.5) * count as f32 - 2.0;
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        out.push((i, x, y));
+        y += size;
+    }
+    out
 }
 
 /// One `draw_sprite_ext(sprite, subimage, x, y, xscale, yscale, angle,
@@ -1356,7 +1372,9 @@ struct CharSelectArt {
     open_panel: Option<Entity>,
     /// Open-panel crown grid: (entity, crown id, gui x, gui y, last locked).
     crown_grid: Vec<(Entity, u8, f32, f32, bool)>,
-    skin_grid: Vec<(Entity, f32, f32)>,
+    /// Skin column: (entity, skin idx, last locked). Positions are live —
+    /// the column start depends on the selected race's skin count.
+    skin_grid: Vec<(Entity, usize, bool)>,
 }
 
 const GO_W: f32 = 31.0;
@@ -1988,35 +2006,27 @@ fn spawn_char_select(
                 false,
             ));
         }
-        // Skins (left side of loadout panel) – 4 entries max (Robot has 4)
-        {
-            let crown_left = 220.0;
-            let crown_size = 28.0;
-            let skins_x = crown_left - crown_size * 0.5 - 22.0;
-            let skins_y_start = GUI_H * 0.5 - (28.0 * 0.5) * 4.0 - 2.0;
-            let skin_size = 28.0;
-            for idx in 0..4 {
-                let gy = skins_y_start + idx as f32 * skin_size;
-                let gx = skins_x;
-                let (spr, tf) = gm_sprite(
-                    &catalog,
-                    &asset_server,
-                    &map,
-                    "images/sprLoadoutSkin.png",
-                    0,
-                    gx,
-                    gy,
-                    1.0,
-                    1.0,
-                    C_UIGRAY,
-                    -848.0,
-                );
-                art.skin_grid.push((
-                    commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
-                    gx,
-                    gy,
-                ));
-            }
+        // Skins (left side of loadout panel) — up to 4 slots; exact y for
+        // the live race count is applied every tick (scrMenuDrawLoadout).
+        for (idx, _gx, _gy) in skin_slot_positions(4) {
+            let (spr, tf) = gm_sprite(
+                &catalog,
+                &asset_server,
+                &map,
+                "images/sprLoadoutSkin.png",
+                0,
+                _gx,
+                _gy,
+                1.0,
+                1.0,
+                C_UIGRAY,
+                -848.0,
+            );
+            art.skin_grid.push((
+                commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                idx,
+                false,
+            ));
         }
     }
 
@@ -2341,31 +2351,58 @@ fn char_select_tick(
             tf.translation.y = c.y;
         }
     }
-    // Skins grid: left side of panel, 4 entries max
-    for (idx, (e, _, _)) in art.skin_grid.iter().enumerate() {
-        let skin_count = if avail {
-            max_skin_count(selected_race)
-        } else {
-            0
-        };
+    // Skins grid (scrMenuDrawLoadout #region Skins): column start depends on
+    // the live skin count; locked skins use sprLoadoutSkinLocked; white only
+    // when unlocked AND (selected or pointed); pointed entries lift 1 px.
+    let skin_count = if avail {
+        max_skin_count(selected_race)
+    } else {
+        0
+    };
+    let skin_slots = skin_slot_positions(skin_count);
+    for (e, idx, last_locked) in art.skin_grid.iter_mut() {
+        let visible = fullview && avail && *idx < skin_count;
         if let Ok(mut vis) = visibility.get_mut(*e) {
-            *vis = if fullview && avail && idx < skin_count {
+            *vis = if visible {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
             };
         }
-        if fullview
-            && avail
-            && idx < skin_count
+        if !visible {
+            continue;
+        }
+
+        let Some((_, sx, sy)) = skin_slots.iter().find(|(i, _, _)| i == idx) else {
+            continue;
+        };
+        let (sx, sy) = (*sx, *sy);
+        let unlocked = save.skin_unlocked(crown_race, *idx as u8);
+        // point_in_circle(_mx,_my, _skins_x, _skins_y, 10)
+        let pointed = cursor_gui.is_some_and(|m| (m.x - sx).hypot(m.y - sy) <= 10.0);
+        let is_selected = ui.selected_skin == *idx as u8;
+        let selection = unlocked && (is_selected || pointed);
+
+        if *last_locked != !unlocked
             && let Ok(mut spr) = sprites.get_mut(*e)
         {
-            let sub = race_skin_subimage(selected_race, idx as u8);
-            let f = (sub as f32).clamp(0.0, 63.0);
-            let (fw, fh) = (32.0, 32.0);
-            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
-            let is_selected = idx as u8 == ui.selected_skin;
-            spr.color = if is_selected { Color::WHITE } else { C_UIGRAY };
+            let path: &str = if unlocked {
+                "images/sprLoadoutSkin.png"
+            } else {
+                "images/sprLoadoutSkinLocked.png"
+            };
+            spr.image = asset_server.load(path);
+            *last_locked = !unlocked;
+        }
+        if let Ok(mut spr) = sprites.get_mut(*e) {
+            let sub = race_skin_subimage(selected_race, *idx as u8).max(0) as f32;
+            spr.rect = Some(Rect::new(sub * 32.0, 0.0, (sub + 1.0) * 32.0, 32.0));
+            spr.color = if selection { Color::WHITE } else { C_UIGRAY };
+        }
+        if let Ok(mut tf) = transforms.get_mut(*e) {
+            let c = map.to_world(sx, sy - i32::from(selection) as f32);
+            tf.translation.x = c.x;
+            tf.translation.y = c.y;
         }
     }
 
@@ -3074,5 +3111,24 @@ mod campfire_ui_tests {
         }
         assert_eq!(crate::game::content::crown_gml_to_port(1), 0);
         assert_eq!(crate::game::content::crown_port_to_gml(1), 2);
+    }
+
+    /// Skin column geometry: x fixed at 184; y start = 120 - 14*count - 2,
+    /// step 28 — verified against scrMenuDrawLoadout's _skins_y formula.
+    #[test]
+    fn skin_slots_match_scrMenuDrawLoadout() {
+        // Most races: 3 skins -> starts at 76.
+        let three = skin_slot_positions(3);
+        assert!(three.iter().all(|(_, x, _)| (*x - 184.0).abs() < 1e-3));
+        for (i, want_y) in [76.0_f32, 104.0, 132.0].iter().enumerate() {
+            assert!((three[i].2 - want_y).abs() < 1e-3);
+        }
+        // Robot: 4 skins -> starts at 62.
+        let four = skin_slot_positions(4);
+        assert!((four[0].2 - 62.0).abs() < 1e-3);
+        assert!((four[3].2 - 146.0).abs() < 1e-3);
+        // BigDog/Frog: single skin centred at 104.
+        let one = skin_slot_positions(1);
+        assert!((one[0].2 - 104.0).abs() < 1e-3);
     }
 }

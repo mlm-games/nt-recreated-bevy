@@ -495,9 +495,12 @@ pub struct FloorStarted {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct RaceLoadout {
     pub unlocked: bool,
     pub unlocked_skins: [bool; 4],
+    /// Persisted per-race skin pick (UberCont.cskin; A=0).
+    pub preferred_skin: u8,
     pub stored_weapon: WeaponId,
     pub start_weapon: WeaponId,
     pub start_crown: u8,

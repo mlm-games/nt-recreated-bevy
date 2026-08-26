@@ -1614,8 +1614,13 @@ pub fn resolve_deaths(
             ));
         }
 
-        // Kill-gated unlocks (Big Dog, Frog/Mom, …)
-        let newly = crate::game::generated::unlocks::check_kill_unlocks(&mut save, enemy.kind);
+        // Kill-gated unlocks (Big Dog, Frog/Mom, …); some B-skins require
+        // the killing race (scrOnBossKill).
+        let newly = crate::game::generated::unlocks::check_kill_unlocks(
+            &mut save,
+            enemy.kind,
+            race_state.race,
+        );
         if !newly.is_empty() {
             dirty.0 = true;
             for r in newly {

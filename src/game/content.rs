@@ -328,6 +328,18 @@ pub enum SkinLetter {
     D = 3,
 }
 
+impl SkinLetter {
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::A),
+            1 => Some(Self::B),
+            2 => Some(Self::C),
+            3 => Some(Self::D),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct WeaponId(pub u8);
 

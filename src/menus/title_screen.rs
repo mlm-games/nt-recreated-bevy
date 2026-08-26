@@ -83,6 +83,22 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
                 UiAction::SelectCrown(crown_id),
             ));
         }
+        // Skin column: point_in_circle r10 per entry, count = live race.
+        let skin_race = race_from_gml_id(st.selected_character)
+            .map(|r| r as usize)
+            .unwrap_or(0);
+        for (idx, sx, sy) in
+            crate::game::ui_art::skin_slot_positions(crate::game::ui_art::max_skin_count(skin_race))
+        {
+            children.push(zone(
+                sx - 10.0,
+                sy - 10.0,
+                20.0,
+                20.0,
+                actions.clone(),
+                UiAction::SelectSkin(idx as u8),
+            ));
+        }
         let mut zs = ZStack(Modifier::new().fill_max_size());
         for child in children {
             zs = zs.child(child);

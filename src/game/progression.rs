@@ -66,6 +66,12 @@ pub fn setup_run(
     // Saved race loadout drives the starting kit (upstream Campfire menu).
     let loadout = save.race_loadout(character.0);
     let crown = CrownKind::from_u8(loadout.start_crown);
+    // cskin pick falls back to A when the save has a locked/stale skin.
+    let skin = if save.skin_unlocked(character.0, loadout.preferred_skin) {
+        loadout.preferred_skin
+    } else {
+        0
+    };
 
     let primary =
         crate::game::content::resolve_start_weapon(sanitize_weapon_id(loadout.start_weapon));
@@ -140,7 +146,8 @@ pub fn setup_run(
         player_comp,
         RaceState {
             race: character.0,
-            skin: crate::game::content::SkinLetter::A,
+            skin: crate::game::content::SkinLetter::from_u8(skin)
+                .unwrap_or(crate::game::content::SkinLetter::A),
         },
         inv_comp,
         FireCooldown {
