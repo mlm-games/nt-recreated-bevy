@@ -32,6 +32,13 @@ pub struct Explosion {
     pub source: Option<DamageSource>,
 }
 
+/// Bundled asset handles (Bevy caps systems at 16 flat SystemParams).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RadSpawnCtx<'w> {
+    catalog: Res<'w, AssetCatalog>,
+    asset_server: Res<'w, AssetServer>,
+}
+
 pub fn tick_homing_projectiles(
     time: Res<Time<Fixed>>,
     mut q: Query<(&Team, &Transform, &mut Velocity, &Homing), With<Projectile>>,
@@ -262,6 +269,7 @@ pub fn move_projectiles(
     >,
     mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
     entrances: Query<&SecretEntrance>,
+    snowmen: Query<&SnowmanAmbush>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
     let dt = time.delta_secs();
@@ -454,6 +462,18 @@ pub fn move_projectiles(
                 // Destroying a secret entrance queues that secret.
                 if let Ok(entrance) = entrances.get(prop_e) {
                     secrets.queue(entrance.target);
+                }
+
+                // Snowmen hide a snow bandit + rad (upstream SnowMan Destroy).
+                if snowmen.get(prop_e).is_ok() {
+                    let mut rng = rand::rng();
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::Bandit,
+                        pos: center
+                            + Vec2::new(rng.random_range(-6.0..6.0), rng.random_range(-6.0..6.0)),
+                        difficulty: 1.0,
+                    });
+                    spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
                 }
             }
 
@@ -763,7 +783,9 @@ pub fn apply_explosions(
     mut hitstop: ResMut<HitStop>,
     mut chroma: ResMut<ChromaticAberration>,
     audio: Res<GameAudio>,
+    ctx: RadSpawnCtx,
     entrances: Query<&SecretEntrance>,
+    snowmen: Query<&SnowmanAmbush>,
     mut secrets: ResMut<SecretTriggers>,
     mut q: Query<
         (Entity, &mut Explosion, &Transform),
@@ -855,6 +877,24 @@ pub fn apply_explosions(
                 // Explosions can also open secret entrances.
                 if let Ok(entrance) = entrances.get(prop_e) {
                     secrets.queue(entrance.target);
+                }
+
+                // Snowmen hide a snow bandit + rad (upstream SnowMan Destroy).
+                if snowmen.get(prop_e).is_ok() {
+                    let mut rng = rand::rng();
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::Bandit,
+                        pos: center
+                            + Vec2::new(rng.random_range(-6.0..6.0), rng.random_range(-6.0..6.0)),
+                        difficulty: 1.0,
+                    });
+                    spawn_rad(
+                        &mut commands,
+                        &ctx.catalog,
+                        &ctx.asset_server,
+                        center,
+                        1,
+                    );
                 }
 
                 commands.entity(prop_e).despawn();

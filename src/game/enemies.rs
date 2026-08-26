@@ -643,13 +643,14 @@ pub fn tick_delayed_boss_spawns(
     hitstop.trigger(0.2, 0.15);
 }
 
-/// Frog Eggs laid by Mom sit for their attack timer, then hatch into Ballguys.
+/// Frog Eggs sit for their attack timer (upstream alarm[1] = 120 frames),
+/// then burst into an 8-way acid ring.
 pub fn tick_frog_eggs(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    catalog: Res<AssetCatalog>,
-    asset_server: Res<AssetServer>,
-    run: Res<Run>,
+    _catalog: Res<AssetCatalog>,
+    _asset_server: Res<AssetServer>,
+    _run: Res<Run>,
     mut q: Query<(Entity, &Enemy, &mut EnemyBrain, &Transform), With<Enemy>>,
 ) {
     for (e, enemy, mut brain, tf) in &mut q {
@@ -662,16 +663,35 @@ pub fn tick_frog_eggs(
         }
         let pos = tf.translation.truncate();
         commands.entity(e).despawn();
-        spawn_enemy_at(
-            &mut commands,
-            &catalog,
-            &asset_server,
-            EnemyKind::Ballguy,
-            pos,
-            difficulty_multiplier(run.floor),
-            false,
-            false,
-        );
+        // Upstream FrogEgg Alarm_1: repeat 8 → AcidStreak at 45° steps.
+        for i in 0..8 {
+            let ang = (i as f32) * std::f32::consts::TAU / 8.0;
+            let d = Vec2::new(ang.cos(), ang.sin());
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                Team::Enemy,
+                Projectile {
+                    damage: 3,
+                    life: Timer::from_seconds(1.1, TimerMode::Once),
+                    radius: 4.0,
+                    knockback: 100.0,
+                    explosive: false,
+                    source: Some(DamageSource {
+                        owner: e,
+                        team: Team::Enemy,
+                        hit_id: HitId::Enemy(0),
+                    }),
+                },
+                Velocity(d * 240.0),
+                Sprite {
+                    color: Color::srgb(0.55, 0.9, 0.25),
+                    custom_size: Some(Vec2::splat(8.0)),
+                    ..default()
+                },
+                Transform::from_translation(pos.extend(15.0)),
+            ));
+        }
     }
 }
 

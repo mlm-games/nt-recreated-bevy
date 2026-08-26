@@ -1,6 +1,8 @@
 //! Portal vortex as a single WGSL quad (replaces the per-wisp entity swarm).
 //!
-//! Fidelity source: `~/Downloads/nt-recreated-public-rewrite`
+//! Fidelity sources: `nt-recreated-public-rewrite` (GML) and the
+//! shipped `nuclearthrone` YYC binary (orbit constants 921/500/583/130/90,
+//! recovered from its constant pool):
 //!   - `objects/Vlambeer/Alarm_0.gml`     (SpiralCont created with the Logo)
 //!   - `objects/PlayButton/Other_10.gml`  (destroyed before campfire Menu)
 //!   - `objects/SpiralCont/Create_0.gml`  (warmup `repeat 150`, orbit drift)
@@ -19,14 +21,12 @@ use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use crate::app::AppState;
-use crate::game::ui_art::{gui_map, TitleArt, GUI_H, GUI_W};
+use crate::game::ui_art::{GUI_H, GUI_W, TitleArt, gui_map};
 
 pub const MAX_WISPS: usize = 128;
-/// Spiral/Step_0: wisps die at xscale > 2.5 ≙ tick ~118 at 30 Hz.
-const WISP_LIFETIME_TICKS: f32 = 120.0;
-/// Create_0 fast-forward so the field is fully established on frame one
-/// instead of fading in over minutes of idling.
-const WARMUP_TICKS: u32 = 240;
+/// Create_0 `repeat 150` — the exact number of simulated ticks before the
+/// first drawn frame (faithful to SpiralCont/Create_0.gml:36).
+const WARMUP_TICKS: u32 = 150;
 
 /// The `SpiralCont` driver state.
 #[derive(Resource)]
@@ -46,9 +46,12 @@ pub struct SpiralCtl {
 }
 
 impl SpiralCtl {
-    /// Spawned with the `repeat 150` warmup already simulated
-    /// (SpiralCont/Create_0.gml:36) plus extra aged wisps so growth has
-    /// visible arcs immediately.
+    /// Mirrors `SpiralCont/Create_0.gml:36` `repeat 150 { Step; with Spiral Step }`.
+    /// 150 ticks are simulated verbatim; the ring ends up with the 128 most
+    /// recent spawns (the oldest 22 have wrapped). Survivors are exactly those
+    /// the GML would have kept — ~119 with age < 120. Keeping dead slots in
+    /// the ring is faithful: the shader culls s>2.5 the same way GML destroys
+    /// instances when `image_xscale > 2.5`.
     pub fn warmed_up() -> Self {
         let mut ctl = Self {
             angle: rand::random::<f32>() * 360.0,
@@ -57,19 +60,13 @@ impl SpiralCtl {
             ring: vec![[-1.0; 4]; MAX_WISPS],
             head: 0,
         };
-        let n = 110.min(MAX_WISPS);
-        for i in 0..n {
+        for _ in 0..WARMUP_TICKS {
             ctl.angle += spiral_angle_inc(ctl.angle);
             let (x, y) = orbit(ctl.angle);
-            // Staggered births spread over the warmup window: oldest first.
-            let age = WARMUP_TICKS as f32 * (1.0 - i as f32 / n as f32);
-            let birth = WARMUP_TICKS as f32 - age;
-            if age < WISP_LIFETIME_TICKS {
-                ctl.ring[ctl.head] = [x, y, birth, (ctl.angle + 45.0).to_radians()];
-                ctl.head = (ctl.head + 1) % MAX_WISPS;
-            }
+            ctl.ring[ctl.head] = [x, y, ctl.ticks, (ctl.angle + 45.0).to_radians()];
+            ctl.head = (ctl.head + 1) % MAX_WISPS;
+            ctl.ticks += 1.0;
         }
-        ctl.ticks = WARMUP_TICKS as f32;
         ctl
     }
 
@@ -93,11 +90,14 @@ fn spiral_angle_inc(angle: f32) -> f32 {
 }
 
 /// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
-/// DEGREES; bevy takes radians, hence the conversions).
+/// DEGREES; bevy takes radians, hence the conversions). Amplitudes 130/90 are
+/// the REAL game's values — recovered from the shipped `nuclearthrone` YYC
+/// binary's constant pool (`921, 500, 583, 130, 90`); the public rewrite
+/// nerfed them to 80/50, which pins the swirl centre near mid-screen.
 fn orbit(angle: f32) -> (f32, f32) {
     (
-        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 80.0,
-        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 50.0,
+        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 130.0,
+        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 90.0,
     )
 }
 
@@ -167,21 +167,21 @@ fn spiral_states(state: &AppState) -> bool {
     matches!(*state, AppState::Splash | AppState::MainMenu)
 }
 
-/// Background colour behind the swirl: campfire-menu blue on menus, black
-/// during the splash logo (scrDrawSpiral draw_clear behaviour).
-fn background_color(state: &AppState) -> Color {
-    if *state == AppState::Splash {
-        Color::BLACK
-    } else {
-        Color::srgb_u8(0x6a, 0x7a, 0xaf) // scrAreaGetBackround(area_campfire)
-    }
+/// Background colour behind the swirl: scrDrawSpiral does `draw_clear(c_black)`
+/// for every non-`Menu` caller, and both of our swirl states (Splash logo,
+/// MainMenu buttons) are non-`Menu` — so always black. The campfire blue only
+/// applies to the char-select, where the swirl is destroyed.
+fn background_color(_state: &AppState) -> Color {
+    Color::BLACK
 }
 
 /// Advance the controller and mirror its ring into the material. One system,
-/// zero per-wisp entities.
+/// zero per-wisp entities. Runs in Update with an internal 30 Hz accumulator
+/// (`Time<Virtual>` respects pause/slow-mo), so the tick rate is exact and
+/// independent of both render fps and the gameplay FixedUpdate cadence.
 fn vortex_tick(
     state: Res<State<AppState>>,
-    time: Res<Time<Fixed>>,
+    time: Res<Time<Virtual>>,
     mut ctl: Option<ResMut<SpiralCtl>>,
     mut materials: ResMut<Assets<VortexMaterial>>,
     q_mat: Query<&MeshMaterial2d<VortexMaterial>, With<VortexQuad>>,
@@ -205,14 +205,11 @@ fn vortex_tick(
     };
     mat.wisps = ring_to_uniform(&ctl.ring);
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
-    // Lightning runs everywhere EXCEPT the Menu screen (`_is_menu` gate in
-    // scrDrawSpiral.gml:8); our Menu-equivalent state is MainMenu.
-    mat.glob_a = Vec4::new(
-        ctl.ticks,
-        f32::from(*state.get() != AppState::MainMenu),
-        r,
-        g,
-    );
+    // Lightning is on whenever the swirl draws: scrDrawSpiral only disables it
+    // (`_is_menu`) for the char-select `Menu`, where SpiralCont no longer
+    // exists. Both of our swirl states (Splash logo, MainMenu buttons) are
+    // non-Menu callers.
+    mat.glob_a = Vec4::new(ctl.ticks, 1.0, r, g);
     mat.glob_b = Vec4::new(b, 0.0, 0.0, 0.0);
 }
 
@@ -336,9 +333,7 @@ pub struct VortexPlugin;
 
 impl Plugin for VortexPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(Material2dPlugin::<VortexMaterial>::default()).add_systems(
-            Update,
-            (ensure_vortex_quad, track_vortex_view, vortex_tick),
-        );
+        app.add_plugins(Material2dPlugin::<VortexMaterial>::default())
+            .add_systems(Update, (ensure_vortex_quad, track_vortex_view, vortex_tick));
     }
 }

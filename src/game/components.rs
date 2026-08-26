@@ -1216,6 +1216,10 @@ pub struct ThroneStatueProp {
     pub guardian_count: u8,
 }
 
+/// Snowman prop hiding a bandit (upstream SnowMan Destroy: 1 Bandit + 1 Rad).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SnowmanAmbush;
+
 /// Red carpet volume in the Throne room (axis-aligned).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneCarpet {

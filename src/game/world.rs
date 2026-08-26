@@ -2330,6 +2330,9 @@ fn spawn_prop(
     if kind == PropKind::Torch {
         entity.insert(SurfacePulse::hazard(pos.x * 0.01 + pos.y * 0.02));
     }
+    if kind == PropKind::Snowman {
+        entity.insert(SnowmanAmbush);
+    }
     if kind == PropKind::BigGenerator {
         entity.insert(BigGenerator { index: 0 });
     }
