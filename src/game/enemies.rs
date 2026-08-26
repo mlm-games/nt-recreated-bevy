@@ -176,6 +176,7 @@ pub fn enemy_ai(
     mut _trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
     mask: Res<FloorMask>,
+    run: Res<Run>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
@@ -255,16 +256,23 @@ pub fn enemy_ai(
             brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
             vel.0 = dir * 620.0;
         }
-        // Rhino Freak / Dog Guardian: heavy charge from further out.
-        if matches!(enemy.kind, EnemyKind::RhinoFreak | EnemyKind::DogGuardian)
-            && !was_dashing
+        // Rhino Freak / Dog Guardian / Turtle: charge attacks.
+        if matches!(
+            enemy.kind,
+            EnemyKind::RhinoFreak | EnemyKind::DogGuardian | EnemyKind::Turtle
+        ) && !was_dashing
             && dist < 220.0
             && dist > 40.0
             && brain.melee.is_finished()
         {
-            brain.dash = 0.42;
+            let (dash_time, dash_speed) = if enemy.kind == EnemyKind::Turtle {
+                (0.5, 420.0)
+            } else {
+                (0.42, 700.0)
+            };
+            brain.dash = dash_time;
             brain.melee = Timer::from_seconds(1.6, TimerMode::Once);
-            vel.0 = dir * 700.0;
+            vel.0 = dir * dash_speed;
         }
         // Raven: nervous hop-repositioning between bursts (flight feel).
         if enemy.kind == EnemyKind::Raven && !was_dashing && brain.melee.is_finished() {
@@ -362,6 +370,16 @@ pub fn enemy_ai(
         clamp_to_arena(&mut tf.translation, def.radius);
         sprite.flip_x = dir.x < 0.0;
 
+        // Cursed-cave veil: invisible variants fade in once the player gets
+        // close (upstream InvSpider / InvLaserCrystal visibility flag).
+        if matches!(
+            enemy.kind,
+            EnemyKind::InvSpider | EnemyKind::InvLaserCrystal
+        ) {
+            let alpha = if dist < 150.0 { 1.0 } else { 0.12 };
+            sprite.color.set_alpha(alpha);
+        }
+
         // Light separation from other enemies.
         for other in &positions {
             let d = pos.distance(*other);
@@ -388,8 +406,17 @@ pub fn enemy_ai(
                 }
                 if let Some((ce, cpos)) = best {
                     commands.entity(ce).despawn();
+                    // Upstream loop Labs/Palace: revived freaks rise as
+                    // popo-freak police (WantRevivePopoFreak chain).
+                    let revived = if run.loop_count >= 1
+                        && matches!(run.area, crate::game::areas::AreaId::Labs | crate::game::areas::AreaId::Palace)
+                    {
+                        EnemyKind::PopoFreak
+                    } else {
+                        EnemyKind::Freak
+                    };
                     commands.spawn(PendingEnemySpawn {
-                        kind: EnemyKind::Freak,
+                        kind: revived,
                         pos: cpos,
                         difficulty: 1.0,
                     });

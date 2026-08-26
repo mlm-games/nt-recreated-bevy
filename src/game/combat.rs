@@ -10,6 +10,7 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
+use crate::game::pickups::spawn_pickup;
 use crate::game::secret_areas::SecretTriggers;
 use crate::game::world::*;
 use crate::save::SaveData;
@@ -37,6 +38,14 @@ pub struct Explosion {
 pub struct RadSpawnCtx<'w> {
     catalog: Res<'w, AssetCatalog>,
     asset_server: Res<'w, AssetServer>,
+}
+
+/// Read-only prop-death lookups bundled to stay under the param limit.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct PropDeathQueries<'w, 's> {
+    entrances: Query<'w, 's, &'static SecretEntrance>,
+    snowmen: Query<'w, 's, &'static SnowmanAmbush>,
+    gold_barrels: Query<'w, 's, &'static GoldBarrelDrop>,
 }
 
 pub fn tick_homing_projectiles(
@@ -270,6 +279,7 @@ pub fn move_projectiles(
     mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
     entrances: Query<&SecretEntrance>,
     snowmen: Query<&SnowmanAmbush>,
+    gold_barrels: Query<&GoldBarrelDrop>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
     let dt = time.delta_secs();
@@ -475,6 +485,18 @@ pub fn move_projectiles(
                     });
                     spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
                 }
+
+                // Gold barrels drop a gold weapon.
+                if gold_barrels.get(prop_e).is_ok() {
+                    let weapon = random_gold_weapon(&mut rand::rng());
+                    spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Weapon(weapon),
+                        center + Vec2::new(0.0, -14.0),
+                    );
+                }
             }
 
             on_projectile_removed(
@@ -670,7 +692,7 @@ fn spawn_weapon_pickup_from_projectile(
     let weapon = spec
         .weapon
         .unwrap_or_else(|| random_weapon(&mut rand::rng()));
-    crate::game::pickups::spawn_pickup(
+    spawn_pickup(
         commands,
         catalog,
         asset_server,
@@ -784,8 +806,7 @@ pub fn apply_explosions(
     mut chroma: ResMut<ChromaticAberration>,
     audio: Res<GameAudio>,
     ctx: RadSpawnCtx,
-    entrances: Query<&SecretEntrance>,
-    snowmen: Query<&SnowmanAmbush>,
+    death_ctx: PropDeathQueries,
     mut secrets: ResMut<SecretTriggers>,
     mut q: Query<
         (Entity, &mut Explosion, &Transform),
@@ -875,12 +896,12 @@ pub fn apply_explosions(
                 );
 
                 // Explosions can also open secret entrances.
-                if let Ok(entrance) = entrances.get(prop_e) {
+                if let Ok(entrance) = death_ctx.entrances.get(prop_e) {
                     secrets.queue(entrance.target);
                 }
 
                 // Snowmen hide a snow bandit + rad (upstream SnowMan Destroy).
-                if snowmen.get(prop_e).is_ok() {
+                if death_ctx.snowmen.get(prop_e).is_ok() {
                     let mut rng = rand::rng();
                     commands.spawn(PendingEnemySpawn {
                         kind: EnemyKind::Bandit,
@@ -894,6 +915,18 @@ pub fn apply_explosions(
                         &ctx.asset_server,
                         center,
                         1,
+                    );
+                }
+
+                // Gold barrels drop a gold weapon.
+                if death_ctx.gold_barrels.get(prop_e).is_ok() {
+                    let weapon = random_gold_weapon(&mut rand::rng());
+                    spawn_pickup(
+                        &mut commands,
+                        &ctx.catalog,
+                        &ctx.asset_server,
+                        PickupKind::Weapon(weapon),
+                        center + Vec2::new(0.0, -14.0),
                     );
                 }
 
@@ -1996,7 +2029,7 @@ pub fn spawn_rad(
     pos: Vec2,
     amount: u32,
 ) {
-    crate::game::pickups::spawn_pickup(
+    spawn_pickup(
         commands,
         catalog,
         asset_server,
@@ -2038,7 +2071,7 @@ pub fn maybe_spawn_drop(
     if roll < (chance as f32 * (need + paw)) {
         // Health: only when hurt, and only 2/3 of the time.
         if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
-            crate::game::pickups::spawn_pickup(
+            spawn_pickup(
                 commands,
                 catalog,
                 asset_server,
@@ -2047,7 +2080,7 @@ pub fn maybe_spawn_drop(
             );
         } else {
             let ammo = random_ammo_kind(&mut rng);
-            crate::game::pickups::spawn_pickup(
+            spawn_pickup(
                 commands,
                 catalog,
                 asset_server,
@@ -2057,7 +2090,7 @@ pub fn maybe_spawn_drop(
         }
     } else if weapon_chance > 0 && rng.random_range(0.0..100.0) < weapon_chance as f32 {
         let weapon = random_weapon(&mut rng);
-        crate::game::pickups::spawn_pickup(
+        spawn_pickup(
             commands,
             catalog,
             asset_server,
@@ -2089,6 +2122,19 @@ pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
         6 => WeaponId::WRENCH,
         _ => WeaponId::SLEDGEHAMMER,
     }
+}
+
+/// Random gold weapon (gold barrels / mansion drops).
+pub fn random_gold_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
+    let gold: Vec<WeaponId> = crate::game::weapons_data::WEAPONS
+        .iter()
+        .filter(|w| w.wep_gold)
+        .map(|w| WeaponId(w.id))
+        .collect();
+    if gold.is_empty() {
+        return random_weapon(rng);
+    }
+    gold[rng.random_range(0..gold.len())]
 }
 
 pub fn spawn_chest(

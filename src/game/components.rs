@@ -1220,6 +1220,10 @@ pub struct ThroneStatueProp {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SnowmanAmbush;
 
+/// Gold barrel (Y.V. Mansion): drops a gold weapon when destroyed.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct GoldBarrelDrop;
+
 /// Red carpet volume in the Throne room (axis-aligned).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneCarpet {

@@ -54,6 +54,8 @@ pub enum PropKind {
     Cocoon,
     Snowman,
     Torch,
+    /// Gold barrel (Y.V. Mansion): explodes and drops a gold weapon.
+    GoldBarrel,
 
     // Functional floor / hazard entities
     Cobweb,
@@ -606,26 +608,36 @@ fn populate(
         let loop_extras = loop_elite_candidates(area, run.loop_count);
 
         // --- Secret areas first: each keeps its upstream spawn table ---
+        // Upstream spawns packs per tile (repeat(3)/repeat(5)), so these
+        // produce a Vec of kinds placed around the same cell.
         {
             use crate::game::areas::AreaId;
-            let secret_kind = match run.area {
-                AreaId::Oasis => Some(pick_kind(
-                    &mut rng,
-                    // Upstream: Crab (1-in-4), else packs of Bone Fish.
-                    &[
-                        EnemyKind::Crab,
-                        EnemyKind::BoneFish,
-                        EnemyKind::BoneFish,
-                        EnemyKind::BoneFish,
-                    ],
-                )),
-                AreaId::PizzaSewers => Some(EnemyKind::Turtle),
-                AreaId::Jungle => {
-                    // Upstream: JungleFly (1-in-8), else bandit packs.
-                    if rng.random::<f32>() * 8.0 < 1.0 {
-                        Some(EnemyKind::JungleFly)
+            let mut secret_kinds: Vec<EnemyKind> = match run.area {
+                AreaId::Oasis => {
+                    // Upstream: Crab (1-in-4), else repeat(3) Bone Fish.
+                    if rng.random::<f32>() * 4.0 < 1.0 {
+                        vec![EnemyKind::Crab]
+                    } else if rng.random::<f32>() * 3.0 < 1.0 {
+                        vec![EnemyKind::BoneFish, EnemyKind::BoneFish, EnemyKind::BoneFish]
                     } else {
-                        Some(pick_kind(
+                        Vec::new()
+                    }
+                }
+                AreaId::PizzaSewers => vec![EnemyKind::Turtle],
+                AreaId::Jungle => {
+                    // Upstream: JungleFly (1-in-8); 1-in-30 barrel ambush
+                    // with three bandits; else bandit packs.
+                    if rng.random::<f32>() * 8.0 < 1.0 {
+                        vec![EnemyKind::JungleFly]
+                    } else if rng.random::<f32>() * 30.0 < 1.0 {
+                        plan.props.push((PropKind::Barrel, center));
+                        vec![
+                            EnemyKind::JungleBandit,
+                            EnemyKind::JungleBandit,
+                            EnemyKind::JungleBandit,
+                        ]
+                    } else {
+                        let k = pick_kind(
                             &mut rng,
                             &[
                                 EnemyKind::JungleBandit,
@@ -637,38 +649,51 @@ fn populate(
                                 EnemyKind::Assassin,
                                 EnemyKind::Assassin,
                             ],
-                        ))
+                        );
+                        vec![k]
                     }
                 }
-                AreaId::CursedCaves => Some(pick_kind(
-                    &mut rng,
+                AreaId::CursedCaves => {
                     // Upstream: invisible spiders + cursed laser crystals.
-                    &[
-                        EnemyKind::InvSpider,
-                        EnemyKind::InvSpider,
-                        EnemyKind::InvSpider,
-                        EnemyKind::InvSpider,
-                        EnemyKind::InvLaserCrystal,
-                        EnemyKind::InvLaserCrystal,
-                    ],
-                )),
+                    if rng.random::<f32>() * 5.0 < 4.0 {
+                        let k = pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::InvSpider,
+                                EnemyKind::InvSpider,
+                                EnemyKind::InvSpider,
+                                EnemyKind::InvSpider,
+                                EnemyKind::InvLaserCrystal,
+                                EnemyKind::InvLaserCrystal,
+                            ],
+                        );
+                        vec![k]
+                    } else {
+                        Vec::new()
+                    }
+                }
                 AreaId::City => {
                     // Y.V. Mansion: 1-in-5 fireballer/jock squads with a
-                    // super fireballer, else 1-in-4 molefish patrols
-                    // (upstream area_mansion).
+                    // super fireballer; else 1-in-4 gold barrel + molefish
+                    // patrols (upstream area_mansion).
                     if rng.random::<f32>() * 5.0 < 1.0 {
-                        Some(pick_kind(
+                        let k = pick_kind(
                             &mut rng,
                             &[
                                 EnemyKind::FireBaller,
                                 EnemyKind::Jock,
                                 EnemyKind::FireBaller,
                                 EnemyKind::Jock,
+                                EnemyKind::FireBaller,
                                 EnemyKind::SuperFireBaller,
                             ],
-                        ))
+                        );
+                        vec![k]
                     } else if rng.random::<f32>() * 4.0 < 1.0 {
-                        Some(pick_kind(
+                        if rng.random::<f32>() * 5.0 < 1.0 {
+                            plan.props.push((PropKind::GoldBarrel, center));
+                        }
+                        let k = pick_kind(
                             &mut rng,
                             &[
                                 EnemyKind::Molefish,
@@ -677,35 +702,63 @@ fn populate(
                                 EnemyKind::Molefish,
                                 EnemyKind::Molesarge,
                             ],
-                        ))
+                        );
+                        vec![k]
                     } else {
-                        None
+                        Vec::new()
                     }
                 }
                 AreaId::Vault | AreaId::CrownVault => {
                     // Guardians are the boss; keep trash sparse and elite.
-                    Some(pick_kind(
+                    let k = pick_kind(
                         &mut rng,
                         &[
                             EnemyKind::RobotGuard,
                             EnemyKind::Turret,
                             EnemyKind::IdpdElite,
                         ],
-                    ))
+                    );
+                    vec![k]
                 }
-                AreaId::HQ => Some(pick_kind(
-                    &mut rng,
-                    &[
-                        EnemyKind::IdpdGrunt,
-                        EnemyKind::IdpdGrunt,
-                        EnemyKind::IdpdShield,
-                        EnemyKind::IdpdElite,
-                    ],
-                )),
-                _ => None,
+                AreaId::HQ => {
+                    // Upstream area_hq: elite trio (1-in-7), repeat(5) Grunt
+                    // pack (1-in-4), or a mixed Grunt/Shielder/Inspector squad.
+                    if rng.random::<f32>() * 7.0 < 1.0 {
+                        let k = pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::IdpdElite,
+                                EnemyKind::IdpdShield,
+                                EnemyKind::IdpdInspector,
+                            ],
+                        );
+                        vec![k]
+                    } else if rng.random::<f32>() * 4.0 < 1.0 {
+                        std::iter::repeat_n(EnemyKind::IdpdGrunt, 5).collect()
+                    } else if rng.random::<f32>() * 3.0 < 1.0 {
+                        let k = pick_kind(
+                            &mut rng,
+                            &[
+                                EnemyKind::IdpdGrunt,
+                                EnemyKind::IdpdShield,
+                                EnemyKind::IdpdInspector,
+                            ],
+                        );
+                        vec![k]
+                    } else {
+                        Vec::new()
+                    }
+                }
+                _ => Vec::new(),
             };
-            if let Some(k) = secret_kind {
-                enemy_tiles.push((k, center));
+            if !secret_kinds.is_empty() {
+                for (i, k) in secret_kinds.drain(..).enumerate() {
+                    let jitter = Vec2::new(
+                        ((i % 3) as f32 - 1.0) * 18.0,
+                        ((i / 3) as f32 - 0.5) * 18.0,
+                    );
+                    enemy_tiles.push((k, center + jitter));
+                }
                 continue;
             }
         }
@@ -2209,6 +2262,24 @@ fn spawn_prop(
             true,
         ),
 
+        PropKind::GoldBarrel => (
+            &[
+                "images/sprGoldBarrel.png",
+                "images/sprGoldBarrelHurt.png",
+                "images/sprBarrel.png",
+            ],
+            Color::srgb(0.95, 0.82, 0.25),
+            Vec2::splat(24.0),
+            24.0,
+            3,
+            // Upstream inherits Barrel: explodes on death.
+            true,
+            false,
+            Some(PropDeathEffect::legacy_barrel()),
+            -10.0,
+            true,
+        ),
+
         PropKind::Pipe => (
             &["images/sprPipe.png"],
             Color::srgb(0.42, 0.46, 0.45),
@@ -2361,6 +2432,9 @@ fn spawn_prop(
     }
     if kind == PropKind::Snowman {
         entity.insert(SnowmanAmbush);
+    }
+    if kind == PropKind::GoldBarrel {
+        entity.insert(GoldBarrelDrop);
     }
     if kind == PropKind::BigGenerator {
         entity.insert(BigGenerator { index: 0 });
