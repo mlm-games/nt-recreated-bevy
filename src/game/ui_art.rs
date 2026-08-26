@@ -56,6 +56,34 @@ const SLOT_XSTART: f32 = 8.0;
 
 pub const CAM_SCALE: f32 = 0.45;
 
+/// scrDrawLetterbox `_margin`: solid-black side fill width, in GUI pixels.
+fn letterbox_margin(effective_w: f32) -> f32 {
+    (effective_w - GUI_W).max(0.0)
+}
+
+/// scrMenuDrawLoadout crown grid slots, GM-exact. `_crown_x` starts at
+/// `_crownright - _crownsize*3` (=248), wraps when it passes `_crownright`
+/// OR right after crwn_none — so RANDOM+NONE sit alone on row one and the
+/// remaining twelve flow 4-per-row from `_crownleft` (=220).
+/// Returns `(crown_id, gui_x, gui_y)`; crown size is 28 px.
+pub fn crown_slot_positions() -> Vec<(u8, f32, f32)> {
+    let step = 28.0_f32;
+    let right = GUI_W + 12.0;
+    let left = right - ((14 / 3) as f32) * step;
+    let mut out = Vec::with_capacity(14);
+    let mut x = right - step * 3.0;
+    let mut y = LETTERBOX_SIZE * 2.0 - 24.0;
+    for id in 0u8..14 {
+        out.push((id, x, y));
+        x += step;
+        if x >= right || id == 1 {
+            x = left;
+            y += step;
+        }
+    }
+    out
+}
+
 /// The 320x240 NT GUI surface, uniformly scaled and letterboxed inside the
 /// camera view (exactly how GameMaker's GUI layer behaves).
 ///
@@ -110,6 +138,8 @@ pub fn slot_ystart() -> f32 {
 }
 
 fn slot_step(count: usize) -> f32 {
+    // Menu/Create_0: min(20, floor((game_screen_width - 40) / count))
+    // where game_screen_width is the FIXED #macro 320 (macros_general.gml:6).
     20.0f32.min(((GUI_W - 40.0) / (count as f32).max(1.0)).floor())
 }
 
@@ -1322,9 +1352,10 @@ struct CharSelectArt {
     wep_icons: [Option<(Entity, u8)>; 2],
     /// Open-panel state (Menu.loadout_frame via approach()).
     loadout_anim: f32,
-    /// sprLoadoutOpen panel + crown grid entries (entity, gui x, gui y).
+    /// sprLoadoutOpen panel (bottom-right origin).
     open_panel: Option<Entity>,
-    crown_grid: Vec<(Entity, f32, f32)>,
+    /// Open-panel crown grid: (entity, crown id, gui x, gui y, last locked).
+    crown_grid: Vec<(Entity, u8, f32, f32, bool)>,
     skin_grid: Vec<(Entity, f32, f32)>,
 }
 
@@ -1563,36 +1594,70 @@ fn spawn_char_select(
         }
     }
 
-    // Letterbox (scrDrawLetterbox): one 320x44 strip per edge, solid 36 px
-    // plus a ragged drip edge; yscale = 36/(44-9), top at y=-1, bottom
-    // mirrored at (320, 242) with both flips. Frame 0 (Menu/Create_0).
     {
+        const LB_STRIP_Z: f32 = -861.0;
+        const LB_RECT_Z: f32 = -862.0;
+        const LB_FRAME: usize = 3;
         let yscale = LETTERBOX_SIZE / (44.0 - 9.0);
-        for (gui_x, gui_y, flip) in [(0.0_f32, -1.0_f32, false), (GUI_W, GUI_H + 2.0, true)] {
-            let (mut spr, tf) = gm_sprite(
-                &catalog,
-                &asset_server,
-                &map,
-                "images/sprLetterbox.png",
-                0,
-                gui_x,
-                gui_y,
-                1.0,
-                yscale,
-                Color::WHITE,
-                -850.0,
-            );
-            spr.flip_x = flip;
-            spr.flip_y = flip;
-            if flip {
-                // Negative scales would mirror about the origin; emulate with
-                // flips and keep custom_size positive.
-                if let Some(sz) = spr.custom_size.as_mut() {
-                    sz.y = sz.y.abs();
-                }
+        let bh = 44.0 * yscale;
+        let effective_w = (map.hw * 2.0) / map.s;
+        let margin = letterbox_margin(effective_w);
+
+        // Top strip: draw point _right - _width = 0, spans [0, 320].
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLetterbox.png",
+            LB_FRAME,
+            0.0,
+            -1.0,
+            1.0,
+            yscale,
+            Color::WHITE,
+            LB_STRIP_Z,
+        );
+        art.letterbox
+            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        let (mut spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            "images/sprLetterbox.png",
+            LB_FRAME,
+            margin,
+            GUI_H + 2.0 - bh,
+            1.0,
+            yscale,
+            Color::WHITE,
+            LB_STRIP_Z,
+        );
+        spr.flip_x = true;
+        spr.flip_y = true;
+        art.letterbox
+            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+
+        // Side margins (scrDrawLetterbox black rectangles):
+        //   bottom-left: [0, margin] x [_bottom-_size, _bottom]
+        //   top-right:   [gui_w-margin, gui_w] x [_top, _top+_size]
+        if margin > 0.5 {
+            for (cx, cy) in [
+                (margin * 0.5, GUI_H - LETTERBOX_SIZE * 0.5), // bottom-left [_bottom-_size,_bottom]
+                (GUI_W + margin * 0.5, -1.0 + LETTERBOX_SIZE * 0.5), // top-right [_top,_top+_size]
+            ] {
+                let c = map.to_world(cx, cy);
+                commands.spawn((
+                    TitleArt,
+                    ChildOf(cam),
+                    Sprite {
+                        color: Color::BLACK,
+                        custom_size: Some(Vec2::new(margin * map.s, LETTERBOX_SIZE * map.s)),
+                        ..default()
+                    },
+                    Transform::from_xyz(c.x, c.y, LB_RECT_Z),
+                ));
             }
-            art.letterbox
-                .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
         }
     }
 
@@ -1740,7 +1805,8 @@ fn spawn_char_select(
     }
 
     // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait,
-    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64).
+    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64). Native size —
+    // GameMaker never scales it.
     {
         let (spr, tf) = gm_sprite(
             &catalog,
@@ -1834,7 +1900,7 @@ fn spawn_char_select(
             1.0,
             1.0,
             C_UIGRAY,
-            -852.0,
+            -847.0,
         );
         art.arrow = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
 
@@ -1868,7 +1934,7 @@ fn spawn_char_select(
                 } else {
                     Color::srgb_u8(192, 192, 192)
                 },
-                -847.0,
+                -846.0,
             );
             let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
             art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
@@ -1877,6 +1943,8 @@ fn spawn_char_select(
         // Open panel (sprLoadoutOpen, bottom-right origin) + the crown grid
         // layout from scrMenuDrawLoadout: start (248,48), step 28, wrap at
         // the right edge back to x=220.
+        // Scale per upstream: _xscale = max(1, (_w - _skins_x)/200) — with
+        // _skins_x = _w-136 this is always 1; _yscale = (_splat_y-36)/168+0.05.
         let (spr, tf) = gm_sprite(
             &catalog,
             &asset_server,
@@ -1884,9 +1952,9 @@ fn spawn_char_select(
             "images/sprLoadoutOpen.png",
             0,
             GUI_W,
-            GUI_H - LETTERBOX_SIZE + 4.0,
-            (GUI_W - 184.0) / (256.0 - 56.0),
-            (GUI_H - LETTERBOX_SIZE + 4.0 - LETTERBOX_SIZE) / 168.0 + 0.05,
+            GUI_H - LETTERBOX_SIZE + 2.0,
+            ((GUI_W - 184.0) / (256.0 - 56.0)).max(1.0),
+            (GUI_H - LETTERBOX_SIZE + 2.0 - LETTERBOX_SIZE) / 168.0 + 0.05,
             Color::WHITE,
             -849.0,
         );
@@ -1896,23 +1964,15 @@ fn spawn_char_select(
                 .id(),
         );
 
-        let mut crowns: Vec<(f32, f32)> = Vec::with_capacity(14);
-        let (mut cx, mut cy) = (248.0_f32, 48.0_f32);
-        for _ in 0..14 {
-            crowns.push((cx, cy));
-            cx += 28.0;
-            if cx >= 332.0 {
-                cx = 220.0;
-                cy += 28.0;
-            }
-        }
-        for (gx, gy) in crowns {
+        // Crown grid at the exact scrMenuDrawLoadout slots; lock state is
+        // corrected on the first char_select_tick pass.
+        for (crown_id, gx, gy) in crown_slot_positions() {
             let (spr, tf) = gm_sprite(
                 &catalog,
                 &asset_server,
                 &map,
                 "images/sprLoadoutCrown.png",
-                0,
+                crown_id as usize,
                 gx,
                 gy,
                 1.0,
@@ -1922,8 +1982,10 @@ fn spawn_char_select(
             );
             art.crown_grid.push((
                 commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                crown_id,
                 gx,
                 gy,
+                false,
             ));
         }
         // Skins (left side of loadout panel) – 4 entries max (Robot has 4)
@@ -2226,25 +2288,57 @@ fn char_select_tick(
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
     }
-    // Crowns grid: unlocked = sprLoadoutCrown white/gray, locked = sprLockedLoadoutCrown gray
-    for (idx, (e, _, _)) in art.crown_grid.iter().enumerate() {
+    // Crowns grid (scrMenuDrawLoadout #region Crowns): locked crowns use
+    // sprLockedLoadoutCrown; tint white only when unlocked AND (pointed or
+    // currently selected); pointed entries lift 1 px. RANDOM hides until the
+    // race has any crown above NONE unlocked.
+    let crown_race = crate::game::content::race_from_gml_id(selected_race)
+        .unwrap_or(crate::game::content::RaceId::Random);
+    let any_crowns = save.any_crown_unlocked(crown_race);
+    for (e, crown_id, gx, gy, last_locked) in art.crown_grid.iter_mut() {
+        let unlocked = save.crown_unlocked(crown_race, *crown_id);
+        let visible = fullview && avail && (*crown_id != 0 || any_crowns);
         if let Ok(mut vis) = visibility.get_mut(*e) {
-            *vis = if fullview && avail {
+            *vis = if visible {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
             };
         }
-        if fullview
-            && avail
+        if !visible {
+            continue;
+        }
+
+        // point_in_circle(_mx,_my, _crown_x, _crown_y, _crownsize*0.5)
+        let pointed = cursor_gui.is_some_and(|m| (m.x - *gx).hypot(m.y - *gy) <= 14.0);
+        let is_selected = *crown_id == ui.crown_id;
+        let suspect = unlocked && (pointed || is_selected);
+
+        if *last_locked != !unlocked
             && let Ok(mut spr) = sprites.get_mut(*e)
         {
-            let crown_id = idx as u8;
-            let is_selected = crown_id == ui.crown_id;
+            let path: &str = if unlocked {
+                "images/sprLoadoutCrown.png"
+            } else {
+                "images/sprLockedLoadoutCrown.png"
+            };
+            spr.image = asset_server.load(path);
+            *last_locked = !unlocked;
+        }
+        if let Ok(mut spr) = sprites.get_mut(*e) {
             let (fw, fh) = (32.0, 32.0);
-            let f = (crown_id as f32).min(13.0);
-            spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
-            spr.color = if is_selected { Color::WHITE } else { C_UIGRAY };
+            spr.rect = Some(Rect::new(
+                (*crown_id as f32) * fw,
+                0.0,
+                ((*crown_id as f32) + 1.0) * fw,
+                fh,
+            ));
+            spr.color = if suspect { Color::WHITE } else { C_UIGRAY };
+        }
+        if let Ok(mut tf) = transforms.get_mut(*e) {
+            let c = map.to_world(*gx, *gy - i32::from(suspect) as f32);
+            tf.translation.x = c.x;
+            tf.translation.y = c.y;
         }
     }
     // Skins grid: left side of panel, 4 entries max
@@ -2913,5 +3007,72 @@ fn despawn_hud_art(
     }
     if refs.is_some() {
         commands.remove_resource::<HudArtRefs>();
+    }
+}
+
+#[cfg(test)]
+mod campfire_ui_tests {
+    use super::*;
+
+    /// 1280x720 at base cam scale: s = min(576/320, 324/240) = 1.35.
+    #[test]
+    fn gui_map_scales_letterboxed_16x9() {
+        let m = gui_map(1280.0, 720.0, CAM_SCALE);
+        assert!((m.s - 1.35).abs() < 1e-4);
+        assert!((m.ox - 72.0).abs() < 1e-3);
+        assert!(m.oy.abs() < 1e-3);
+    }
+
+    /// scrDrawLetterbox at a 16:9 surface: margin = gui_w - 320 = 106.67.
+    #[test]
+    fn margin_matches_gml_on_wide_surface() {
+        let m = gui_map(1280.0, 720.0, CAM_SCALE);
+        let effective_w = (m.hw * 2.0) / m.s;
+        assert!((effective_w - 426.6667).abs() < 1e-3);
+        assert!((letterbox_margin(effective_w) - 106.6667).abs() < 1e-3);
+        assert_eq!(letterbox_margin(320.0), 0.0);
+    }
+
+    /// Crown grid: RANDOM+NONE alone on row one at x 248/276, then the
+    /// wrap-after-crwn_none rule forces 4-per-row from _crownleft=220.
+    #[test]
+    fn crown_slots_match_scrMenuDrawLoadout() {
+        let slots = crown_slot_positions();
+        assert_eq!(slots.len(), 14);
+        let expected: [(u8, f32, f32); 14] = [
+            (0, 248.0, 48.0),
+            (1, 276.0, 48.0),
+            (2, 220.0, 76.0),
+            (3, 248.0, 76.0),
+            (4, 276.0, 76.0),
+            (5, 304.0, 76.0),
+            (6, 220.0, 104.0),
+            (7, 248.0, 104.0),
+            (8, 276.0, 104.0),
+            (9, 304.0, 104.0),
+            (10, 220.0, 132.0),
+            (11, 248.0, 132.0),
+            (12, 276.0, 132.0),
+            (13, 304.0, 132.0),
+        ];
+        for (got, want) in slots.iter().zip(expected.iter()) {
+            assert_eq!(got.0, want.0);
+            assert!((got.1 - want.1).abs() < 1e-3, "x mismatch id {}", got.0);
+            assert!((got.2 - want.2).abs() < 1e-3, "y mismatch id {}", got.0);
+        }
+    }
+
+    /// Port <-> GML crown id boundary round-trips; NONE collapses to 0.
+    #[test]
+    fn crown_id_mapping_roundtrips() {
+        // crwn_random(0) is grid-only and has no port form; it maps to
+        // port 0 (NONE) and stays there.
+        assert_eq!(crate::game::content::crown_gml_to_port(0), 0);
+        for gml in 1u8..14 {
+            let port = crate::game::content::crown_gml_to_port(gml);
+            assert_eq!(crate::game::content::crown_port_to_gml(port), gml);
+        }
+        assert_eq!(crate::game::content::crown_gml_to_port(1), 0);
+        assert_eq!(crate::game::content::crown_port_to_gml(1), 2);
     }
 }

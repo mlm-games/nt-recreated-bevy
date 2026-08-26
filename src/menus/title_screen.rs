@@ -53,7 +53,9 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
     };
 
     if st.loadout_open {
-        ZStack(Modifier::new().fill_max_size()).child((
+        // Per-crown 28px hitboxes at the exact scrMenuDrawLoadout grid slots
+        // (point_in_circle r14 approximated as a square).
+        let mut children = vec![
             zone(
                 238.0,
                 147.0,
@@ -63,15 +65,29 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
                 UiAction::CycleStartWeapon(1),
             ),
             zone(
-                216.0,
-                32.0,
-                104.0,
-                116.0,
+                298.0,
+                178.0,
+                24.0,
+                28.0,
                 actions.clone(),
-                UiAction::CycleCrown(1),
+                UiAction::ToggleLoadout,
             ),
-            zone(298.0, 178.0, 24.0, 28.0, actions, UiAction::ToggleLoadout),
-        ))
+        ];
+        for (crown_id, gx, gy) in crate::game::ui_art::crown_slot_positions() {
+            children.push(zone(
+                gx - 14.0,
+                gy - 14.0,
+                28.0,
+                28.0,
+                actions.clone(),
+                UiAction::SelectCrown(crown_id),
+            ));
+        }
+        let mut zs = ZStack(Modifier::new().fill_max_size());
+        for child in children {
+            zs = zs.child(child);
+        }
+        zs
     } else {
         ZStack(Modifier::new().fill_max_size()).child((
             zone(
@@ -159,7 +175,6 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
     }
 
     // The whole strip is one row; every pod rect forwards its own race id.
-    // Hitboxes sit exactly on the sprite pitch from Menu/Create_0.
     let _selected = st.selected_character;
     Row(Modifier::new()
         .fill_max_size()

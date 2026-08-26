@@ -310,6 +310,8 @@ pub fn crown_name_for_toast(crown: CrownKind) -> &'static str {
 pub fn tick_crown_pedestal(
     mut commands: Commands,
     mut toast: ResMut<Toast>,
+    mut save: ResMut<crate::save::SaveData>,
+    selected: Res<crate::game::SelectedCharacter>,
     mut q_player: Query<
         (
             &Transform,
@@ -332,6 +334,12 @@ pub fn tick_crown_pedestal(
         }
         apply_crown_to_spawn(ped.kind, &mut player, &mut health, &mut inv);
         *state = CrownState::new(ped.kind);
+        // scrCrownUnlock persists per-race crowngot and auto-equips. The
+        // save/grid use GML crwn_* ids; CrownKind is the port numbering.
+        save.unlock_crown(
+            selected.0,
+            crate::game::content::crown_port_to_gml(ped.kind.to_u8()),
+        );
         toast.show(&format!(
             "{} TAKEN",
             crown_name_for_toast(ped.kind).to_ascii_uppercase()

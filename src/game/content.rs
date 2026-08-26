@@ -548,6 +548,18 @@ pub fn cycle_crown_id(id: u8, dir: i8) -> u8 {
     CrownKind::from_u8(id).cycle(dir).to_u8()
 }
 
+/// Port CrownKind id -> nt-rewrite crwn_* grid/save id (RANDOM=0, NONE=1,
+/// DEATH=2 .. PROTECTION=13). Port NONE(0) maps to crwn_none(1); every real
+/// crown shifts up one slot.
+pub fn crown_port_to_gml(id: u8) -> u8 {
+    if id == 0 { 1 } else { id + 1 }
+}
+
+/// Inverse of [`crown_port_to_gml`]: crwn_none/RANDOM collapse to port 0.
+pub fn crown_gml_to_port(id: u8) -> u8 {
+    if id <= 1 { 0 } else { id - 1 }
+}
+
 pub struct CharacterDef {
     pub name: &'static str,
     pub color: Color,

@@ -467,7 +467,8 @@ fn sync_shared_ui(
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
         ui.start_weapon_id = equipped_start.0;
         ui.stored_weapon_id = lo.stored_weapon.0;
-        ui.crown_id = lo.start_crown;
+        // Grid frames + highlight compare against nt-rewrite crwn_* ids.
+        ui.crown_id = crate::game::content::crown_port_to_gml(lo.start_crown);
         ui.loadout_summary = format!(
             "{} | start {} | stored {} | crown {} | {}",
             def.name,
@@ -720,6 +721,20 @@ fn process_ui_actions(
                 let lo = save.race_loadout_mut(race);
                 lo.start_crown = crate::game::content::cycle_crown_id(lo.start_crown, dir);
                 let _ = manager.save(&*save);
+            }
+            UiAction::SelectCrown(crown_id) => {
+                let race = selected.0;
+                // scrMenuDrawLoadout: unlocked -> equip + sndMenuCrown,
+                // locked -> sndNoSelect. Zone ids are GML crwn_* ids; the
+                // loadout stores port CrownKind ids (NONE=0, Death=1, ...).
+                if save.crown_unlocked(race, crown_id) {
+                    save.race_loadout_mut(race).start_crown =
+                        crate::game::content::crown_gml_to_port(crown_id);
+                    let _ = manager.save(&*save);
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuCrown", 1.0);
+                } else {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
+                }
             }
             UiAction::PickMutation(idx) => {
                 mutation_choice.0 = Some(idx);

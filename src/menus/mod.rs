@@ -61,6 +61,8 @@ pub enum UiAction {
     CycleStartWeapon(i8),
     CycleStoredWeapon(i8),
     CycleCrown(i8),
+    /// Pick a specific crown slot in the open loadout grid.
+    SelectCrown(u8),
     PickMutation(usize),
 }
 

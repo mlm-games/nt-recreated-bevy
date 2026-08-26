@@ -376,7 +376,9 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
         | UiAction::CloseOverlay
         | UiAction::SaveSettings => Some(ReactiveCue::UiClick),
 
-        UiAction::SelectCharacter(_) | UiAction::PickMutation(_) => Some(ReactiveCue::UiConfirm),
+        UiAction::SelectCharacter(_) | UiAction::PickMutation(_) | UiAction::SelectCrown(_) => {
+            Some(ReactiveCue::UiConfirm)
+        }
 
         UiAction::SelectSkin(_)
         | UiAction::NextLanguage
