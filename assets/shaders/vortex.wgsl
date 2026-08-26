@@ -61,9 +61,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let lightning_on = glob_a.y;
     var acc = vec3<f32>(glob_a.z, glob_a.w, glob_b.x);
 
+    // Oldest-on-top
+    let base = u32(tick_now);
     for (var j: u32 = 0u; j < N; j = j + 1u) {
-        let i = (N - 1u) - j;
-        let d = wisps[i];
+        let birth = base - j;
+        let d = wisps[birth % N];
         if (d.z < 0.0) { continue; }
         let age = tick_now - d.z;
         if (age < 0.0) { continue; }
