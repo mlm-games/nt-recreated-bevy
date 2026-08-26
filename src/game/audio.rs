@@ -47,11 +47,7 @@ fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
     format!("audio/{stem}.wav")
 }
 
-fn load_sfx(
-    asset_server: &AssetServer,
-    catalog: &AssetCatalog,
-    stem: &str,
-) -> Handle<AudioSource> {
+fn load_sfx(asset_server: &AssetServer, catalog: &AssetCatalog, stem: &str) -> Handle<AudioSource> {
     asset_server.load(resolve_sfx(catalog, stem))
 }
 impl GameAudio {

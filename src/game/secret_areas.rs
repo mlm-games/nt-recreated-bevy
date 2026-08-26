@@ -334,7 +334,8 @@ pub fn tick_oasis_bandit_window(
     let bandit_alive = enemies_q.iter().any(|e| {
         matches!(
             e.kind,
-            crate::game::content::EnemyKind::BigBandit | crate::game::content::EnemyKind::BigBanditLoop
+            crate::game::content::EnemyKind::BigBandit
+                | crate::game::content::EnemyKind::BigBanditLoop
         )
     });
 

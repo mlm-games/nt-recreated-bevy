@@ -457,4 +457,3 @@ pub fn hq_pressure(
     raid.wave_index += 1;
     raid.cooldown = Timer::from_seconds(9.5, TimerMode::Once);
 }
-

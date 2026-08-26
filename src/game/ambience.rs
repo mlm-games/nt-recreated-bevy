@@ -584,4 +584,3 @@ pub fn sync_area_audio_volumes(
         sink.set_volume(Volume::Linear(ambience_base.clamp(0.0, 1.0)));
     }
 }
-

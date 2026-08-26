@@ -1189,7 +1189,8 @@ pub fn flush_dirty_save(
     mut dirty: ResMut<SaveDirty>,
     save: Res<SaveData>,
     manager: Res<SaveManager>,
-) {    if !dirty.0 {
+) {
+    if !dirty.0 {
         return;
     }
     *accumulator += time.delta_secs();

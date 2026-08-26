@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use crate::game::components::*;
-use crate::game::content::{sprite_exact, AssetCatalog};
+use crate::game::content::{AssetCatalog, sprite_exact};
 use crate::game::world::{
     WALL_PX, area_sprites_for_run, expand_floor_for_wall, floor_cell_for_wall,
 };
@@ -152,7 +152,13 @@ pub fn handle_throne_room_props(
     mut toast: ResMut<Toast>,
     run: Res<Run>,
     mut bosses: Query<(&Enemy, &mut Health), With<BossBrain>>,
-    q: Query<(Entity, &Prop, Option<&BigGenerator>, Option<&ThroneStatueProp>, &Transform)>,
+    q: Query<(
+        Entity,
+        &Prop,
+        Option<&BigGenerator>,
+        Option<&ThroneStatueProp>,
+        &Transform,
+    )>,
 ) {
     for (e, prop, big_gen, statue, tf) in &q {
         if prop.hp > 0 {
@@ -225,4 +231,3 @@ pub fn update_carpet_occupancy(
         }
     }
 }
-

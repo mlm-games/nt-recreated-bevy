@@ -454,18 +454,15 @@ fn sync_shared_ui(
         let def = crate::game::content::character_def(sel);
         ui.character = def.name.to_string();
         ui.selected_character = sel as usize;
-        let equipped_start =
-            crate::game::content::resolve_start_weapon(lo.start_weapon);
+        let equipped_start = crate::game::content::resolve_start_weapon(lo.start_weapon);
 
-        ui.start_weapon_name =
-            crate::game::content::weapon_id_name(equipped_start).to_string();
+        ui.start_weapon_name = crate::game::content::weapon_id_name(equipped_start).to_string();
 
-        ui.stored_weapon_name =
-            if lo.stored_weapon == crate::game::content::WEAPON_NONE {
-                "NONE".to_string()
-            } else {
-                crate::game::content::weapon_id_name(lo.stored_weapon).to_string()
-            };
+        ui.stored_weapon_name = if lo.stored_weapon == crate::game::content::WEAPON_NONE {
+            "NONE".to_string()
+        } else {
+            crate::game::content::weapon_id_name(lo.stored_weapon).to_string()
+        };
 
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
         ui.start_weapon_id = equipped_start.0;

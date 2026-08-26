@@ -39,7 +39,10 @@ pub fn boss_ai(
     props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     // Non-boss children (disjoint from `bosses`) for FrogQueen egg budget.
-    children: Query<(Entity, &'static Enemy, &'static Transform), (With<Enemy>, Without<BossBrain>)>,
+    children: Query<
+        (Entity, &'static Enemy, &'static Transform),
+        (With<Enemy>, Without<BossBrain>),
+    >,
 ) {
     let Ok((player_tf, player_vel)) = player_q.single() else {
         return;
@@ -320,7 +323,11 @@ fn big_bandit_ai(
             tf.translation += (vel.0 * dt).extend(0.0);
             let after = tf.translation.truncate();
             crate::game::walls::queue_wall_breaks_along_segment(
-                commands, walls, before, after, def.radius * 0.9,
+                commands,
+                walls,
+                before,
+                after,
+                def.radius * 0.9,
             );
 
             if boss.phase_timer.just_finished() {
@@ -1303,7 +1310,11 @@ fn mom_ai(
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     // Drift and keep mid range.
-    let desired = if pos.distance(player_pos) < 120.0 { -dir } else { dir };
+    let desired = if pos.distance(player_pos) < 120.0 {
+        -dir
+    } else {
+        dir
+    };
     vel.0 += desired * def.accel * 0.5 * dt;
     limit_velocity(vel, def.speed.max(50.0));
     tf.translation += (vel.0 * dt).extend(0.0);
@@ -1343,9 +1354,7 @@ fn mom_ai(
         ScreenEffects::add_trauma(trauma, 0.18);
     }
 
-    if matches!(boss.phase, BossPhase::Spawning)
-        && boss.phase_timer.just_finished()
-    {
+    if matches!(boss.phase, BossPhase::Spawning) && boss.phase_timer.just_finished() {
         boss.set_phase(BossPhase::Idle, 0.1);
     }
 }
@@ -1422,9 +1431,7 @@ fn frog_queen_ai(
         ScreenEffects::add_trauma(trauma, 0.15);
     }
 
-    if matches!(boss.phase, BossPhase::Spawning)
-        && boss.phase_timer.just_finished()
-    {
+    if matches!(boss.phase, BossPhase::Spawning) && boss.phase_timer.just_finished() {
         boss.set_phase(BossPhase::Idle, 0.1);
     }
 }
@@ -1500,7 +1507,11 @@ fn captain_ai(
 ) {
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
-            let desired = if pos.distance(player_pos) < 100.0 { -dir } else { dir };
+            let desired = if pos.distance(player_pos) < 100.0 {
+                -dir
+            } else {
+                dir
+            };
             vel.0 += desired * def.accel * 0.65 * dt;
             limit_velocity(vel, def.speed);
             tf.translation += (vel.0 * dt).extend(0.0);
@@ -1559,7 +1570,11 @@ fn captain_ai(
             tf.translation += (vel.0 * dt).extend(0.0);
             let after = tf.translation.truncate();
             crate::game::walls::queue_wall_breaks_along_segment(
-                commands, walls, before, after, def.radius * 0.9,
+                commands,
+                walls,
+                before,
+                after,
+                def.radius * 0.9,
             );
 
             if boss.phase_timer.just_finished() {
@@ -1609,7 +1624,11 @@ fn old_guardian_ai(
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
     // Slow advance toward the intruder.
-    let desired = if pos.distance(player_pos) < 90.0 { -dir } else { dir };
+    let desired = if pos.distance(player_pos) < 90.0 {
+        -dir
+    } else {
+        dir
+    };
     vel.0 += desired * def.accel * 0.55 * dt;
     limit_velocity(vel, def.speed);
     tf.translation += (vel.0 * dt).extend(0.0);

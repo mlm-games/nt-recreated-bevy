@@ -2873,10 +2873,7 @@ mod tests {
     fn weapon_sleep_heavy_gt_auto() {
         let heavy = weapon_sleep_secs(id_by_name("SLEDGEHAMMER"));
         let auto = weapon_sleep_secs(id_by_name("SMG"));
-        assert!(
-            heavy > auto,
-            "heavy sleep {heavy} should be > auto {auto}"
-        );
+        assert!(heavy > auto, "heavy sleep {heavy} should be > auto {auto}");
         let shotgun = weapon_sleep_secs(id_by_name("SHOTGUN"));
         assert!(
             shotgun > auto,

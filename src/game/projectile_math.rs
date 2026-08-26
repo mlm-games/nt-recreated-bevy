@@ -46,4 +46,3 @@ pub fn record_hit(set: &mut Vec<bevy::prelude::Entity>, target: bevy::prelude::E
         true
     }
 }
-

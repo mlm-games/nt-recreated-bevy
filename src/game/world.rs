@@ -618,7 +618,11 @@ fn populate(
                     if rng.random::<f32>() * 4.0 < 1.0 {
                         vec![EnemyKind::Crab]
                     } else if rng.random::<f32>() * 3.0 < 1.0 {
-                        vec![EnemyKind::BoneFish, EnemyKind::BoneFish, EnemyKind::BoneFish]
+                        vec![
+                            EnemyKind::BoneFish,
+                            EnemyKind::BoneFish,
+                            EnemyKind::BoneFish,
+                        ]
                     } else {
                         Vec::new()
                     }
@@ -753,10 +757,8 @@ fn populate(
             };
             if !secret_kinds.is_empty() {
                 for (i, k) in secret_kinds.drain(..).enumerate() {
-                    let jitter = Vec2::new(
-                        ((i % 3) as f32 - 1.0) * 18.0,
-                        ((i / 3) as f32 - 0.5) * 18.0,
-                    );
+                    let jitter =
+                        Vec2::new(((i % 3) as f32 - 1.0) * 18.0, ((i / 3) as f32 - 0.5) * 18.0);
                     enemy_tiles.push((k, center + jitter));
                 }
                 continue;
@@ -1795,14 +1797,8 @@ pub fn spawn_level(
                 let frame = (wall_hash(run.gen_seed, wx, wy, 0x41) as usize)
                     % sprite_frames(catalog, wall_trans_png).max(1);
                 let draw = wall_top_left(wx, wy);
-                let (spr, tf) = sprite_at_gm_origin(
-                    catalog,
-                    asset_server,
-                    wall_trans_png,
-                    frame,
-                    draw,
-                    -38.0,
-                );
+                let (spr, tf) =
+                    sprite_at_gm_origin(catalog, asset_server, wall_trans_png, frame, draw, -38.0);
                 commands.spawn((GameCleanup, LevelCleanup, spr, tf));
             }
         }

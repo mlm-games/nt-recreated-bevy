@@ -465,12 +465,7 @@ pub fn player_ability(
                 .saturating_add(if regurgitate { 40 } else { 20 });
             // Robot's unlock: eat a weapon.
             let unlocked = crate::game::generated::unlocks::check_progress_unlocks(
-                &mut save,
-                0,
-                0,
-                false,
-                true,
-                false,
+                &mut save, 0, 0, false, true, false,
             );
             for race in unlocked {
                 dirty.0 = true;
@@ -852,9 +847,7 @@ pub fn player_fire(
                 spawn_pellets(
                     &mut commands,
                     &mut trauma,
-
                     &mut hitstop,
-
                     &audio,
                     &mut rumble,
                     &gamepads,
@@ -942,9 +935,7 @@ pub fn player_fire(
     spawn_pellets(
         &mut commands,
         &mut trauma,
-
         &mut hitstop,
-
         &audio,
         &mut rumble,
         &gamepads,
@@ -972,9 +963,7 @@ pub fn player_fire(
             spawn_pellets(
                 &mut commands,
                 &mut trauma,
-
                 &mut hitstop,
-
                 &audio,
                 &mut rumble,
                 &gamepads,
@@ -1465,10 +1454,7 @@ pub fn hammerhead_chew(
     mut cooldown: Local<f32>,
     mut budget: ResMut<HammerheadBudget>,
     player_q: Query<(Entity, &Transform, &Player, &Velocity), With<Player>>,
-    mut props: Query<
-        (Entity, &mut Prop, &Transform, Option<&PropDeathEffect>),
-        Without<WallTile>,
-    >,
+    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), Without<WallTile>>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
@@ -1778,7 +1764,16 @@ pub fn tick_weapon_visuals(
         ),
         With<Player>,
     >,
-    mut vis_q: Query<(Entity, &mut WeaponVisual, &mut Transform, &mut Sprite, &mut bevy::sprite::Anchor), Without<Player>>,
+    mut vis_q: Query<
+        (
+            Entity,
+            &mut WeaponVisual,
+            &mut Transform,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
+        Without<Player>,
+    >,
 ) {
     let dt = time.delta_secs();
     let Ok((player_e, ptf, aim, inv, sucking)) = player_q.single() else {

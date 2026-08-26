@@ -409,8 +409,10 @@ pub fn enemy_ai(
                     // Upstream loop Labs/Palace: revived freaks rise as
                     // popo-freak police (WantRevivePopoFreak chain).
                     let revived = if run.loop_count >= 1
-                        && matches!(run.area, crate::game::areas::AreaId::Labs | crate::game::areas::AreaId::Palace)
-                    {
+                        && matches!(
+                            run.area,
+                            crate::game::areas::AreaId::Labs | crate::game::areas::AreaId::Palace
+                        ) {
                         EnemyKind::PopoFreak
                     } else {
                         EnemyKind::Freak
@@ -524,10 +526,7 @@ fn fire_enemy_bullet(
 fn explosive_kind(kind: EnemyKind) -> bool {
     matches!(
         kind,
-        EnemyKind::SnowTank
-            | EnemyKind::GoldSnowtank
-            | EnemyKind::ExploGuardian
-            | EnemyKind::Jock
+        EnemyKind::SnowTank | EnemyKind::GoldSnowtank | EnemyKind::ExploGuardian | EnemyKind::Jock
     )
 }
 

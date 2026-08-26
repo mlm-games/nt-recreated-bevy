@@ -909,13 +909,7 @@ pub fn apply_explosions(
                             + Vec2::new(rng.random_range(-6.0..6.0), rng.random_range(-6.0..6.0)),
                         difficulty: 1.0,
                     });
-                    spawn_rad(
-                        &mut commands,
-                        &ctx.catalog,
-                        &ctx.asset_server,
-                        center,
-                        1,
-                    );
+                    spawn_rad(&mut commands, &ctx.catalog, &ctx.asset_server, center, 1);
                 }
 
                 // Gold barrels drop a gold weapon.
@@ -1520,8 +1514,15 @@ pub fn resolve_deaths(
         return;
     }
 
-    let Ok((player_e, player_tf, mut phealth, mut pinv, mut player, mut race_state, mut player_sprite)) =
-        player_q.single_mut()
+    let Ok((
+        player_e,
+        player_tf,
+        mut phealth,
+        mut pinv,
+        mut player,
+        mut race_state,
+        mut player_sprite,
+    )) = player_q.single_mut()
     else {
         return;
     };
@@ -1620,7 +1621,9 @@ pub fn resolve_deaths(
             for r in newly {
                 toast.show(&format!(
                     "{} UNLOCKED",
-                    crate::game::content::character_def(r).name.to_ascii_uppercase()
+                    crate::game::content::character_def(r)
+                        .name
+                        .to_ascii_uppercase()
                 ));
             }
         }
@@ -1872,7 +1875,9 @@ pub fn resolve_deaths(
             let near_necro = q.iter().any(|(_, ntf, team, health, enemy)| {
                 *team == Team::Enemy
                     && health.hp > 0
-                    && enemy.map(|e| e.kind == EnemyKind::Necromancer).unwrap_or(false)
+                    && enemy
+                        .map(|e| e.kind == EnemyKind::Necromancer)
+                        .unwrap_or(false)
                     && ntf.translation.truncate().distance(ppos) <= 96.0
             });
             if near_necro {
@@ -2071,13 +2076,7 @@ pub fn maybe_spawn_drop(
     if roll < (chance as f32 * (need + paw)) {
         // Health: only when hurt, and only 2/3 of the time.
         if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
-            spawn_pickup(
-                commands,
-                catalog,
-                asset_server,
-                PickupKind::Medkit(2),
-                pos,
-            );
+            spawn_pickup(commands, catalog, asset_server, PickupKind::Medkit(2), pos);
         } else {
             let ammo = random_ammo_kind(&mut rng);
             spawn_pickup(

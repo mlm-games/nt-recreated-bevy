@@ -277,10 +277,7 @@ fn gameplay_active(
     *state.get() == AppState::InGame && !paused.0 && !transition.block_input && !run.game_over
 }
 
-fn scan_assets_and_audio(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+fn scan_assets_and_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     let catalog = content::scan_asset_catalog();
     let audio = GameAudio::load(&asset_server, &catalog);
     commands.insert_resource(catalog);

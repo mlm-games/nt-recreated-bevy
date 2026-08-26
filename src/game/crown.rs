@@ -332,7 +332,10 @@ pub fn tick_crown_pedestal(
         }
         apply_crown_to_spawn(ped.kind, &mut player, &mut health, &mut inv);
         *state = CrownState::new(ped.kind);
-        toast.show(&format!("{} TAKEN", crown_name_for_toast(ped.kind).to_ascii_uppercase()));
+        toast.show(&format!(
+            "{} TAKEN",
+            crown_name_for_toast(ped.kind).to_ascii_uppercase()
+        ));
         commands.entity(e).despawn();
     }
 }

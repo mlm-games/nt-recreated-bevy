@@ -570,4 +570,3 @@ pub fn update_combat_intensity_audio(
         sink.set_volume(Volume::Linear((layer.current * bus).clamp(0.0, 1.0)));
     }
 }
-
