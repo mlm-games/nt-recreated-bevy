@@ -101,7 +101,7 @@ pub fn surface_velocity(
 ) -> Vec2 {
     match kind {
         SurfaceKind::Cobweb => {
-            let retention = 0.72_f32.powf(dt * 60.0);
+            let retention = 0.72_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             let mut next = velocity * retention;
             let cap = max_speed.max(1.0) * 0.52;
 
@@ -116,8 +116,8 @@ pub fn surface_velocity(
             // Undo most-but deliberately not all-of the regular movement
             // friction; the 0.992 term guarantees eventual stillness.
             let friction = base_friction.clamp(0.05, 0.999);
-            let compensation = (1.0 / friction).powf(dt * 60.0);
-            let retention = 0.992_f32.powf(dt * 60.0);
+            let compensation = (1.0 / friction).powf(dt * crate::app::NT_SIM_HZ as f32);
+            let retention = 0.992_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
 
             let mut next = velocity * compensation * retention;
             let cap = max_speed.max(1.0) * 1.28;

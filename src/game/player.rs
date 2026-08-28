@@ -68,7 +68,9 @@ pub fn player_move(
         if vel.0.length() > max_speed {
             vel.0 = vel.0.normalize() * max_speed;
         }
-        vel.0 *= player.friction.powf(dt * 60.0);
+        vel.0 *= player
+            .friction
+            .powf(dt * crate::app::NT_SIM_HZ as f32);
         tf.translation += (vel.0 * dt).extend(0.0);
     }
 

@@ -166,6 +166,7 @@ pub fn is_screen_end_wall(
     floor_n <= 1
 }
 
+#[derive(Clone, Copy)]
 struct Maker {
     // Position in floor-cell units relative to origin cell.
     x: i32,
@@ -248,14 +249,17 @@ pub fn generate_level(run: &Run) -> LevelPlan {
         }
 
         let n_makers = makers.len();
-        for mi in 0..n_makers {
-            // Move 32px along direction (scrMakeFloor start).
-            let (dx, dy) = makers[mi].step_delta();
-            makers[mi].x += dx;
-            makers[mi].y += dy;
+        let mut next_makers = Vec::with_capacity(n_makers);
+        let mut new_branches = Vec::new();
 
-            // Stamp floors per-area.
-            let (mx, my) = (makers[mi].x, makers[mi].y);
+        for mi in 0..n_makers {
+            let mut m = makers[mi];
+
+            let (dx, dy) = m.step_delta();
+            m.x += dx;
+            m.y += dy;
+            let (mx, my) = (m.x, m.y);
+
             match area {
                 1 => {
                     if rng.random::<f32>() * 2.0 < 1.0 {
@@ -282,19 +286,15 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 }
             }
 
-            // Turn.
             let trn = turn_table(&mut rng, area);
-            makers[mi].dir = (makers[mi].dir + trn).rem_euclid(360);
+            m.dir = (m.dir + trn).rem_euclid(360);
 
-            // WeaponChest on hard turns (upstream: trn==180 always; +-90 only
-            // in scrapyards/palace), away from spawn.
             let dist_from_spawn = ((mx * 32).pow(2) + (my * 32).pow(2)) as f32;
             if dist_from_spawn > 48.0 * 48.0 && (trn == 180 || (trn.abs() == 90 && area == 3)) {
                 plan.chests.push(ChestSpawn::Weapon(cell_center_px(mx, my)));
             }
 
-            // Death / branching per-area.
-            let n = makers.len() as f32;
+            let n = (next_makers.len() + new_branches.len() + (n_makers - mi)) as f32;
             let die_roll = rng.random::<f32>() * (19.0 + n);
             let dies = match area {
                 1 => die_roll > 20.0,
@@ -302,16 +302,16 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 3 => rng.random::<f32>() * (39.0 + n) > 40.0,
                 _ => die_roll > 20.0,
             };
+
             if dies && dist_from_spawn > 48.0 * 48.0 {
                 plan.chests.push(ChestSpawn::Ammo(cell_center_px(mx, my)));
                 stamp_cell((mx, my), &mut seen, &mut plan.floor_cells);
             }
+
             if dies {
-                makers.remove(mi);
-                break;
+                continue;
             }
 
-            // Branching: new maker at this position.
             let branches = match area {
                 1 => rng.random::<f32>() * 8.0 < 1.0,
                 2 => rng.random::<f32>() * 15.0 < 1.0,
@@ -319,14 +319,19 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 7 => rng.random::<f32>() * 16.0 < 1.0,
                 _ => false,
             };
-            if branches && makers.len() < 10 {
-                makers.push(Maker {
+            if branches && (next_makers.len() + new_branches.len()) < 10 {
+                new_branches.push(Maker {
                     x: mx,
                     y: my,
-                    dir: makers[mi].dir,
+                    dir: m.dir,
                 });
             }
+
+            next_makers.push(m);
         }
+
+        makers = next_makers;
+        makers.extend(new_branches);
     }
 
     // Final floor + RadChest where the furthest floor ended up (stop perk).
@@ -1187,12 +1192,15 @@ fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
     out
 }
 
-/// Upstream GameCont.hard approximation.
+/// Upstream GameCont.hard approximation (NTT / NT mobile rewrite):
+/// roughly +1 per area step, + loop bonus. Floor 1 ≈ 1.
 pub fn game_hard(run: &Run) -> f32 {
-    // +1 per area finished (each multi-floor world step), +1 per loop.
-    let areas_done = (run.floor.max(1) - 1) as f32;
-    // Desert1 starts hard≈1 after first clear; seed at least 1 so floor 1 has enemies.
-    (1.0 + areas_done * 0.55 + run.loop_count as f32 * 2.0).max(1.0)
+    let floor = run.floor.max(1) as f32;
+    // area-ish progress: desert1=1 … palace end≈15 per loop
+    let area_progress = floor; // 1:1 with route floors is closer than *0.55
+    let loops = run.loop_count as f32;
+    // NTT-ish: hard grows ~1 per area clear + strong loop bump
+    (area_progress + loops * 4.0).max(1.0)
 }
 
 fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {

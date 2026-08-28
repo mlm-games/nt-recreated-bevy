@@ -1086,7 +1086,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
         },
         WeaponKind::Wrench => WeaponDef {
             name: "Wrench",
-            ammo: AmmoKind::Bullets,
+            ammo: AmmoKind::None,
             ammo_cost: 0,
             cooldown: frames(22.0),
             damage: 8,
@@ -1116,7 +1116,7 @@ pub fn weapon_def(kind: WeaponKind) -> WeaponDef {
         },
         WeaponKind::Sledgehammer => WeaponDef {
             name: "Sledgehammer",
-            ammo: AmmoKind::Bullets,
+            ammo: AmmoKind::None,
             ammo_cost: 0,
             cooldown: frames(35.0),
             damage: 24,

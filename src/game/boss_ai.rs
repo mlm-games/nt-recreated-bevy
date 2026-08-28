@@ -254,6 +254,11 @@ fn big_bandit_ai(
     let volley_spread = if looped { 0.13 } else { 0.16 };
     let charge_speed = if looped { 780.0 } else { 680.0 };
     let recovery_ring = if looped { 14 } else { 10 };
+    let kind = if looped {
+        EnemyKind::BigBanditLoop
+    } else {
+        EnemyKind::BigBandit
+    };
 
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
@@ -278,7 +283,7 @@ fn big_bandit_ai(
                     vel.0 *= 0.25;
                     ScreenEffects::add_trauma(trauma, 0.08);
                 } else {
-                    fire_fan(
+                    fire_fan_with_kind(
                         commands,
                         owner,
                         pos,
@@ -292,6 +297,7 @@ fn big_bandit_ai(
                         4.5,
                         Color::srgb(1.0, 0.28, 0.08),
                         8.0,
+                        Some(kind),
                     );
                 }
             }
@@ -305,7 +311,7 @@ fn big_bandit_ai(
         }
 
         BossPhase::Telegraph => {
-            vel.0 *= 0.80_f32.powf(dt * 60.0);
+            vel.0 *= 0.80_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             tf.scale =
                 Vec3::splat(1.0 + (boss.phase_timer.elapsed_secs() * 18.0).sin().abs() * 0.08);
 
@@ -337,7 +343,7 @@ fn big_bandit_ai(
                 tf.scale = Vec3::ONE;
 
                 // Recovery blast.
-                fire_ring(
+                fire_ring_with_kind(
                     commands,
                     owner,
                     tf.translation.truncate(),
@@ -350,6 +356,7 @@ fn big_bandit_ai(
                     3.5,
                     Color::srgb(1.0, 0.35, 0.1),
                     7.0,
+                    Some(kind),
                 );
                 boss.pattern_index += 1;
             }
@@ -379,6 +386,11 @@ fn big_dog_ai(
 ) {
     // Big Dog is heavy: it drifts toward home and the player, but never chases.
     let looped = def.name.contains("Loop");
+    let kind = if looped {
+        EnemyKind::BigDogLoop
+    } else {
+        EnemyKind::BigDog
+    };
     let desired_home = (boss.home - pos).normalize_or_zero() * 0.35;
     let desired_player = dir * 0.25;
     vel.0 += (desired_home + desired_player).normalize_or_zero() * def.accel * 0.18 * dt;
@@ -410,6 +422,7 @@ fn big_dog_ai(
                 4.5,
                 Color::srgb(1.0, 0.42, 0.12),
                 9.0,
+                Some(kind),
             );
         }
     }
@@ -447,6 +460,11 @@ fn big_dog_rotating_salvo(
         14
     };
     let phase = pattern_index as f32 * 0.23;
+    let kind = if looped {
+        EnemyKind::BigDogLoop
+    } else {
+        EnemyKind::BigDog
+    };
 
     for angle in ring_angles(count, phase) {
         let dir = dir_from_angle(angle);
@@ -463,6 +481,7 @@ fn big_dog_rotating_salvo(
             4.0,
             Color::srgb(1.0, 0.55, 0.18),
             8.0,
+            Some(kind),
         );
     }
 }
@@ -496,7 +515,7 @@ fn big_dog_stomp(
         Transform::from_translation(pos.extend(20.0)),
     ));
 
-    fire_ring(
+    fire_ring_with_kind(
         commands,
         owner,
         pos,
@@ -515,6 +534,7 @@ fn big_dog_stomp(
         4.0,
         Color::srgb(1.0, 0.35, 0.08),
         8.0,
+        Some(bigdog_kind),
     );
 }
 
@@ -582,7 +602,7 @@ fn lil_hunter_ai(
         BossPhase::Telegraph => {
             tf.scale =
                 Vec3::splat(1.0 + (boss.phase_timer.elapsed_secs() * 20.0).sin().abs() * 0.12);
-            vel.0 *= 0.70_f32.powf(dt * 60.0);
+            vel.0 *= 0.70_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
 
             if boss.phase_timer.just_finished() {
                 boss.set_phase(
@@ -632,7 +652,7 @@ fn lil_hunter_ai(
                     Transform::from_translation(land_pos.extend(20.0)),
                 ));
 
-                fire_ring(
+                fire_ring_with_kind(
                     commands,
                     owner,
                     land_pos,
@@ -645,6 +665,7 @@ fn lil_hunter_ai(
                     4.0,
                     Color::srgb(0.65, 0.9, 1.0),
                     7.0,
+                    Some(lil_kind),
                 );
                 boss.pattern_index += 1;
             }
@@ -696,6 +717,11 @@ fn lil_hunter_burst(
 
     for angle in fan_angles(base, count, 0.11) {
         let dir = dir_from_angle(angle);
+        let kind = if looped {
+            EnemyKind::LilHunterLoop
+        } else {
+            EnemyKind::LilHunter
+        };
         fire_projectile(
             commands,
             owner,
@@ -715,6 +741,7 @@ fn lil_hunter_burst(
             4.0,
             Color::srgb(0.6, 0.95, 1.0),
             7.0,
+            Some(kind),
         );
     }
 }
@@ -793,6 +820,7 @@ fn throne_aimed_spread(
             5.0,
             Color::srgb(1.0, 0.75, 0.25),
             9.0,
+            Some(EnemyKind::Throne),
         );
     }
 }
@@ -822,6 +850,7 @@ fn throne_cross_rings(
             4.5,
             Color::srgb(1.0, 0.55, 0.15),
             8.0,
+            Some(EnemyKind::Throne),
         );
     }
 }
@@ -851,6 +880,7 @@ fn throne_radial_burst(
             4.0,
             Color::srgb(1.0, 0.38, 0.12),
             8.0,
+            Some(EnemyKind::Throne),
         );
     }
 }
@@ -967,7 +997,7 @@ fn throne_ii_ai(
 
         BossPhase::Radial => {
             // Static star phase.
-            vel.0 *= 0.85_f32.powf(dt * 60.0);
+            vel.0 *= 0.85_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             if boss.phase_timer.just_finished() {
                 throne_ii_star_burst(commands, owner, pos, loop_count, boss.enraged);
                 ScreenEffects::add_trauma(trauma, 0.22);
@@ -1100,6 +1130,7 @@ fn throne_ii_star_burst(
             50.0,
             Color::srgb(0.4, 1.0, 0.55),
             7.0,
+            Some(EnemyKind::ThroneII),
         );
     }
 }
@@ -1306,7 +1337,7 @@ fn mom_ai(
 
     if boss.attack_timer.just_finished() {
         // Toxic ring around Mom.
-        fire_ring(
+        fire_ring_with_kind(
             commands,
             owner,
             pos,
@@ -1319,6 +1350,7 @@ fn mom_ai(
             5.0,
             Color::srgb(0.4, 1.0, 0.35),
             9.0,
+            Some(EnemyKind::Mom),
         );
         boss.pattern_index += 1;
         ScreenEffects::add_trauma(trauma, 0.12);
@@ -1383,7 +1415,7 @@ fn frog_queen_ai(
             dir.x * jitter.cos() - dir.y * jitter.sin(),
             dir.x * jitter.sin() + dir.y * jitter.cos(),
         );
-        fire_fan(
+        fire_fan_with_kind(
             commands,
             owner,
             pos,
@@ -1397,6 +1429,7 @@ fn frog_queen_ai(
             def.projectile_radius,
             def.projectile_color,
             def.projectile_size,
+            Some(EnemyKind::FrogQueen),
         );
         ScreenEffects::add_trauma(trauma, 0.12);
     }
@@ -1498,7 +1531,7 @@ fn captain_ai(
             resolve_prop_collision(&mut tf.translation, def.radius, props);
 
             if boss.attack_timer.just_finished() {
-                fire_fan(
+                fire_fan_with_kind(
                     commands,
                     owner,
                     pos,
@@ -1512,6 +1545,7 @@ fn captain_ai(
                     def.projectile_radius,
                     def.projectile_color,
                     def.projectile_size,
+                    Some(EnemyKind::Captain),
                 );
             }
 
@@ -1523,7 +1557,7 @@ fn captain_ai(
         }
 
         BossPhase::Telegraph => {
-            vel.0 *= 0.8_f32.powf(dt * 60.0);
+            vel.0 *= 0.8_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             tf.scale =
                 Vec3::splat(1.0 + (boss.phase_timer.elapsed_secs() * 20.0).sin().abs() * 0.08);
 
@@ -1560,7 +1594,7 @@ fn captain_ai(
             if boss.phase_timer.just_finished() {
                 vel.0 *= 0.15;
                 boss.set_phase(BossPhase::Cooldown, 0.45);
-                fire_ring(
+                fire_ring_with_kind(
                     commands,
                     owner,
                     tf.translation.truncate(),
@@ -1573,6 +1607,7 @@ fn captain_ai(
                     4.0,
                     Color::srgb(0.4, 0.7, 1.0),
                     7.0,
+                    Some(EnemyKind::Captain),
                 );
             }
         }
@@ -1613,7 +1648,7 @@ fn old_guardian_ai(
     resolve_prop_collision(&mut tf.translation, def.radius, props);
 
     if boss.attack_timer.just_finished() {
-        fire_fan(
+        fire_fan_with_kind(
             commands,
             owner,
             pos,
@@ -1627,11 +1662,12 @@ fn old_guardian_ai(
             def.projectile_radius,
             def.projectile_color,
             def.projectile_size,
+            Some(EnemyKind::OldGuardian),
         );
     }
 
     if boss.special_timer.just_finished() {
-        fire_ring(
+        fire_ring_with_kind(
             commands,
             owner,
             pos,
@@ -1644,6 +1680,7 @@ fn old_guardian_ai(
             4.0,
             Color::srgb(0.95, 0.9, 0.55),
             8.0,
+            Some(EnemyKind::OldGuardian),
         );
         boss.pattern_index += 1;
         ScreenEffects::add_trauma(trauma, 0.16);
@@ -1713,6 +1750,30 @@ fn fire_fan(
     color: Color,
     size: f32,
 ) {
+    // Back-compat wrapper: defaults to Bandit when caller doesn't specify a kind.
+    fire_fan_with_kind(
+        commands, owner, pos, dir, team, count, spread, speed, damage, lifetime, radius, color,
+        size, None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fire_fan_with_kind(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    dir: Vec2,
+    team: Team,
+    count: usize,
+    spread: f32,
+    speed: f32,
+    damage: i32,
+    lifetime: f32,
+    radius: f32,
+    color: Color,
+    size: f32,
+    enemy_kind: Option<EnemyKind>,
+) {
     let base = dir.to_angle();
     for angle in fan_angles(base, count, spread) {
         let shot_dir = dir_from_angle(angle);
@@ -1729,6 +1790,7 @@ fn fire_fan(
             120.0,
             color,
             size,
+            enemy_kind,
         );
     }
 }
@@ -1748,6 +1810,28 @@ fn fire_ring(
     color: Color,
     size: f32,
 ) {
+    fire_ring_with_kind(
+        commands, owner, pos, team, count, phase, speed, damage, lifetime, radius, color, size,
+        None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fire_ring_with_kind(
+    commands: &mut Commands,
+    owner: Entity,
+    pos: Vec2,
+    team: Team,
+    count: usize,
+    phase: f32,
+    speed: f32,
+    damage: i32,
+    lifetime: f32,
+    radius: f32,
+    color: Color,
+    size: f32,
+    enemy_kind: Option<EnemyKind>,
+) {
     for angle in ring_angles(count, phase) {
         let dir = dir_from_angle(angle);
         fire_projectile(
@@ -1763,6 +1847,7 @@ fn fire_ring(
             100.0,
             color,
             size,
+            enemy_kind,
         );
     }
 }
@@ -1781,14 +1866,16 @@ fn fire_projectile(
     knockback: f32,
     color: Color,
     size: f32,
+    enemy_kind: Option<EnemyKind>,
 ) {
     let angle = dir.y.atan2(dir.x);
     let source = if team == Team::Enemy {
+        let kind = enemy_kind.unwrap_or(EnemyKind::Bandit);
         Some(DamageSource {
             owner,
             team,
-            hit_id: HitId::Enemy(EnemyKind::Bandit as u16),
-            enemy_kind: Some(EnemyKind::Bandit),
+            hit_id: HitId::from_enemy_kind(kind),
+            enemy_kind: Some(kind),
         })
     } else {
         Some(DamageSource {

@@ -362,7 +362,7 @@ pub fn enemy_ai(
             if vel.0.length() > speed {
                 vel.0 = vel.0.normalize() * speed;
             }
-            vel.0 *= 0.90_f32.powf(dt * 60.0);
+            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             tf.translation += (vel.0 * dt).extend(0.0);
         } else {
             vel.0 = Vec2::ZERO;
