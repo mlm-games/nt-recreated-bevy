@@ -373,9 +373,8 @@ pub fn weapon_runtime_def(id: WeaponId) -> WeaponDef {
 
     if legacy == WeaponKind::None {
         apply_family_profile(&mut def, family_for(meta), meta);
-        apply_exact_profile(&mut def, meta);
     }
-
+    apply_exact_profile(&mut def, meta);
     apply_variant_tuning(&mut def, meta);
     normalize_def(&mut def, meta);
 

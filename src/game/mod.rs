@@ -176,6 +176,7 @@ impl Plugin for GamePlugin {
                         combat::tick_sticky_projectiles,
                         combat::tick_beams,
                         combat::tick_sentry_turrets,
+                        combat::tick_spawn_grace,
                         secret_areas::tick_oasis_bandit_window,
                     )
                         .in_set(NtSimSet::Combat)

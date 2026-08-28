@@ -912,6 +912,7 @@ fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, en
                 knockback: 120.0,
                 timer: Timer::from_seconds(if enraged { 0.32 } else { 0.24 }, TimerMode::Once),
                 tick: Timer::from_seconds(0.08, TimerMode::Repeating),
+                source: None,
             },
             Sprite {
                 color: Color::srgba(1.0, 0.65, 0.18, 0.65),
@@ -1717,6 +1718,7 @@ fn spawn_enemy_beam(
             knockback: 40.0,
             timer: Timer::from_seconds(duration, TimerMode::Once),
             tick: Timer::from_seconds(0.06, TimerMode::Repeating),
+            source: None,
         },
         Sprite {
             color: Color::srgba(0.55, 1.0, 0.6, 0.65),

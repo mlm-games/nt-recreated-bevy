@@ -58,6 +58,7 @@ pub struct ProjectileArchetype {
     pub spawn_weapon_pickup: Option<SpawnsWeaponPickup>,
     pub beam: Option<BeamSpec>,
     pub plasma_burst: Option<PlasmaBurstSpec>,
+    pub hits_all_teams: bool,
 }
 
 /// Strip GOLDEN/ULTRA/CURSED so variants inherit their family's archetype.
@@ -247,7 +248,27 @@ fn archetyped(name: &str) -> ProjectileArchetype {
             ..default()
         },
 
-        _ => ProjectileArchetype::default(),
+        "DISC GUN" | "SUPER DISC GUN" | "GOLDEN DISC GUN" => ProjectileArchetype {
+            hits_all_teams: true,
+            ..default()
+        },
+
+        "BOUNCER SMG" | "BOUNCER SHOTGUN" => ProjectileArchetype {
+            hits_all_teams: true,
+            ..default()
+        },
+
+        _ => {
+            // Fallback: any name containing DISC or BOUNCER gets friendly-fire (future weapons)
+            if name.contains("DISC") || name.contains("BOUNCER") {
+                ProjectileArchetype {
+                    hits_all_teams: true,
+                    ..default()
+                }
+            } else {
+                ProjectileArchetype::default()
+            }
+        }
     }
 }
 

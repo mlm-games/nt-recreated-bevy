@@ -185,7 +185,7 @@ pub fn setup_run(
             follow_weight: 0.20,
             aim_weight: 0.10,
             aim_pull: 0.16, // high pull + raw mouse world aim = jitter
-            base_scale: 0.45,
+            base_scale: crate::game::components::NT_CAM_SCALE,
             zoom_speed: 0.08,
             ..default()
         });

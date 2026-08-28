@@ -11,6 +11,7 @@ pub const WALL_THICK: f32 = 60.0;
 pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
 pub const PLAYER_ACCEL: f32 = 1500.0;
 pub const PLAYER_FRICTION: f32 = 0.82;
+pub const NT_CAM_SCALE: f32 = 0.45;
 
 /// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
 pub const TILE: f32 = 32.0;
@@ -589,6 +590,14 @@ pub struct BouncesLeft(pub u8);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PiercesLeft(pub u8);
 
+/// Projectile hits every team (Disc Gun family). NT discs are notorious for self-hits.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct HitsAllTeams;
+
+/// Brief grace so a freshly spawned projectile does not insta-hit its owner at the muzzle.
+#[derive(Component, Debug)]
+pub struct SpawnGrace(pub Timer);
+
 /// Entities already damaged by this piercing projectile this lifetime.
 #[derive(Component, Default, Debug, Clone)]
 pub struct ProjectileHitSet(pub Vec<Entity>);
@@ -692,6 +701,7 @@ pub struct Beam {
     pub knockback: f32,
     pub timer: Timer,
     pub tick: Timer,
+    pub source: Option<DamageSource>,
 }
 
 // --- IDPD raids / vans (see idpd.rs) ----------------------------------------

@@ -214,7 +214,7 @@ pub fn collect_pickups(
             if speed > 0.5 {
                 pickup_tf.translation += (gp.vel * dt).extend(0.0);
                 pickup_tf.rotate_z(gp.rotspeed * speed * dt * 2.0);
-                gp.vel *= 0.4_f32.powf(dt * 30.0);
+                gp.vel *= 0.4_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             } else {
                 gp.vel = Vec2::ZERO;
             }

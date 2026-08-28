@@ -18,6 +18,52 @@ pub fn split_directions(base_dir: Vec2, pellets: u8, spread: f32, samples: &[f32
     out
 }
 
+/// Outward normal from a circle vs axis-aligned box (closest-point).
+/// Returns None if not overlapping.
+pub fn circle_aabb_normal(pos: Vec2, radius: f32, center: Vec2, half: Vec2) -> Option<Vec2> {
+    let closest = Vec2::new(
+        pos.x.clamp(center.x - half.x, center.x + half.x),
+        pos.y.clamp(center.y - half.y, center.y + half.y),
+    );
+    let delta = pos - closest;
+    let d2 = delta.length_squared();
+    if d2 > radius * radius {
+        return None;
+    }
+    if d2 > 1e-8 {
+        return Some(delta.normalize());
+    }
+    // Center inside box: push out along shallowest axis.
+    let dx = half.x - (pos.x - center.x).abs();
+    let dy = half.y - (pos.y - center.y).abs();
+    if dx < dy {
+        Some(Vec2::new((pos.x - center.x).signum(), 0.0))
+    } else {
+        Some(Vec2::new(0.0, (pos.y - center.y).signum()))
+    }
+}
+
+pub fn arena_wall_normal(pos: Vec2, radius: f32, arena_w: f32, arena_h: f32) -> Option<Vec2> {
+    let hx = arena_w * 0.5 - radius;
+    let hy = arena_h * 0.5 - radius;
+    let mut n = Vec2::ZERO;
+    if pos.x > hx {
+        n.x = 1.0;
+    } else if pos.x < -hx {
+        n.x = -1.0;
+    }
+    if pos.y > hy {
+        n.y = 1.0;
+    } else if pos.y < -hy {
+        n.y = -1.0;
+    }
+    if n == Vec2::ZERO {
+        None
+    } else {
+        Some(n.normalize_or_zero())
+    }
+}
+
 /// Reflect velocity off an axis-aligned wall normal (unit X or Y).
 pub fn bounce_velocity(vel: Vec2, normal: Vec2) -> Vec2 {
     vel - 2.0 * vel.dot(normal) * normal

@@ -784,6 +784,7 @@ pub fn player_fire(
         With<Player>,
     >,
     mut fire_q: Query<(&mut FireCooldown, &mut Inventory, &mut Velocity), With<Player>>,
+    mut vis_q: Query<&mut WeaponVisual>,
     mut pop_q: Query<&mut PopPopCharges>,
     mut enemies: Query<
         (
@@ -943,6 +944,13 @@ pub fn player_fire(
         weapon_id,
         &def,
     );
+    // Recoil + weapon kick on fire (feel)
+    vel.0 -= aim.0.normalize_or_zero() * def.recoil * 18.0;
+    for mut wv in vis_q.iter_mut() {
+        if wv.owner == player_ent {
+            wv.wkick = -def.recoil.max(2.0) * 1.5;
+        }
+    }
     // Recycle Gland: bullet weapons sometimes refund the shot.
     if player.recycle_gland
         && def.ammo == AmmoKind::Bullets
@@ -1290,6 +1298,7 @@ fn spawn_beam_shot(
             knockback: spec.knockback,
             timer: Timer::from_seconds(spec.duration, TimerMode::Once),
             tick: Timer::from_seconds(spec.tick, TimerMode::Repeating),
+            source,
         },
         Sprite {
             color: spec.color,
@@ -1299,7 +1308,6 @@ fn spawn_beam_shot(
         Transform::from_translation(center.extend(18.0))
             .with_rotation(Quat::from_rotation_z(angle)),
     ));
-    let _ = source;
 }
 
 pub fn spawn_player_projectile(
@@ -1424,6 +1432,14 @@ pub fn spawn_player_projectile_with_source(
             color: plasma.color,
             size: plasma.size,
         });
+    }
+    if archetype.hits_all_teams {
+        ec.insert(HitsAllTeams);
+        // Grace: ignore owner for ~2 frames so muzzle doesn't instant self-kill.
+        ec.insert(SpawnGrace(Timer::from_seconds(
+            2.0 / 30.0,
+            TimerMode::Once,
+        )));
     }
 
     let e = ec.id();
@@ -1781,7 +1797,7 @@ pub fn tick_weapon_visuals(
         if wv.owner != player_e {
             continue;
         }
-        wv.wkick *= 0.6_f32.powf(dt * 30.0);
+        wv.wkick *= 0.6_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
         if wv.wkick.abs() < 0.15 {
             wv.wkick = 0.0;
         }

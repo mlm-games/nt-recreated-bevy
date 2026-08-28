@@ -168,7 +168,7 @@ pub fn tick_beams(
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 secrets.mark_damage_taken();
-                last_damage.note(Some(HitId::Trap), None);
+                last_damage.note_from_source(beam.source.as_ref());
             }
 
             HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.08);
@@ -239,6 +239,19 @@ pub fn tick_sentry_turrets(
             Transform::from_translation(pos.extend(14.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
+    }
+}
+
+pub fn tick_spawn_grace(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut SpawnGrace)>,
+) {
+    for (e, mut g) in &mut q {
+        g.0.tick(time.delta());
+        if g.0.is_finished() {
+            commands.entity(e).remove::<SpawnGrace>();
+        }
     }
 }
 
@@ -331,9 +344,6 @@ pub fn move_projectiles(
         tf.translation += (vel.0 * dt).extend(0.0);
         let pos = tf.translation.truncate();
         let out = pos.x.abs() > ARENA_W / 2.0 + 80.0 || pos.y.abs() > ARENA_H / 2.0 + 80.0;
-        let wall_hit = !out
-            && (pos.x.abs() > ARENA_W / 2.0 - p.radius || pos.y.abs() > ARENA_H / 2.0 - p.radius);
-        let prop_hit = circle_hits_prop(pos, p.radius, &props);
 
         if p.life.just_finished() || out {
             on_projectile_removed(
@@ -357,30 +367,109 @@ pub fn move_projectiles(
             continue;
         }
 
-        if wall_hit {
-            // Sticky grenades attach to walls instead of dying.
-            if let Some(mut sticky) = sticky {
-                sticky.armed = true;
-                sticky.stuck_to = None;
-                sticky.offset = Vec2::ZERO;
+        // --- solid collision (arena rim OR prop/wall AABB) ---
+        let mut hit_normal: Option<Vec2> = None;
+        let mut hit_prop: Option<(Entity, Vec2, bool, Option<PropDeathEffect>)> = None;
+
+        if let Some(n) =
+            crate::game::projectile_math::arena_wall_normal(pos, p.radius, ARENA_W, ARENA_H)
+        {
+            hit_normal = Some(n);
+        }
+
+        for (prop_e, prop, prop_tf, death) in props.iter() {
+            let center = prop_tf.translation.truncate();
+            let half = prop.size * 0.5;
+            if let Some(n) =
+                crate::game::projectile_math::circle_aabb_normal(pos, p.radius, center, half)
+            {
+                hit_normal = Some(n);
+                hit_prop = Some((prop_e, center, prop.destructible, death.copied()));
+                break;
+            }
+        }
+
+        if let Some(normal) = hit_normal {
+            // Sticky: arm and stick (prop path keeps stuck_to when available)
+            if let Some(mut sticky_inner) = sticky {
+                sticky_inner.armed = true;
+                if let Some((prop_e, center, _, _)) = hit_prop {
+                    sticky_inner.stuck_to = Some(prop_e);
+                    sticky_inner.offset = pos - center;
+                } else {
+                    sticky_inner.stuck_to = None;
+                    sticky_inner.offset = Vec2::ZERO;
+                }
                 vel.0 = Vec2::ZERO;
                 continue;
             }
 
+            // Bounce remaining?
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
             {
                 bounce.0 -= 1;
-                let normal = if pos.x.abs() > ARENA_W / 2.0 - p.radius {
-                    Vec2::new(pos.x.signum(), 0.0)
-                } else {
-                    Vec2::new(0.0, pos.y.signum())
-                };
                 vel.0 = crate::game::projectile_math::bounce_velocity(vel.0, normal);
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
-                // Nudge off the wall so we don't re-collide next frame.
-                tf.translation += (normal * -p.radius * 0.5).extend(0.0);
+                tf.translation += (normal * (p.radius * 0.6 + 0.5)).extend(0.0);
                 continue;
+            }
+
+            // Terminal solid hit: damage destructible prop once, then remove projectile.
+            if let Some((prop_e, center, destructible, death_effect)) = hit_prop {
+                if destructible {
+                    let mut dead = false;
+                    let mut legacy_explosive = false;
+                    let mut death_copy = death_effect;
+                    for (pe, mut prop, _ptf, de) in &mut props {
+                        if pe != prop_e {
+                            continue;
+                        }
+                        prop.hp -= 1;
+                        legacy_explosive = prop.explosive;
+                        death_copy = de.copied();
+                        if prop.hp <= 0 {
+                            dead = true;
+                            commands.entity(pe).despawn();
+                        }
+                        break;
+                    }
+                    if dead {
+                        spawn_prop_death_effect(
+                            &mut commands,
+                            center,
+                            death_copy,
+                            legacy_explosive,
+                            p.source,
+                        );
+                        if let Ok(entrance) = entrances.get(prop_e) {
+                            secrets.queue(entrance.target);
+                        }
+                        if snowmen.get(prop_e).is_ok() {
+                            let mut rng = rand::rng();
+                            commands.spawn(PendingEnemySpawn {
+                                kind: EnemyKind::Bandit,
+                                pos: center
+                                    + Vec2::new(
+                                        rng.random_range(-6.0..6.0),
+                                        rng.random_range(-6.0..6.0),
+                                    ),
+                                difficulty: 1.0,
+                            });
+                            spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
+                        }
+                        if gold_barrels.get(prop_e).is_ok() {
+                            let weapon = random_gold_weapon(&mut rand::rng());
+                            spawn_pickup(
+                                &mut commands,
+                                &catalog,
+                                &asset_server,
+                                PickupKind::Weapon(weapon),
+                                center + Vec2::new(0.0, -14.0),
+                            );
+                        }
+                    }
+                }
             }
 
             if !p.explosive {
@@ -392,113 +481,6 @@ pub fn move_projectiles(
                     (30.0, 90.0),
                 );
             }
-            on_projectile_removed(
-                &mut commands,
-                &catalog,
-                &asset_server,
-                pos,
-                *team,
-                p.source,
-                hazard.copied(),
-                split.copied(),
-                vel.0,
-                p.explosive,
-                p.damage,
-                custom_explosion.copied(),
-                deploys_sentry.copied(),
-                spawn_pickup_spec.copied(),
-                plasma_burst.copied(),
-            );
-            commands.entity(e).despawn();
-            continue;
-        }
-
-        if prop_hit {
-            // Sticky grenades stick to the first overlapping prop.
-            if sticky.is_some() {
-                for (prop_e, prop, prop_tf, _death) in &mut props {
-                    let center = prop_tf.translation.truncate();
-                    let half = prop.size / 2.0;
-                    let closest = Vec2::new(
-                        pos.x.clamp(center.x - half.x, center.x + half.x),
-                        pos.y.clamp(center.y - half.y, center.y + half.y),
-                    );
-                    if pos.distance(closest) > p.radius {
-                        continue;
-                    }
-                    if let Some(ref mut sticky) = sticky {
-                        sticky.armed = true;
-                        sticky.stuck_to = Some(prop_e);
-                        sticky.offset = pos - center;
-                    }
-                    vel.0 = Vec2::ZERO;
-                    break;
-                }
-                continue;
-            }
-
-            let mut dead_prop = None;
-            for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
-                let center = prop_tf.translation.truncate();
-                let half = prop.size / 2.0;
-                let closest = Vec2::new(
-                    pos.x.clamp(center.x - half.x, center.x + half.x),
-                    pos.y.clamp(center.y - half.y, center.y + half.y),
-                );
-                if pos.distance(closest) > p.radius {
-                    continue;
-                }
-                if prop.destructible {
-                    prop.hp -= 1;
-                    if prop.hp <= 0 {
-                        dead_prop = Some((center, prop.explosive, death_effect.copied(), prop_e));
-                        commands.entity(prop_e).despawn();
-                    }
-                }
-                break;
-            }
-
-            if let Some((center, legacy_explosive, death_effect, prop_e)) = dead_prop {
-                // Shared terminal path: bespoke payloads for cars/toxic
-                // barrels/mines, legacy barrel boom, or plain debris burst.
-                spawn_prop_death_effect(
-                    &mut commands,
-                    center,
-                    death_effect,
-                    legacy_explosive,
-                    p.source,
-                );
-
-                // Destroying a secret entrance queues that secret.
-                if let Ok(entrance) = entrances.get(prop_e) {
-                    secrets.queue(entrance.target);
-                }
-
-                // Snowmen hide a snow bandit + rad (upstream SnowMan Destroy).
-                if snowmen.get(prop_e).is_ok() {
-                    let mut rng = rand::rng();
-                    commands.spawn(PendingEnemySpawn {
-                        kind: EnemyKind::Bandit,
-                        pos: center
-                            + Vec2::new(rng.random_range(-6.0..6.0), rng.random_range(-6.0..6.0)),
-                        difficulty: 1.0,
-                    });
-                    spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
-                }
-
-                // Gold barrels drop a gold weapon.
-                if gold_barrels.get(prop_e).is_ok() {
-                    let weapon = random_gold_weapon(&mut rand::rng());
-                    spawn_pickup(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
-                        PickupKind::Weapon(weapon),
-                        center + Vec2::new(0.0, -14.0),
-                    );
-                }
-            }
-
             on_projectile_removed(
                 &mut commands,
                 &catalog,
@@ -1002,6 +984,8 @@ pub fn projectile_hits(
         ),
         Without<Hitbox>,
     >,
+    hits_all_q: Query<Entity, With<HitsAllTeams>>,
+    grace_q: Query<Entity, With<SpawnGrace>>,
     mut targets: Query<
         (
             Entity,
@@ -1016,6 +1000,9 @@ pub fn projectile_hits(
     >,
 ) {
     let player = player_state.single().ok();
+    // Build fast lookup for HitsAllTeams / SpawnGrace (Bevy Query cap is 16).
+    let hits_all_set: std::collections::HashSet<Entity> = hits_all_q.iter().collect();
+    let grace_set: std::collections::HashSet<Entity> = grace_q.iter().collect();
 
     for (
         proj_e,
@@ -1051,7 +1038,15 @@ pub fn projectile_hits(
         for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in
             targets.iter_mut()
         {
-            if *target_team == *proj_team {
+            let hits_all = hits_all_set.contains(&proj_e);
+            if !hits_all && *target_team == *proj_team {
+                continue;
+            }
+            // Grace: ignore owner for ~2 frames so muzzle doesn't instant self-kill.
+            if grace_set.contains(&proj_e)
+                && let Some(src) = proj.source
+                && target_e == src.owner
+            {
                 continue;
             }
 
