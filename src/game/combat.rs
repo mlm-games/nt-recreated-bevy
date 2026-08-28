@@ -962,7 +962,7 @@ pub fn apply_explosions(
             health.hp -= dmg;
             health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             secrets.mark_damage_taken();
-            last_damage.note(boom.source.map(|s| s.hit_id), None);
+            last_damage.note_from_source(boom.source.as_ref());
             HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
         }
@@ -1107,7 +1107,7 @@ pub fn projectile_hits(
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
                 hit_player = true;
                 secrets.mark_damage_taken();
-                last_damage.note(proj.source.map(|s| s.hit_id), None);
+                last_damage.note_from_source(proj.source.as_ref());
                 audio.play_hurt(&mut commands);
             } else {
                 audio.play_hit(&mut commands);
@@ -1660,11 +1660,7 @@ pub fn resolve_deaths(
                     damage: 6 + run.loop_count as i32 * 2,
                     team: Team::Enemy,
                     hits_player: true,
-                    source: Some(DamageSource {
-                        owner: e,
-                        team: Team::Enemy,
-                        hit_id: HitId::Enemy(0),
-                    }),
+                    source: Some(DamageSource::enemy(e, enemy.kind)),
                 },
                 Transform::from_translation(pos.extend(20.0)),
             ));
@@ -1689,11 +1685,7 @@ pub fn resolve_deaths(
                             radius: 3.5,
                             knockback: 120.0,
                             explosive: false,
-                            source: Some(DamageSource {
-                                owner: e,
-                                team: Team::Enemy,
-                                hit_id: HitId::Enemy(0),
-                            }),
+                            source: Some(DamageSource::enemy(e, enemy.kind)),
                         },
                         Velocity(d * 190.0),
                         Sprite {
@@ -1720,6 +1712,7 @@ pub fn resolve_deaths(
                             owner: e,
                             team: Team::Enemy,
                             hit_id: HitId::Explosion(WeaponId::NONE),
+                            enemy_kind: Some(enemy.kind),
                         }),
                     },
                     Transform::from_translation(pos.extend(20.0)),

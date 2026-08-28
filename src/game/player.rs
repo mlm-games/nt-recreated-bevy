@@ -539,11 +539,7 @@ pub fn player_ability(
                     spawn_weapon_pickup: Some(SpawnsWeaponPickup { weapon: Some(held) }),
                     ..ProjectileArchetype::default()
                 },
-                Some(DamageSource {
-                    owner: player_e,
-                    team: Team::Player,
-                    hit_id: HitId::Weapon(held),
-                }),
+                Some(DamageSource::player_weapon(player_e, held)),
             );
 
             health.invuln = Timer::from_seconds(0.25, TimerMode::Once);
@@ -676,11 +672,10 @@ pub fn player_ability(
                         radius: 6.0,
                         knockback: 40.0,
                         explosive: true,
-                        source: Some(DamageSource {
-                            owner: player_e,
-                            team: Team::Player,
-                            hit_id: HitId::Weapon(WeaponId::GRENADE_LAUNCHER),
-                        }),
+                        source: Some(DamageSource::player_weapon(
+                            player_e,
+                            WeaponId::GRENADE_LAUNCHER,
+                        )),
                     },
                     Team::Player,
                     Velocity(dir * 420.0),
@@ -1081,11 +1076,7 @@ fn spawn_pellets(
             muzzle,
             aim.0.normalize_or_zero(),
             beam,
-            Some(DamageSource {
-                owner: player_ent,
-                team: Team::Player,
-                hit_id: HitId::Weapon(id),
-            }),
+            Some(DamageSource::player_weapon(player_ent, id)),
         );
         return;
     }
@@ -1112,11 +1103,7 @@ fn spawn_pellets(
                 deploys_sentry: Some(sentry),
                 ..ProjectileArchetype::default()
             },
-            Some(DamageSource {
-                owner: player_ent,
-                team: Team::Player,
-                hit_id: HitId::Weapon(id),
-            }),
+            Some(DamageSource::player_weapon(player_ent, id)),
         );
         return;
     }
@@ -1150,11 +1137,7 @@ fn spawn_pellets(
             def.hazard,
             def.split,
             archetype,
-            Some(DamageSource {
-                owner: player_ent,
-                team: Team::Player,
-                hit_id: HitId::Weapon(id),
-            }),
+            Some(DamageSource::player_weapon(player_ent, id)),
         );
     }
 }
@@ -1531,6 +1514,7 @@ pub fn hammerhead_chew(
                     owner: player_entity,
                     team: Team::Player,
                     hit_id: HitId::Other(301),
+                    enemy_kind: None,
                 }),
             );
             if let Ok(entrance) = entrances.get(prop_e) {
@@ -1696,6 +1680,7 @@ pub fn ally_ai(
                             owner: e,
                             team: Team::Player,
                             hit_id: HitId::Other(1),
+                            enemy_kind: None,
                         }),
                     },
                     Team::Player,

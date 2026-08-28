@@ -311,7 +311,13 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprSnowTankIdle.png" => Some("images/sprSnowTankWalk.png"),
         "images/sprGoldTankIdle.png" => Some("images/sprGoldTankWalk.png"),
         "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianWalk.png"),
-        // Secret areas & mansion garrison
+        // ADD — present in full WAD / gen_assets NT_ALL_SPRITES=1
+        "images/sprGuardianIdle.png" => Some("images/sprGuardianWalk.png"),
+        "images/sprTurtleIdle.png" => Some("images/sprTurtleWalk.png"),
+        "images/sprBigMaggotIdle.png" => Some("images/sprBigMaggotWalk.png"),
+        "images/sprBanditBossIdle.png" => Some("images/sprBanditBossWalk.png"),
+        "images/sprFireBallerIdle.png" => Some("images/sprFireBallerWalk.png"),
+        "images/sprSuperFireBallerIdle.png" => Some("images/sprSuperFireBallerWalk.png"),
         "images/sprBoneFish1Idle.png" => Some("images/sprBoneFish1Walk.png"),
         "images/sprMolefishIdle.png" => Some("images/sprMolefishWalk.png"),
         "images/sprMolesargeIdle.png" => Some("images/sprMolesargeWalk.png"),
@@ -319,9 +325,22 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprJungleFlyIdle.png" => Some("images/sprJungleFlyWalk.png"),
         "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
         "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
-        // Secret boss
         "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenWalk.png"),
+        // DogGuardian uses Walk as "idle" already — hurt maps from Walk path
         _ => None,
+    }
+}
+
+pub fn derive_walk_path_checked(catalog: &AssetCatalog, idle: &'static str) -> Option<&'static str> {
+    derive_walk_path(idle).filter(|p| catalog.has(p))
+}
+
+pub fn derive_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
+    let hurt = derive_hurt_path(idle);
+    if catalog.has(hurt) {
+        hurt
+    } else {
+        idle
     }
 }
 

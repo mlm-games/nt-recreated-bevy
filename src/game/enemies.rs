@@ -173,6 +173,8 @@ fn ready_timer() -> Timer {
 pub fn enemy_ai(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut _trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
     mask: Res<FloorMask>,
@@ -180,6 +182,7 @@ pub fn enemy_ai(
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
+            Entity,
             &Enemy,
             &mut EnemyBrain,
             &mut Velocity,
@@ -205,10 +208,10 @@ pub fn enemy_ai(
     // Pairwise separation to avoid enemy stacking.
     let positions: Vec<Vec2> = enemies
         .iter()
-        .map(|(_, _, _, tf, _, _)| tf.translation.truncate())
+        .map(|(_, _, _, _, tf, _, _)| tf.translation.truncate())
         .collect();
 
-    for (enemy, mut brain, mut vel, mut tf, mut sprite, boss) in &mut enemies {
+    for (entity, enemy, mut brain, mut vel, mut tf, mut sprite, boss) in &mut enemies {
         let pos = tf.translation.truncate();
         let to_player = player_pos - pos;
         let dist = to_player.length();
@@ -454,7 +457,18 @@ pub fn enemy_ai(
                 if brain.burst_left > 0 {
                     brain.burst_timer.tick(time.delta());
                     if brain.burst_timer.just_finished() {
-                        fire_enemy_bullet(&mut commands, &mut rng, enemy, def, pos, dir, euphoria);
+                        fire_enemy_bullet(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut rng,
+                            entity,
+                            enemy,
+                            def,
+                            pos,
+                            dir,
+                            euphoria,
+                        );
                         brain.burst_left -= 1;
                         if brain.burst_left == 0 {
                             brain.attack =
@@ -467,14 +481,27 @@ pub fn enemy_ai(
                         brain.burst_left = def.bullets_per_shot;
                         brain.burst_timer =
                             Timer::from_seconds(def.burst_interval, TimerMode::Once);
-                        fire_enemy_bullet(&mut commands, &mut rng, enemy, def, pos, dir, euphoria);
+                        fire_enemy_bullet(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut rng,
+                            entity,
+                            enemy,
+                            def,
+                            pos,
+                            dir,
+                            euphoria,
+                        );
                         brain.burst_left -= 1;
                     }
                 }
             } else {
                 brain.attack.tick(time.delta());
                 if brain.attack.just_finished() {
-                    fire_enemy_shot(&mut commands, &mut rng, enemy, def, pos, dir);
+                    fire_enemy_shot(
+                        &mut commands, &catalog, &asset_server, &mut rng, entity, enemy, def, pos, dir,
+                    );
                     brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
                 }
             }
@@ -482,9 +509,40 @@ pub fn enemy_ai(
     }
 }
 
+fn enemy_bullet_sprite(
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    kind: EnemyKind,
+    def: EnemyDef,
+) -> Sprite {
+    const CANDIDATES: &[&str] = &[
+        "images/sprEnemyBullet.png",
+        "images/sprBullet1.png",
+        "images/sprBullet2.png",
+        "images/sprScorpionBullet.png",
+        "images/sprBanditBullet.png",
+    ];
+    for path in CANDIDATES {
+        if catalog.has(path) {
+            let mut s = crate::game::content::sprite_exact(catalog, asset_server, path);
+            s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
+            let _ = kind;
+            return s;
+        }
+    }
+    Sprite {
+        color: def.projectile_color,
+        custom_size: Some(Vec2::splat(def.projectile_size)),
+        ..default()
+    }
+}
+
 fn fire_enemy_bullet(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     rng: &mut impl RngExt,
+    owner: Entity,
     enemy: &Enemy,
     def: EnemyDef,
     pos: Vec2,
@@ -495,6 +553,7 @@ fn fire_enemy_bullet(
     let angle = base + rng.random_range(-def.projectile_spread..def.projectile_spread);
     let shot_dir = Vec2::new(angle.cos(), angle.sin());
     let speed = def.projectile_speed * if euphoria { 0.8 } else { 1.0 };
+    let sprite = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -505,21 +564,13 @@ fn fire_enemy_bullet(
             radius: def.projectile_radius,
             knockback: 150.0,
             explosive: explosive_kind(enemy.kind),
-            source: Some(DamageSource {
-                owner: Entity::PLACEHOLDER,
-                team: Team::Enemy,
-                hit_id: HitId::Enemy(0),
-            }),
+            source: Some(DamageSource::enemy(owner, enemy.kind)),
         },
         Velocity(shot_dir * speed),
-        Sprite {
-            color: def.projectile_color,
-            custom_size: Some(Vec2::splat(def.projectile_size)),
-            ..default()
-        },
-        Transform::from_translation((pos + shot_dir * 20.0).extend(15.0)),
+        sprite,
+        Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
+            .with_rotation(Quat::from_rotation_z(angle)),
     ));
-    let _ = enemy;
 }
 
 /// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
@@ -532,7 +583,10 @@ fn explosive_kind(kind: EnemyKind) -> bool {
 
 fn fire_enemy_shot(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     rng: &mut impl RngExt,
+    owner: Entity,
     enemy: &Enemy,
     def: EnemyDef,
     pos: Vec2,
@@ -548,6 +602,7 @@ fn fire_enemy_shot(
         };
         let angle = base + offset + rng.random_range(-0.06..0.06);
         let shot_dir = Vec2::new(angle.cos(), angle.sin());
+        let sprite = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
         commands.spawn((
             GameCleanup,
             LevelCleanup,
@@ -558,22 +613,14 @@ fn fire_enemy_shot(
                 radius: def.projectile_radius,
                 knockback: 150.0,
                 explosive: explosive_kind(enemy.kind),
-                source: Some(DamageSource {
-                    owner: Entity::PLACEHOLDER,
-                    team: Team::Enemy,
-                    hit_id: HitId::Enemy(0),
-                }),
+                source: Some(DamageSource::enemy(owner, enemy.kind)),
             },
             Velocity(shot_dir * def.projectile_speed),
-            Sprite {
-                color: def.projectile_color,
-                custom_size: Some(Vec2::splat(def.projectile_size)),
-                ..default()
-            },
-            Transform::from_translation((pos + shot_dir * 20.0).extend(15.0)),
+            sprite,
+            Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
+                .with_rotation(Quat::from_rotation_z(angle)),
         ));
     }
-    let _ = enemy;
 }
 /// Big Bandit bursts in once enough of the floor's trash is dead, charging
 /// from a wall-adjacent cell near the player (upstream BanditBoss behaviour).
@@ -722,11 +769,7 @@ pub fn tick_frog_eggs(
                     radius: 4.0,
                     knockback: 100.0,
                     explosive: false,
-                    source: Some(DamageSource {
-                        owner: e,
-                        team: Team::Enemy,
-                        hit_id: HitId::Enemy(0),
-                    }),
+                    source: Some(DamageSource::enemy(e, enemy.kind)),
                 },
                 Velocity(d * 240.0),
                 Sprite {

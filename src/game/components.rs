@@ -136,15 +136,26 @@ impl LastDamageTaken {
         self.enemy_kind = enemy_kind;
         self.source_name = match (hit_id, enemy_kind) {
             (_, Some(kind)) => enemy_def(kind).name.to_ascii_uppercase(),
+            (Some(HitId::Enemy(id)), None) => EnemyKind::from_u16(id)
+                .map(|k| enemy_def(k).name.to_ascii_uppercase())
+                .unwrap_or_else(|| "ENEMY".into()),
             (Some(HitId::Contact), _) => "CONTACT".into(),
             (Some(HitId::Toxic), _) => "TOXIC".into(),
             (Some(HitId::Fire), _) => "FIRE".into(),
             (Some(HitId::Trap), _) => "TRAP".into(),
             (Some(HitId::Explosion(_)), _) => "EXPLOSION".into(),
             (Some(HitId::Weapon(_)), _) => "BULLET".into(),
-            (Some(HitId::Enemy(_)), _) => "ENEMY".into(),
+            (Some(HitId::Crown), _) => "CROWN".into(),
+            (Some(HitId::Other(_)), _) => "???".into(),
             _ => "???".into(),
         };
+    }
+
+    pub fn note_from_source(&mut self, source: Option<&DamageSource>) {
+        match source {
+            Some(s) => self.note(Some(s.hit_id), s.enemy_kind),
+            None => self.note(None, None),
+        }
     }
 }
 
@@ -516,6 +527,7 @@ impl Default for WeaponId {
 pub enum HitId {
     Weapon(WeaponId),
     Explosion(WeaponId),
+    /// Discriminant = `enemy_kind as u16`.
     Enemy(u16),
     Contact,
     Fire,
@@ -525,11 +537,40 @@ pub enum HitId {
     Other(u16),
 }
 
+impl HitId {
+    #[inline]
+    pub fn from_enemy_kind(kind: EnemyKind) -> Self {
+        HitId::Enemy(kind as u16)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct DamageSource {
     pub owner: Entity,
     pub team: Team,
     pub hit_id: HitId,
+    /// Cached so Game Over still works after the shooter is despawned.
+    pub enemy_kind: Option<EnemyKind>,
+}
+
+impl DamageSource {
+    pub fn enemy(owner: Entity, kind: EnemyKind) -> Self {
+        Self {
+            owner,
+            team: Team::Enemy,
+            hit_id: HitId::from_enemy_kind(kind),
+            enemy_kind: Some(kind),
+        }
+    }
+
+    pub fn player_weapon(owner: Entity, wep: WeaponId) -> Self {
+        Self {
+            owner,
+            team: Team::Player,
+            hit_id: HitId::Weapon(wep),
+            enemy_kind: None,
+        }
+    }
 }
 
 #[derive(Component)]

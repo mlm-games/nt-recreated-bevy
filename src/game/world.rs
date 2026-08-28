@@ -145,8 +145,24 @@ fn generation_goal_for_run(run: &Run) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// scrMakeFloor port... (walls and screen ends are not yet one)
+// scrMakeFloor port — floor walkers + mcr_floor_make_walls + ScreenEnd outer ring.
+// ScreenEnd marks lattice walls whose owner floor cell is NOT in the floor set
+// (outer ring). Boss intros prefer breaking these (see enemies::tick_delayed_boss_spawns).
 // ---------------------------------------------------------------------------
+
+/// A wall is a screen-end if it has fewer than 2 orthogonal floor-neighbour
+/// lattice owners (true perimeter), matching upstream ScreenEnd placement.
+pub fn is_screen_end_wall(wx: i32, wy: i32, floor_set: &std::collections::HashSet<(i32, i32)>) -> bool {
+    let owner = floor_cell_for_wall(wx, wy);
+    let neighbors = [
+        (owner.0 - 1, owner.1),
+        (owner.0 + 1, owner.1),
+        (owner.0, owner.1 - 1),
+        (owner.0, owner.1 + 1),
+    ];
+    let floor_n = neighbors.iter().filter(|c| floor_set.contains(c)).count();
+    floor_n <= 1
+}
 
 struct Maker {
     // Position in floor-cell units relative to origin cell.
@@ -1767,8 +1783,7 @@ pub fn spawn_level(
             ))
             .id();
         // Outer ring walls preferentially break for boss intros / generators.
-        let is_screen_end = !floor_set.contains(&floor_cell_for_wall(wx, wy));
-        if is_screen_end {
+        if is_screen_end_wall(wx, wy, &floor_set) {
             commands.entity(wall_e).insert(ScreenEnd);
         }
     }

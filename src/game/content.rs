@@ -1,6 +1,6 @@
 //! Data-driven content registries: characters, weapons, enemies, mutations.
-//! All visuals are placeholder colored sprites; no external assets.
 //! Stats mirror the GPL Nuclear-Throne-Mobile rebuild reference.
+//! Visuals resolve through AssetCatalog (original strips via tools/gen_assets.py).
 
 use std::collections::{HashMap, HashSet};
 
@@ -1297,6 +1297,83 @@ pub enum EnemyKind {
     OldGuardian,
     /// Palace guardian spawned by Throne statues.
     PalaceGuardian,
+}
+
+impl EnemyKind {
+    pub fn from_u16(v: u16) -> Option<Self> {
+        const ALL: &[EnemyKind] = &[
+            EnemyKind::Maggot,
+            EnemyKind::Bandit,
+            EnemyKind::Scorpion,
+            EnemyKind::Assassin,
+            EnemyKind::Freak,
+            EnemyKind::BigBandit,
+            EnemyKind::BigBanditLoop,
+            EnemyKind::Throne,
+            EnemyKind::ThroneII,
+            EnemyKind::Hyper,
+            EnemyKind::Rat,
+            EnemyKind::BigRat,
+            EnemyKind::RobotGuard,
+            EnemyKind::Turret,
+            EnemyKind::SnowBandit,
+            EnemyKind::Wolf,
+            EnemyKind::BigDog,
+            EnemyKind::BigDogLoop,
+            EnemyKind::LilHunter,
+            EnemyKind::LilHunterLoop,
+            EnemyKind::IdpdGrunt,
+            EnemyKind::IdpdShield,
+            EnemyKind::IdpdElite,
+            EnemyKind::IdpdVan,
+            EnemyKind::Mom,
+            EnemyKind::FrogQueen,
+            EnemyKind::Technomancer,
+            EnemyKind::Captain,
+            EnemyKind::Ballguy,
+            EnemyKind::FrogEgg,
+            EnemyKind::Necromancer,
+            EnemyKind::Spider,
+            EnemyKind::Crystal,
+            EnemyKind::LaserCrystal,
+            EnemyKind::Sniper,
+            EnemyKind::Crab,
+            EnemyKind::Gator,
+            EnemyKind::BuffGator,
+            EnemyKind::Raven,
+            EnemyKind::Salamander,
+            EnemyKind::MeleeBandit,
+            EnemyKind::BigMaggot,
+            EnemyKind::FastRat,
+            EnemyKind::Ratking,
+            EnemyKind::GoldScorpion,
+            EnemyKind::LightningCrystal,
+            EnemyKind::ExploFreak,
+            EnemyKind::RhinoFreak,
+            EnemyKind::SnowTank,
+            EnemyKind::GoldSnowtank,
+            EnemyKind::Guardian,
+            EnemyKind::ExploGuardian,
+            EnemyKind::DogGuardian,
+            EnemyKind::JungleBandit,
+            EnemyKind::BoneFish,
+            EnemyKind::Turtle,
+            EnemyKind::Molefish,
+            EnemyKind::Molesarge,
+            EnemyKind::FireBaller,
+            EnemyKind::SuperFireBaller,
+            EnemyKind::Jock,
+            EnemyKind::JungleFly,
+            EnemyKind::InvSpider,
+            EnemyKind::InvLaserCrystal,
+            EnemyKind::PopoFreak,
+            EnemyKind::MaggotSpawn,
+            EnemyKind::IdpdInspector,
+            EnemyKind::OldGuardian,
+            EnemyKind::PalaceGuardian,
+        ];
+        ALL.get(v as usize).copied()
+    }
 }
 
 /// `size`/`color` are presentation-parity fields retained from the reference

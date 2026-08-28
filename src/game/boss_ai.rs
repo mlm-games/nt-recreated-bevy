@@ -477,6 +477,11 @@ fn big_dog_stomp(
 ) {
     ScreenEffects::add_trauma(trauma, if enraged || looped { 0.35 } else { 0.24 });
 
+    let bigdog_kind = if looped {
+        EnemyKind::BigDogLoop
+    } else {
+        EnemyKind::BigDog
+    };
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -486,11 +491,7 @@ fn big_dog_stomp(
             damage: if enraged { 8 } else { 6 },
             team: Team::Enemy,
             hits_player: true,
-            source: Some(DamageSource {
-                owner,
-                team: Team::Enemy,
-                hit_id: HitId::Enemy(0),
-            }),
+            source: Some(DamageSource::enemy(owner, bigdog_kind)),
         },
         Transform::from_translation(pos.extend(20.0)),
     ));
@@ -612,6 +613,11 @@ fn lil_hunter_ai(
                 ScreenEffects::add_trauma(trauma, 0.28);
 
                 let land_pos = tf.translation.truncate();
+                let lil_kind = if looped {
+                    EnemyKind::LilHunterLoop
+                } else {
+                    EnemyKind::LilHunter
+                };
                 commands.spawn((
                     GameCleanup,
                     LevelCleanup,
@@ -621,11 +627,7 @@ fn lil_hunter_ai(
                         damage: if boss.enraged { 6 } else { 4 },
                         team: Team::Enemy,
                         hits_player: true,
-                        source: Some(DamageSource {
-                            owner,
-                            team: Team::Enemy,
-                            hit_id: HitId::Enemy(0),
-                        }),
+                        source: Some(DamageSource::enemy(owner, lil_kind)),
                     },
                     Transform::from_translation(land_pos.extend(20.0)),
                 ));
@@ -1004,11 +1006,7 @@ fn throne_ii_split_orbs(
                 radius: 10.0,
                 knockback: 80.0,
                 explosive: false,
-                source: Some(DamageSource {
-                    owner,
-                    team: Team::Enemy,
-                    hit_id: HitId::Enemy(0),
-                }),
+                source: Some(DamageSource::enemy(owner, EnemyKind::ThroneII)),
             },
             Velocity(dir * 140.0),
             SplitOnDeath(crate::game::content::SplitDef {
@@ -1055,11 +1053,7 @@ fn throne_ii_laser_orbs(
                 radius: 9.0,
                 knockback: 60.0,
                 explosive: false,
-                source: Some(DamageSource {
-                    owner,
-                    team: Team::Enemy,
-                    hit_id: HitId::Enemy(0),
-                }),
+                source: Some(DamageSource::enemy(owner, EnemyKind::ThroneII)),
             },
             Velocity(dir * 120.0),
             Sprite {
@@ -1179,11 +1173,7 @@ fn hyper_search_detonate(
             damage: 6,
             team: Team::Enemy,
             hits_player: true,
-            source: Some(DamageSource {
-                owner,
-                team: Team::Enemy,
-                hit_id: HitId::Enemy(0),
-            }),
+            source: Some(DamageSource::enemy(owner, EnemyKind::Hyper)),
         },
         Transform::from_translation(player_pos.extend(20.0)),
     ));
@@ -1807,6 +1797,21 @@ fn fire_projectile(
     size: f32,
 ) {
     let angle = dir.y.atan2(dir.x);
+    let source = if team == Team::Enemy {
+        Some(DamageSource {
+            owner,
+            team,
+            hit_id: HitId::Enemy(EnemyKind::Bandit as u16),
+            enemy_kind: Some(EnemyKind::Bandit),
+        })
+    } else {
+        Some(DamageSource {
+            owner,
+            team,
+            hit_id: HitId::Weapon(WeaponId::NONE),
+            enemy_kind: None,
+        })
+    };
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1817,11 +1822,7 @@ fn fire_projectile(
             radius,
             knockback,
             explosive: false,
-            source: Some(DamageSource {
-                owner,
-                team,
-                hit_id: HitId::Enemy(0),
-            }),
+            source,
         },
         Velocity(dir * speed),
         Sprite {
