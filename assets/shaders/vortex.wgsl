@@ -124,7 +124,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    // SpiralDebris pass — drawn AFTER all wisps (scrDrawSpiral order), on top.
+    // SpiralDebris pass - drawn AFTER all wisps (scrDrawSpiral order), on top.
     // CPU supplies [x, y, rot_rad, frame + xscale/32]; x < -100 = empty slot.
     for (var i: u32 = 0u; i < 32u; i = i + 1u) {
         let d = debris[i];

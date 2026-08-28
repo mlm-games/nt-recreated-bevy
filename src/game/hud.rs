@@ -108,7 +108,7 @@ pub fn sync_hud(
             .iter()
             .map(|u| {
                 let def = ultra_mutation_def(*u);
-                format!("ULTRA: {} — {}", def.name, def.description)
+                format!("ULTRA: {} - {}", def.name, def.description)
             })
             .collect()
     } else {
@@ -118,7 +118,7 @@ pub fn sync_hud(
                     .iter()
                     .map(|m| {
                         let def = mutation_def(*m);
-                        format!("{} — {}", def.name, def.description)
+                        format!("{} - {}", def.name, def.description)
                     })
                     .collect()
             })

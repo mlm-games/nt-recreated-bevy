@@ -102,7 +102,7 @@ pub fn player_aim(
     if input.aim_axis != Vec2::ZERO {
         aim.0 = input.aim_axis.normalize_or_zero();
         if let Ok(mut follow) = follow_q.single_mut() {
-            // Clamp stick lookahead — no runaway.
+            // Clamp stick lookahead - no runaway.
             const MAX_LOOK: f32 = 48.0;
             follow.set_aim(player_pos + aim.0 * MAX_LOOK);
         }
@@ -1612,7 +1612,7 @@ pub fn tick_portal_strikes(
 }
 
 /// Ability residual clouds (Frog puke, Horror beam residue).
-/// Must NOT touch weapon clouds (`With<Team>`, no AbilityHazard) — those are
+/// Must NOT touch weapon clouds (`With<Team>`, no AbilityHazard) - those are
 /// handled by `combat::tick_hazard_clouds`.
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,

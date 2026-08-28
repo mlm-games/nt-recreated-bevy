@@ -63,7 +63,7 @@ fn letterbox_margin(effective_w: f32) -> f32 {
 
 /// scrMenuDrawLoadout crown grid slots, GM-exact. `_crown_x` starts at
 /// `_crownright - _crownsize*3` (=248), wraps when it passes `_crownright`
-/// OR right after crwn_none — so RANDOM+NONE sit alone on row one and the
+/// OR right after crwn_none - so RANDOM+NONE sit alone on row one and the
 /// remaining twelve flow 4-per-row from `_crownleft` (=220).
 /// Returns `(crown_id, gui_x, gui_y)`; crown size is 28 px.
 pub fn crown_slot_positions() -> Vec<(u8, f32, f32)> {
@@ -127,9 +127,9 @@ impl GuiMap {
     }
 }
 
-/// GameMaker builtin `c_gray` — unselected char-select pods.
+/// GameMaker builtin `c_gray` - unselected char-select pods.
 const C_GRAY: Color = Color::srgb_u8(128, 128, 128);
-/// `#999999` (`c_uigray`, macros_gameplay.gml) — unhovered GoButton.
+/// `#999999` (`c_uigray`, macros_gameplay.gml) - unhovered GoButton.
 const C_UIGRAY: Color = Color::srgb_u8(153, 153, 153);
 
 /// Slot geometry reproduced from nt-rewrite `Menu/Create_0`.
@@ -254,9 +254,7 @@ fn gm_sprite(
     (sprite, Transform::from_xyz(center.x, center.y, z))
 }
 
-// ---------------------------------------------------------------------------
 // Boot logo (nt-rewrite object `Logo`: sprLogo centred on the GUI)
-// ---------------------------------------------------------------------------
 
 /// The full Vlambeer boot sequence (objects `Vlambeer` + `Logo`):
 ///
@@ -264,7 +262,7 @@ fn gm_sprite(
 /// mode 1: "MADE IN GAMEMAKER"                          (60 ticks)
 /// mode 2: sprVlambeer card + additive glow            (120 ticks)
 /// mode 3: team credits                                 (60 ticks)
-/// mode 4: NT logo — frame-stepped machinegun intro,    (input)
+/// mode 4: NT logo - frame-stepped machinegun intro,    (input)
 ///         then any key/click -> main menu buttons.
 ///
 /// Every card sprite is spawned ONCE up front and kept hidden; card switches
@@ -294,7 +292,7 @@ struct BootState {
     logo_glow: Vec<Entity>,
     /// Per-mode Repose-replacement text lines, pre-spawned hidden:
     /// (mode, entities). Rendered as Text2d so text and sprite cards share
-    /// ONE visibility timeline — no cross-renderer timing at all.
+    /// ONE visibility timeline - no cross-renderer timing at all.
     texts: Vec<(u8, Vec<Entity>)>,
 }
 
@@ -701,7 +699,7 @@ const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
 
 /// Build every boot-card sprite once, parked hidden. Card switches only flip
 /// Visibility (old set hidden + new set visible queued in the same frame), so
-/// swaps are atomic — no compositing, no blank gaps.
+/// swaps are atomic - no compositing, no blank gaps.
 #[allow(clippy::too_many_arguments)]
 /// One centred Silkscreen line, the Bevy-sprite twin of the old Repose
 /// `nt_text_at(..., centered)` splash labels.
@@ -858,7 +856,7 @@ fn build_boot_cards(
         );
     }
 
-    // Text cards (modes 0/1/3) — same hidden-until-switched lifecycle as the
+    // Text cards (modes 0/1/3) - same hidden-until-switched lifecycle as the
     // sprite cards above.
     let cy = GUI_H / 2.0;
     let mut group = |lines: Vec<(&str, Color)>, base_y: f32, step: f32| -> Vec<Entity> {
@@ -1271,7 +1269,7 @@ impl Plugin for UiArtPlugin {
                     reset_camera_view,
                     spawn_char_select,
                     // PlayButton/Other_10: SpiralCont dies before the campfire
-                    // menu exists — no swirl (and no portal drone) on char select.
+                    // menu exists - no swirl (and no portal drone) on char select.
                     crate::game::vortex::teardown_vortex,
                 ),
             )
@@ -1305,11 +1303,9 @@ fn view_setup<F: QueryFilter>(
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Title: rotating spiral field + logo — now rendered by game::vortex (WGSL).
+// Title: rotating spiral field + logo - now rendered by game::vortex (WGSL).
 // SpiralCtl lives in crate::game::vortex; ensure_vortex_quad/vortex_tick run
 // from VortexPlugin. despawn_title_art below still tears the resource down.
-// ---------------------------------------------------------------------------
 
 fn despawn_title_art(
     mut commands: Commands,
@@ -1328,14 +1324,12 @@ fn despawn_title_art(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Char select (nt-rewrite objects: Menu/Create_0, CharSelect, GoButton)
-// ---------------------------------------------------------------------------
 
 /// Live handles for the title char-select art.
 #[derive(Resource, Default)]
 struct CharSelectArt {
-    /// (pod entity, race id, gui x) — one per `CharSelect` instance.
+    /// (pod entity, race id, gui x) - one per `CharSelect` instance.
     pods: Vec<(Entity, usize, f32)>,
     /// GoButton entity + base gui position.
     go_button: Option<(Entity, f32, f32)>,
@@ -1372,7 +1366,7 @@ struct CharSelectArt {
     open_panel: Option<Entity>,
     /// Open-panel crown grid: (entity, crown id, gui x, gui y, last locked).
     crown_grid: Vec<(Entity, u8, f32, f32, bool)>,
-    /// Skin column: (entity, skin idx, last locked). Positions are live —
+    /// Skin column: (entity, skin idx, last locked). Positions are live -
     /// the column start depends on the selected race's skin count.
     skin_grid: Vec<(Entity, usize, bool)>,
 }
@@ -1823,7 +1817,7 @@ fn spawn_char_select(
     }
 
     // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait,
-    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64). Native size —
+    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64). Native size -
     // GameMaker never scales it.
     {
         let (spr, tf) = gm_sprite(
@@ -1961,7 +1955,7 @@ fn spawn_char_select(
         // Open panel (sprLoadoutOpen, bottom-right origin) + the crown grid
         // layout from scrMenuDrawLoadout: start (248,48), step 28, wrap at
         // the right edge back to x=220.
-        // Scale per upstream: _xscale = max(1, (_w - _skins_x)/200) — with
+        // Scale per upstream: _xscale = max(1, (_w - _skins_x)/200) - with
         // _skins_x = _w-136 this is always 1; _yscale = (_splat_y-36)/168+0.05.
         let (spr, tf) = gm_sprite(
             &catalog,
@@ -2006,7 +2000,7 @@ fn spawn_char_select(
                 false,
             ));
         }
-        // Skins (left side of loadout panel) — up to 4 slots; exact y for
+        // Skins (left side of loadout panel) - up to 4 slots; exact y for
         // the live race count is applied every tick (scrMenuDrawLoadout).
         for (idx, _gx, _gy) in skin_slot_positions(4) {
             let (spr, tf) = gm_sprite(
@@ -2580,9 +2574,7 @@ fn char_select_tick(
     }
 }
 
-// ---------------------------------------------------------------------------
 // In-game HUD (nt-rewrite scripts/scrDrawPlayerHUD.gml)
-// ---------------------------------------------------------------------------
 
 /// Ammo icon sprite pairs per NT ammo type (Bullets..Energy).
 const AMMO_SPRITES: [(&str, &str); 5] = [
@@ -2597,7 +2589,7 @@ const AMMO_SPRITES: [(&str, &str); 5] = [
 const AMMO_FILL_FRAMES: f32 = 7.0;
 
 /// Source rectangle for a weapon HUD icon: subimage 1, region starting at
-/// (xoffset, yoffset - 8) sized (weapon_width, 14) — scrDrawPlayerHUD.
+/// (xoffset, yoffset - 8) sized (weapon_width, 14) - scrDrawPlayerHUD.
 fn weapon_icon_rect(m: SpriteMeta, wide: bool) -> Rect {
     let (_frames, w, _h, _fps, ox, oy) = (m[0], m[1], m[2], m[3], m[4], m[5]);
     let ww = if wide { 32.0 } else { 16.0 };
@@ -2889,7 +2881,7 @@ fn gm_weapon_icon(
 }
 
 /// Per-tick HUD sync: health fill widths, rad-bar frame, ammo icon fills,
-/// weapon icons and outline tints — all from live components.
+/// weapon icons and outline tints - all from live components.
 #[allow(clippy::type_complexity)]
 fn sync_hud_art(
     mut refs: Option<ResMut<HudArtRefs>>,
@@ -3114,7 +3106,7 @@ mod campfire_ui_tests {
     }
 
     /// Skin column geometry: x fixed at 184; y start = 120 - 14*count - 2,
-    /// step 28 — verified against scrMenuDrawLoadout's _skins_y formula.
+    /// step 28 - verified against scrMenuDrawLoadout's _skins_y formula.
     #[test]
     fn skin_slots_match_scrMenuDrawLoadout() {
         // Most races: 3 skins -> starts at 76.

@@ -2796,7 +2796,7 @@ mod tests {
     #[test]
     fn shell_weapons_multi_pellet_or_heavy_slug() {
         // Every Shells-typed weapon either fires a wide volley or a single
-        // heavy slug (Slugger family) — never a lone weak pea.
+        // heavy slug (Slugger family) - never a lone weak pea.
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Shells || meta.wep_mele {
                 continue;
@@ -2821,7 +2821,7 @@ mod tests {
     #[test]
     fn explosive_type_weapons_boom_or_burn() {
         // Every Explosives-ammo weapon is flagged explosive OR carries an
-        // elemental hazard — except the PARTY GUN, which is deliberately inert
+        // elemental hazard - except the PARTY GUN, which is deliberately inert
         // confetti.
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Explosives {

@@ -283,7 +283,7 @@ pub fn crown_floor_start_bonus(
             }
 
             CrownKind::Guns => {
-                // Extra weapon drop at floor start — but not inside secret
+                // Extra weapon drop at floor start - but not inside secret
                 // reward areas where weapons already rain.
                 if crate::game::secret_areas::is_secret_area(start.area) {
                     continue;

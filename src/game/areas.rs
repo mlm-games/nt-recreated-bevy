@@ -55,7 +55,7 @@ pub enum TransitionCondition {
 /// NT cycle: 1-1..1-3 Desert, 2-1 Sewers, 3-1..3-3 Scrapyards, 4-1 Caves,
 /// 5-1..5-3 Frozen City, 6-1 Labs, 7-1..7-3 Palace (Throne).
 ///
-/// Secret areas (Vault/CrownVault/Oasis) are NEVER produced here — they are
+/// Secret areas (Vault/CrownVault/Oasis) are NEVER produced here - they are
 /// reached only through explicit transition conditions upstream.
 pub fn area_for_floor(floor: u32, _loop_count: u32) -> AreaId {
     let route_floor = (floor.max(1) - 1) % 15 + 1;

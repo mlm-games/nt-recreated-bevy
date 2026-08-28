@@ -1578,7 +1578,7 @@ pub fn resolve_deaths(
                         player_pos_now,
                     );
                 } else {
-                    // Sit ending — run over, no loop (generators still up).
+                    // Sit ending - run over, no loop (generators still up).
                     run.game_over = true;
                     toast.show("THE NUCLEAR THRONE");
                     ScreenEffects::flash_white(&mut flash, 0.2);

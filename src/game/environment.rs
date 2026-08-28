@@ -14,9 +14,7 @@ use game_utils_bevy::hit_flash::HitFlash;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
-// -----------------------------------------------------------------------------
 // Functional floor surfaces
-// -----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SurfaceKind {
@@ -67,7 +65,7 @@ pub fn point_in_zone(point: Vec2, center: Vec2, half_size: Vec2) -> bool {
 /// Select the strongest surface under an actor.
 ///
 /// Cobweb takes priority over ice if generation places both zones on the same
-/// cell — this prevents ice compensation from defeating web slowdown.
+/// cell - this prevents ice compensation from defeating web slowdown.
 pub fn surface_at_point(
     point: Vec2,
     zones: impl IntoIterator<Item = (Vec2, SurfaceZone)>,
@@ -115,7 +113,7 @@ pub fn surface_velocity(
         }
 
         SurfaceKind::Ice => {
-            // Undo most—but deliberately not all—of the regular movement
+            // Undo most-but deliberately not all-of the regular movement
             // friction; the 0.992 term guarantees eventual stillness.
             let friction = base_friction.clamp(0.05, 0.999);
             let compensation = (1.0 / friction).powf(dt * 60.0);
@@ -179,9 +177,7 @@ pub fn apply_surface_effects(
     }
 }
 
-// -----------------------------------------------------------------------------
 // Environmental hazards
-// -----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EnvironmentHazardKind {
@@ -361,9 +357,7 @@ pub fn tick_environment_hazards(
     }
 }
 
-// -----------------------------------------------------------------------------
 // Prop terminal payloads
-// -----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
 pub struct ExplosionPayload {
@@ -472,9 +466,7 @@ pub fn spawn_prop_death_effect(
     }
 }
 
-// -----------------------------------------------------------------------------
 // Mines
-// -----------------------------------------------------------------------------
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ProximityMine {
@@ -516,9 +508,7 @@ pub fn tick_proximity_mines(
     }
 }
 
-// -----------------------------------------------------------------------------
 // Presentation helpers
-// -----------------------------------------------------------------------------
 
 pub fn animate_environment(time: Res<Time>, mut q: Query<(&SurfacePulse, &mut Sprite)>) {
     let now = time.elapsed_secs();
@@ -560,6 +550,4 @@ pub fn valid_environment_position(pos: Vec2, radius: f32) -> bool {
     pos.x.abs() <= ARENA_W * 0.5 - radius && pos.y.abs() <= ARENA_H * 0.5 - radius
 }
 
-// -----------------------------------------------------------------------------
 // Unit tests
-// -----------------------------------------------------------------------------

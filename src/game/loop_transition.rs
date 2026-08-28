@@ -108,8 +108,8 @@ pub fn tick_campfire(
 
         match campfire.phase {
             CampfirePhase::Sitting => {
-                // A warning that started just before the Throne died — or IDPD
-                // that survived the fight — switches the interlude to the
+                // A warning that started just before the Throne died - or IDPD
+                // that survived the fight - switches the interlude to the
                 // alternate clear-gated route.
                 if needs_idpd_clear {
                     if !campfire.idpd_gate_armed {
@@ -144,8 +144,8 @@ pub fn tick_campfire(
                 }
 
                 if needs_idpd_clear {
-                    // Any newly observed IDPD — or a warning that has not yet
-                    // spawned — restarts the confirmation interval.
+                    // Any newly observed IDPD - or a warning that has not yet
+                    // spawned - restarts the confirmation interval.
                     campfire.reset_idpd_clear_confirmation();
                     continue;
                 }
@@ -226,7 +226,7 @@ pub fn tick_campfire(
 
 /// Applies the loop-portal transition when `loop_ready` is pending.
 ///
-/// Loop 1 starts at global floor 16 (= 1*15 + 1), loop 2 at 31, and so on —
+/// Loop 1 starts at global floor 16 (= 1*15 + 1), loop 2 at 31, and so on -
 /// this keeps `(floor - 1) / 15`, `route_coordinates`, `area_for_floor`,
 /// boss-floor mapping, and IDPD loop gating coherent.
 #[allow(clippy::needless_pass_by_ref_mut)]

@@ -12,7 +12,7 @@ pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
 pub const PLAYER_ACCEL: f32 = 1500.0;
 pub const PLAYER_FRICTION: f32 = 0.82;
 
-/// 32px NT floor grid — walkable cells only (like Floor / Wall solids).
+/// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
 pub const TILE: f32 = 32.0;
 
 #[derive(Resource, Default, Clone)]
@@ -1155,11 +1155,11 @@ pub struct Telekinesis {
     pub timer: Timer,
 }
 
-/// Y.V. Pop Pop — next successful shot fires a second volley.
+/// Y.V. Pop Pop - next successful shot fires a second volley.
 #[derive(Component)]
 pub struct PopPopCharges(pub u8);
 
-/// Plant snare zone — slows enemies while alive.
+/// Plant snare zone - slows enemies while alive.
 #[derive(Component)]
 pub struct SnareZone {
     pub timer: Timer,
@@ -1297,5 +1297,32 @@ mod loop_boss_brain_tests {
 
         assert!(looped.attack_timer.duration() < base.attack_timer.duration());
         assert!(looped.special_timer.duration() < base.special_timer.duration());
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn damage_source_enemy_encodes_kind() {
+        let e = Entity::from_bits(1);
+        let s = DamageSource::enemy(e, EnemyKind::Bandit);
+        assert_eq!(s.hit_id, HitId::from_enemy_kind(EnemyKind::Bandit));
+        assert_eq!(s.enemy_kind, Some(EnemyKind::Bandit));
+        assert_ne!(s.owner, Entity::PLACEHOLDER);
+    }
+
+    #[test]
+    fn last_damage_names_enemy_from_hit_id() {
+        let mut last = LastDamageTaken::default();
+        last.note(Some(HitId::from_enemy_kind(EnemyKind::Scorpion)), None);
+        assert_eq!(last.source_name, "SCORPION");
+
+        last.note_from_source(Some(&DamageSource::enemy(
+            Entity::from_bits(2),
+            EnemyKind::Turtle,
+        )));
+        assert_eq!(last.source_name, "TURTLE");
     }
 }

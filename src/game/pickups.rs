@@ -409,7 +409,7 @@ pub fn collect_pickups(
                     &player,
                 );
 
-                // Fish ultra — Confiscate: weapon pickups grant extra ammo.
+                // Fish ultra - Confiscate: weapon pickups grant extra ammo.
                 if matches!(player.ultra, Some(UltraMutationId::FishConfiscate)) {
                     let kind = weapon_ammo(weapon);
                     if kind != AmmoKind::None {
@@ -425,7 +425,7 @@ pub fn collect_pickups(
                     }
                 }
 
-                // Robot ultra — Refined Taste: new hardware heals.
+                // Robot ultra - Refined Taste: new hardware heals.
                 if matches!(player.ultra, Some(UltraMutationId::RobotRefinedTaste)) {
                     health.hp = (health.hp + 1).min(health.max);
                 }

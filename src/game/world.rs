@@ -1,4 +1,4 @@
-//! World generation — faithful port of the upstream FloorMaker/scrMakeFloor
+//! World generation - faithful port of the upstream FloorMaker/scrMakeFloor
 //! structure: 32px floor tiles stamped by walkers, 16px wall rings (Bot body
 //! under a Top face drawn 8px up), small interior walls, bone/detail decals,
 //! per-area props, chests on turns/dead-ends, and the scrPopulate/scrPopEnemies
@@ -144,15 +144,17 @@ fn generation_goal_for_run(run: &Run) -> usize {
     generation_goal(run.floor)
 }
 
-// ---------------------------------------------------------------------------
-// scrMakeFloor port — floor walkers + mcr_floor_make_walls + ScreenEnd outer ring.
+// scrMakeFloor port - floor walkers + mcr_floor_make_walls + ScreenEnd outer ring.
 // ScreenEnd marks lattice walls whose owner floor cell is NOT in the floor set
 // (outer ring). Boss intros prefer breaking these (see enemies::tick_delayed_boss_spawns).
-// ---------------------------------------------------------------------------
 
 /// A wall is a screen-end if it has fewer than 2 orthogonal floor-neighbour
 /// lattice owners (true perimeter), matching upstream ScreenEnd placement.
-pub fn is_screen_end_wall(wx: i32, wy: i32, floor_set: &std::collections::HashSet<(i32, i32)>) -> bool {
+pub fn is_screen_end_wall(
+    wx: i32,
+    wy: i32,
+    floor_set: &std::collections::HashSet<(i32, i32)>,
+) -> bool {
     let owner = floor_cell_for_wall(wx, wy);
     let neighbors = [
         (owner.0 - 1, owner.1),
@@ -367,9 +369,7 @@ fn wall_top_left(wx: i32, wy: i32) -> Vec2 {
     Vec2::new(wx as f32 * WALL_PX, (wy as f32 + 1.0) * WALL_PX)
 }
 
-// ---------------------------------------------------------------------------
-// mcr_floor_make_walls — 12-probe ring on the 16px lattice
-// ---------------------------------------------------------------------------
+// mcr_floor_make_walls - 12-probe ring on the 16px lattice
 
 fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
     let _ = run;
@@ -405,9 +405,7 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // scrPopulate / scrPopProps / scrPopEnemies
-// ---------------------------------------------------------------------------
 
 fn side_solid(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: i32, dx: i32) -> bool {
     // Full 32px side covered by walls: both vertical halves walled.
@@ -1335,9 +1333,7 @@ fn trim_chests(chests: &mut Vec<ChestSpawn>) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Spawning
-// ---------------------------------------------------------------------------
 
 fn sprite_frames(catalog: &AssetCatalog, path: &str) -> usize {
     catalog
@@ -1670,8 +1666,7 @@ pub fn spawn_level(
         ));
     }
 
-    // ---------------------------------------------------------------------
-    // Walls — faithful to objects/Wall/Create_0 + Top draw:
+    // Walls - faithful to objects/Wall/Create_0 + Top draw:
     //
     // GM instance (x,y) = top-left of 16×16 (mskWall).
     // - sprWallNOut @ (x,y) origin (4,12)  → extends past the ground edge
@@ -1679,7 +1674,7 @@ pub fn spawn_level(
     // - sprWallNTop @ (x, y-8) origin (0,0)→ always, 8px "up" the screen
     //
     // Bevy lattice is y-up; screen-south (GM +y) is −Bevy y.
-    // ---------------------------------------------------------------------
+
     let floor_set: std::collections::HashSet<(i32, i32)> =
         plan.floor_cells.iter().copied().collect();
     let wall_set: std::collections::HashSet<(i32, i32)> = {
@@ -1719,7 +1714,7 @@ pub fn spawn_level(
         // Visuals first so they can be linked to the solid via WallVisuals.
         let mut parts: Vec<Entity> = Vec::with_capacity(3);
 
-        // --- Out face (extends the ground) — EVERY wall ---
+        // --- Out face (extends the ground) - EVERY wall ---
         // sprWall*Out is 24×32, origin (4,12). Drawing at GM (x,y) makes it
         // hang 4px past each side and 12px "above" the wall top-left.
         if catalog.has(wall_out_png) {
@@ -1735,7 +1730,7 @@ pub fn spawn_level(
             parts.push(e);
         }
 
-        // --- Bot body — only when floor is screen-south (Wall.visible) ---
+        // --- Bot body - only when floor is screen-south (Wall.visible) ---
         if floor_south && catalog.has(wall_bot_png) {
             let (spr, tf) = sprite_at_gm_origin(
                 catalog,
@@ -1788,12 +1783,11 @@ pub fn spawn_level(
         }
     }
 
-    // -------------------------------------------------------------------------
     // TopSmall / Trans fill (objects/Top + TopSmall):
     // For each floor tile, stamp 4× 16px candidates; keep only cells that are
     // neither Floor nor Wall. Upstream sprite = sprWallNTrans (often invisible
-    // collision / soft top — draw when art exists so the rim reads solid).
-    // -------------------------------------------------------------------------
+    // collision / soft top - draw when art exists so the rim reads solid).
+
     if catalog.has(wall_trans_png) {
         for &(cx, cy) in &plan.floor_cells {
             // Floor top-left in Bevy y-up.

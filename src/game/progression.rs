@@ -861,7 +861,7 @@ fn apply_ultra_mutation(
     ScreenEffects::chromatic_pulse(chroma, 0.4);
     GameFeel::slow_motion(slow_mo, 0.35, 0.5);
     audio.play_levelup(commands);
-    toast.show(&format!("ULTRA — {}: {}", def.name, def.description));
+    toast.show(&format!("ULTRA - {}: {}", def.name, def.description));
 
     debug_assert!(
         ultra_choices_for(race_state.race).contains(&id) || race_state.race == RaceId::Random,

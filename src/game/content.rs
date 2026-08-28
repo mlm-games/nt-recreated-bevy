@@ -249,7 +249,7 @@ pub const CHARACTERS: [CharacterId; PLAYABLE_RACES.len()] = PLAYABLE_RACES;
 
 /// The slot list upstream `Menu/Create_0` builds: every race id from
 /// `Race.Random` up to (but excluding) `Race.NUM_ALL_RACE_TYPES` that is not
-/// hidden (or is unlocked). Unlock gating filters this list at runtime —
+/// hidden (or is unlocked). Unlock gating filters this list at runtime -
 /// Random and Fish are always free; everything else respects the save.
 pub const CHAR_SELECT_RACES: [RaceId; 17] = [
     RaceId::Random,
@@ -407,18 +407,18 @@ pub enum AbilityKind {
     Shield,        // Crystal
     Telekinesis,   // Eyes
     Detonate,      // Melting
-    Snare,         // Plant — slow enemies in a cone
-    PopPop,        // Y.V. — next shot fires twice
-    GetLoaded,     // Steroids — refill ammo
-    EatWeapon,     // Robot — consume current weapon for HP
-    Throw,         // Chicken — short thrash dash + heal 1
+    Snare,         // Plant - slow enemies in a cone
+    PopPop,        // Y.V. - next shot fires twice
+    GetLoaded,     // Steroids - refill ammo
+    EatWeapon,     // Robot - consume current weapon for HP
+    Throw,         // Chicken - short thrash dash + heal 1
     SpawnAlly,     // Rebel
-    HorrorBeam,    // Horror — rad beam along aim
-    PortalStrike,  // Rogue — delayed blast at aim point
+    HorrorBeam,    // Horror - rad beam along aim
+    PortalStrike,  // Rogue - delayed blast at aim point
     RocketBarrage, // Big Dog
-    BloodGamble,   // Skeleton — spend 1 HP, random weapon
-    ToxicPuke,     // Frog — toxic cloud
-    CuzSwap,       // Cuz — cycle 3rd slot / quick-swap
+    BloodGamble,   // Skeleton - spend 1 HP, random weapon
+    ToxicPuke,     // Frog - toxic cloud
+    CuzSwap,       // Cuz - cycle 3rd slot / quick-swap
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -3479,7 +3479,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprInspectorIdle.png",
             score: 40,
             touch_damage: 0,
-            // Upstream raddrop = 0 — inspectors never drop rads.
+            // Upstream raddrop = 0 - inspectors never drop rads.
             rad_drop: 0,
             drop_chance: 22,
             weapon_chance: 6,
@@ -3771,7 +3771,7 @@ pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
     }
 }
 
-/// Load a sprite at its native pixel size. Panics when the art is missing —
+/// Load a sprite at its native pixel size. Panics when the art is missing -
 /// the game must never boot with invisible entities.
 pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &str) -> Sprite {
     catalog.require(path);

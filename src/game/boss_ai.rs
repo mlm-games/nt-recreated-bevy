@@ -894,9 +894,7 @@ fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, en
     }
 }
 
-// -----------------------------------------------------------------------------
-// Throne II — circling orb boss (split orbs / laser orbs / static stars)
-// -----------------------------------------------------------------------------
+// Throne II - circling orb boss (split orbs / laser orbs / static stars)
 
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_ai(
@@ -1106,9 +1104,7 @@ fn throne_ii_star_burst(
     }
 }
 
-// -----------------------------------------------------------------------------
-// Hyper Crystal — contact flunky core with orbiting laser crystals
-// -----------------------------------------------------------------------------
+// Hyper Crystal - contact flunky core with orbiting laser crystals
 
 #[allow(clippy::too_many_arguments)]
 fn hyper_ai(
@@ -1280,9 +1276,7 @@ pub fn tick_hyper_orbit_crystals(
     }
 }
 
-// -----------------------------------------------------------------------------
-// Mom — loop Sewers boss: toxic rings, hazard clouds, and Frog Egg broods
-// -----------------------------------------------------------------------------
+// Mom - loop Sewers boss: toxic rings, hazard clouds, and Frog Egg broods
 
 #[allow(clippy::too_many_arguments)]
 fn mom_ai(
@@ -1349,7 +1343,7 @@ fn mom_ai(
     }
 }
 
-/// Frog Queen — Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
+/// Frog Queen - Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
 /// Alternates aimed MomProjectile volleys with FrogEgg clusters; keeps an
 /// egg budget of 8 on screen (upstream Exploder + SuperFrog*2 < 8 check).
 fn frog_queen_ai(
@@ -1426,9 +1420,7 @@ fn frog_queen_ai(
     }
 }
 
-// -----------------------------------------------------------------------------
-// Technomancer — loop Labs boss: stationary summon engine
-// -----------------------------------------------------------------------------
+// Technomancer - loop Labs boss: stationary summon engine
 
 fn technomancer_ai(
     commands: &mut Commands,
@@ -1475,9 +1467,7 @@ fn technomancer_ai(
     vel.0 = Vec2::ZERO;
 }
 
-// -----------------------------------------------------------------------------
-// Captain — IDPD HQ boss: fan volleys, wall charges, and teleports
-// -----------------------------------------------------------------------------
+// Captain - IDPD HQ boss: fan volleys, wall charges, and teleports
 
 #[allow(clippy::too_many_arguments)]
 fn captain_ai(
@@ -1594,9 +1584,7 @@ fn captain_ai(
     }
 }
 
-// -----------------------------------------------------------------------------
-// Old Guardian — Crown Vault boss: slow advance, aimed fans + radial bursts
-// -----------------------------------------------------------------------------
+// Old Guardian - Crown Vault boss: slow advance, aimed fans + radial bursts
 
 #[allow(clippy::too_many_arguments)]
 fn old_guardian_ai(
@@ -1667,9 +1655,7 @@ fn difficulty_for_loop(enraged: bool) -> f32 {
     1.0 + if enraged { 0.25 } else { 0.0 }
 }
 
-// -----------------------------------------------------------------------------
 // Shared enemy beam helper
-// -----------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn spawn_enemy_beam(

@@ -142,8 +142,8 @@ pub fn tick_idpd_raids(
     let enemies_alive = enemies_q.iter().count();
     let kills_since_checkpoint = run.total_kills.saturating_sub(raid.kills_checkpoint);
 
-    // Once Throne II has spawned — or after it dies while the loop portal is
-    // waiting — there must be no late warning left in the director. A pending
+    // Once Throne II has spawned - or after it dies while the loop portal is
+    // waiting - there must be no late warning left in the director. A pending
     // warning during the campfire itself is intentionally retained: it was
     // queued before the Throne died and is the alternate IDPD-clear path.
     if transition.throne_ii_alive || transition.loop_ready {

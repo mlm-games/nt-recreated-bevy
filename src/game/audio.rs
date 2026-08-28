@@ -27,7 +27,7 @@ pub struct GameAudio {
     /// Upstream sndWeaponChest / sndAmmoChest (per chest kind).
     pub weapon_chest: Handle<AudioSource>,
     pub ammo_chest: Handle<AudioSource>,
-    /// sndPickupDisappear — rad/HP/ammo blink-out.
+    /// sndPickupDisappear - rad/HP/ammo blink-out.
     pub pickup_disappear: Handle<AudioSource>,
 }
 

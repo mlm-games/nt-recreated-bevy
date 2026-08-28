@@ -98,7 +98,7 @@ pub fn check_progress_unlocks(
 }
 
 /// Kill-based unlocks (call from resolve_deaths on boss kills).
-/// `race` is the playing character — some B-skins only unlock when that
+/// `race` is the playing character - some B-skins only unlock when that
 /// specific race lands the kill (scrOnBossKill).
 pub fn check_kill_unlocks(
     save: &mut SaveData,
@@ -176,7 +176,11 @@ pub fn check_kill_unlocks(
 }
 
 /// Area-entry skin unlocks (scrUnlocksArea). `race` is the current player.
-pub fn check_area_skin_unlocks(save: &mut SaveData, area: crate::game::areas::AreaId, race: RaceId) -> bool {
+pub fn check_area_skin_unlocks(
+    save: &mut SaveData,
+    area: crate::game::areas::AreaId,
+    race: RaceId,
+) -> bool {
     let mut any = false;
     match area {
         crate::game::areas::AreaId::Sewers => {
@@ -279,7 +283,7 @@ mod tests {
         let mut save = SaveData::default();
         check_progress_unlocks(&mut save, 4, 0, false, false, false);
         assert!(is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::A));
-        // Upstream scrInit: B is NOT free with the race — it is earned
+        // Upstream scrInit: B is NOT free with the race - it is earned
         // (scrOnBossKill grants per boss/race pair).
         assert!(!is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::B));
         assert!(!is_skin_unlocked(&save, RaceId::Crystal, SkinLetter::C));

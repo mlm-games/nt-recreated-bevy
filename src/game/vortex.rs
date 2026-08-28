@@ -13,7 +13,7 @@
 //! The CPU only advances the controller clock and maintains a ring of
 //! `[x, y, birth_tick, rot]` vec4s; every wisp's growth, fade, lightning and
 //! compositing happen in the fragment shader (`assets/shaders/vortex.wgsl`).
-//! One draw call regardless of wisp count — no entity churn, no startup stall.
+//! One draw call regardless of wisp count - no entity churn, no startup stall.
 
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
@@ -24,9 +24,9 @@ use crate::app::AppState;
 use crate::game::ui_art::{GUI_H, GUI_W, TitleArt, gui_map};
 
 pub const MAX_WISPS: usize = 128;
-/// `SpiralDebris` ring size (avg ~1.6 alive, lifetime 66-88 ticks — generous).
+/// `SpiralDebris` ring size (avg ~1.6 alive, lifetime 66-88 ticks - generous).
 pub const MAX_DEBRIS: usize = 32;
-/// Create_0 `repeat 150` — the exact number of simulated ticks before the
+/// Create_0 `repeat 150` - the exact number of simulated ticks before the
 /// first drawn frame (faithful to SpiralCont/Create_0.gml:36).
 const WARMUP_TICKS: u32 = 150;
 
@@ -48,7 +48,7 @@ struct Debris {
 /// The `SpiralCont` driver state.
 #[derive(Resource)]
 pub struct SpiralCtl {
-    /// `image_angle` — accumulates UNBOUNDED like GML (never wraps %360);
+    /// `image_angle` - accumulates UNBOUNDED like GML (never wraps %360);
     /// the orbit trig divides by 921/583/500 so it must reach thousands of
     /// degrees for the centre to wander like the original.
     pub angle: f32,
@@ -72,7 +72,7 @@ impl SpiralCtl {
     /// Mirrors `SpiralCont/Create_0.gml:36` `repeat 150 { Step; with Spiral Step }`.
     /// 150 ticks are simulated verbatim; the ring ends up with the 128 most
     /// recent spawns (the oldest 22 have wrapped). Survivors are exactly those
-    /// the GML would have kept — ~119 with age < 120. Keeping dead slots in
+    /// the GML would have kept - ~119 with age < 120. Keeping dead slots in
     /// the ring is faithful: the shader culls s>2.5 the same way GML destroys
     /// instances when `image_xscale > 2.5`.
     pub fn warmed_up() -> Self {
@@ -107,7 +107,7 @@ impl SpiralCtl {
     }
 
     /// One 30 Hz tick: SpiralCont/Step_0 + the debris spawn check and every
-    /// SpiralDebris/Step_0 — shared by the warmup and the live clock so the
+    /// SpiralDebris/Step_0 - shared by the warmup and the live clock so the
     /// field state is identical however the controller was armed.
     fn tick_once(&mut self) {
         self.ticks += 1.0;
@@ -180,14 +180,14 @@ impl SpiralCtl {
     }
 }
 
-/// SpiralCont/Step_0.gml:5 — Normal-type increment (degrees).
+/// SpiralCont/Step_0.gml:5 - Normal-type increment (degrees).
 fn spiral_angle_inc(angle: f32) -> f32 {
     8.0 + deg_sin(angle / 300.0)
 }
 
 /// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
 /// DEGREES; bevy takes radians, hence the conversions). Amplitudes 130/90 are
-/// the REAL game's values — recovered from the shipped `nuclearthrone` YYC
+/// the REAL game's values - recovered from the shipped `nuclearthrone` YYC
 /// binary's constant pool (`921, 500, 583, 130, 90`); the public rewrite
 /// nerfed them to 80/50, which pins the swirl centre near mid-screen.
 fn orbit(angle: f32) -> (f32, f32) {
@@ -205,9 +205,7 @@ fn deg_cos(deg: f32) -> f32 {
     deg.to_radians().cos()
 }
 
-// ---------------------------------------------------------------------------
 // GPU material
-// ---------------------------------------------------------------------------
 
 /// Uniform layout must mirror `assets/shaders/vortex.wgsl`.
 /// NOTE: a nested `[[f32;4]; N]` makes encase compute a stride-4 array and
@@ -279,7 +277,7 @@ fn spiral_states(state: &AppState) -> bool {
 
 /// Background colour behind the swirl: scrDrawSpiral does `draw_clear(c_black)`
 /// for every non-`Menu` caller, and both of our swirl states (Splash logo,
-/// MainMenu buttons) are non-`Menu` — so always black. The campfire blue only
+/// MainMenu buttons) are non-`Menu` - so always black. The campfire blue only
 /// applies to the char-select, where the swirl is destroyed.
 fn background_color(_state: &AppState) -> Color {
     Color::BLACK

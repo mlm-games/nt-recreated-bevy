@@ -1,4 +1,4 @@
-//! Loadout menu — renders per-race stored weapon / crown / skin selection
+//! Loadout menu - renders per-race stored weapon / crown / skin selection
 //! from SaveData::races. Currently stubbed; upstream logic in scrLoadoutMenuInit.
 
 use crate::game::components::RaceLoadout;

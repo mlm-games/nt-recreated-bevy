@@ -217,7 +217,7 @@ pub fn tick_hurt_anims(
 
 /// Map idle sprite path → conventional hurt/walk names used by NT art.
 pub fn derive_hurt_path(idle: &'static str) -> &'static str {
-    // Static table — keep in sync with imported spr*Hurt.png names.
+    // Static table - keep in sync with imported spr*Hurt.png names.
     match idle {
         "images/sprBanditIdle.png" => "images/sprBanditHurt.png",
         "images/sprMaggotIdle.png" => "images/sprMaggotHurt.png",
@@ -311,7 +311,7 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprSnowTankIdle.png" => Some("images/sprSnowTankWalk.png"),
         "images/sprGoldTankIdle.png" => Some("images/sprGoldTankWalk.png"),
         "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianWalk.png"),
-        // ADD — present in full WAD / gen_assets NT_ALL_SPRITES=1
+        // ADD - present in full WAD / gen_assets NT_ALL_SPRITES=1
         "images/sprGuardianIdle.png" => Some("images/sprGuardianWalk.png"),
         "images/sprTurtleIdle.png" => Some("images/sprTurtleWalk.png"),
         "images/sprBigMaggotIdle.png" => Some("images/sprBigMaggotWalk.png"),
@@ -326,22 +326,21 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
         "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
         "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenWalk.png"),
-        // DogGuardian uses Walk as "idle" already — hurt maps from Walk path
+        // DogGuardian uses Walk as "idle" already - hurt maps from Walk path
         _ => None,
     }
 }
 
-pub fn derive_walk_path_checked(catalog: &AssetCatalog, idle: &'static str) -> Option<&'static str> {
+pub fn derive_walk_path_checked(
+    catalog: &AssetCatalog,
+    idle: &'static str,
+) -> Option<&'static str> {
     derive_walk_path(idle).filter(|p| catalog.has(p))
 }
 
 pub fn derive_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
     let hurt = derive_hurt_path(idle);
-    if catalog.has(hurt) {
-        hurt
-    } else {
-        idle
-    }
+    if catalog.has(hurt) { hurt } else { idle }
 }
 
 /// Play the hurt strip on any enemy whose Health just dropped. Watches

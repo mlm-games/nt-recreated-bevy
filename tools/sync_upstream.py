@@ -34,7 +34,7 @@ DEFAULT_UPSTREAM = REPO_ROOT.parent / "nt-recreated-public"
 
 GENERATED_DIR = REPO_ROOT / "src" / "game" / "generated"
 
-# Placeholder SHA — updated on each run by querying git rev-parse
+# Placeholder SHA - updated on each run by querying git rev-parse
 PLACEHOLDER_SHA = "06a2e3e"
 
 HEADER = f"""//! GENERATED FROM toarch7/nt-recreated-public@{PLACEHOLDER_SHA}
@@ -68,7 +68,7 @@ def main() -> int:
 
     upstream = args.upstream
     if not upstream.exists():
-        print(f"warning: upstream path {upstream} does not exist — using SHA stub", file=sys.stderr)
+        print(f"warning: upstream path {upstream} does not exist - using SHA stub", file=sys.stderr)
 
     sha = get_upstream_sha(upstream) if upstream.exists() else PLACEHOLDER_SHA
     print(f"upstream: {upstream} @{sha}")

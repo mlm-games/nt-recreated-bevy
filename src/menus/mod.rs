@@ -717,7 +717,7 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         col(72, 202, 96)
     };
 
-    // NT GUI is 320x240 — skill picks sit mid-screen as a horizontal row.
+    // NT GUI is 320x240 - skill picks sit mid-screen as a horizontal row.
     let n = st.mutation_choices.len().max(1);
     let card_w = if n >= 4 { 70.0 } else { 88.0 };
     let gap = 6.0;
@@ -964,7 +964,7 @@ pub(crate) fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {
 }
 
 /// The five big main-menu buttons (nt-rewrite `MainMenuButton`): PLAY,
-/// CO-OP, SETTINGS, STATS, QUIT — big pixel text centred at gui x=160,
+/// CO-OP, SETTINGS, STATS, QUIT - big pixel text centred at gui x=160,
 /// stacked 24 px apart from y=72. Hover tints c_uigray -> white.
 fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let v = nt_view(st);
@@ -1084,7 +1084,7 @@ fn hud_weapon_ammo(st: &SharedUi, slot: usize) -> i32 {
     }
 }
 
-/// Original HUD text pass — everything scrDrawPlayerHUD draws as text,
+/// Original HUD text pass - everything scrDrawPlayerHUD draws as text,
 /// placed in NT GUI coordinates scaled into window space. Sprite art
 /// (health bar, fills, rad meter, ammo/weapon icons) lives in ui_art.rs.
 fn nt_hud_overlay(st: &SharedUi) -> View {
