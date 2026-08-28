@@ -1306,7 +1306,7 @@ mod source_tests {
 
     #[test]
     fn damage_source_enemy_encodes_kind() {
-        let e = Entity::from_bits(1);
+        let e = Entity::from_bits(0x0100_0001);
         let s = DamageSource::enemy(e, EnemyKind::Bandit);
         assert_eq!(s.hit_id, HitId::from_enemy_kind(EnemyKind::Bandit));
         assert_eq!(s.enemy_kind, Some(EnemyKind::Bandit));
@@ -1320,7 +1320,7 @@ mod source_tests {
         assert_eq!(last.source_name, "SCORPION");
 
         last.note_from_source(Some(&DamageSource::enemy(
-            Entity::from_bits(2),
+            Entity::from_bits(0x0200_0001),
             EnemyKind::Turtle,
         )));
         assert_eq!(last.source_name, "TURTLE");
