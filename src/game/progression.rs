@@ -96,7 +96,12 @@ pub fn setup_run(
     }
 
     let equipped = [primary, secondary, WeaponId::NONE];
-    let starting_ammo = starting_ammo_for(&equipped);
+    let mut starting_ammo = starting_ammo_for(&equipped, character.0, crown);
+    // BigDog special: GML scrPlayerRaceChange gives 255 bullets +44 explosives
+    if character.0 == RaceId::BigDog {
+        starting_ammo[1] = 255;
+        starting_ammo[4] = 44;
+    }
 
     let (player_sprite, player_strip) =
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
@@ -1229,10 +1234,38 @@ pub fn boss_info(q: &Query<(&Enemy, &Health), With<Enemy>>) -> Option<(u32, u32)
     None
 }
 
-/// NT starting ammo: bullets come pre-stacked; every other family starts at
-/// three pickup units of the weapon's type.
-fn starting_ammo_for(weapons: &[WeaponId; MAX_WEAPON_SLOTS]) -> [i32; MAX_AMMO_TYPES] {
+/// NT starting ammo: GML `scrCreatePlayers` `scrAmmoGetPickupAmount(_type)*3` where
+/// `typ_ammo` already includes Fish and Haste bonuses (Back Muscle not at start).
+fn starting_ammo_for(
+    weapons: &[WeaponId; MAX_WEAPON_SLOTS],
+    race: RaceId,
+    crown: CrownKind,
+) -> [i32; MAX_AMMO_TYPES] {
     let mut ammo = [0; MAX_AMMO_TYPES];
+
+    // Fish bonus: typ_ammo[Ammo.Bullets] 32+8, etc., per scrAmmoUpdateTypeStats
+    let fish = if race == RaceId::Fish { 1 } else { 0 };
+    let haste = if crown == CrownKind::Haste { 1 } else { 0 };
+
+    let typ_ammo = |kind: AmmoKind| -> i32 {
+        let base = match kind {
+            AmmoKind::Bullets => 32,
+            AmmoKind::Shells => 8,
+            AmmoKind::Bolts => 7,
+            AmmoKind::Explosives => 6,
+            AmmoKind::Energy => 10,
+            AmmoKind::None => 0,
+        };
+        let fish_bonus = match kind {
+            AmmoKind::Bullets => 8 * fish,
+            AmmoKind::Shells => 2 * fish,
+            AmmoKind::Bolts => 2 * fish,
+            AmmoKind::Explosives => 2 * fish,
+            AmmoKind::Energy => 3 * fish,
+            AmmoKind::None => 0,
+        };
+        base + fish_bonus + haste
+    };
 
     for &weapon in weapons {
         if weapon == WeaponId::NONE {
@@ -1249,10 +1282,7 @@ fn starting_ammo_for(weapons: &[WeaponId; MAX_WEAPON_SLOTS]) -> [i32; MAX_AMMO_T
             AmmoKind::Energy => 5,
         };
 
-        let amount = match kind {
-            AmmoKind::Bullets => 96,
-            _ => ammo_pickup_amount(kind) * 3,
-        };
+        let amount = typ_ammo(kind) * 3;
 
         ammo[index] = ammo[index].max(amount);
     }
@@ -1266,19 +1296,41 @@ mod loadout_tests {
 
     #[test]
     fn revolver_receives_starting_bullets() {
-        let ammo = starting_ammo_for(&[WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE]);
+        let ammo = starting_ammo_for(
+            &[WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
+            RaceId::Robot,
+            CrownKind::None,
+        );
         assert_eq!(ammo[1], 96);
     }
 
     #[test]
+    fn fish_gets_extra_starting_ammo() {
+        let ammo = starting_ammo_for(
+            &[WeaponId::REVOLVER, WeaponId::NONE, WeaponId::NONE],
+            RaceId::Fish,
+            CrownKind::None,
+        );
+        assert_eq!(ammo[1], 120); // 40*3
+    }
+
+    #[test]
     fn shotgun_loadout_receives_shells() {
-        let ammo = starting_ammo_for(&[WeaponId(5), WeaponId::NONE, WeaponId::NONE]);
+        let ammo = starting_ammo_for(
+            &[WeaponId(5), WeaponId::NONE, WeaponId::NONE],
+            RaceId::Robot,
+            CrownKind::None,
+        );
         assert!(ammo[2] > 0);
     }
 
     #[test]
     fn corrupt_weapon_does_not_grant_ammo() {
-        let ammo = starting_ammo_for(&[WeaponId(255), WeaponId::NONE, WeaponId::NONE]);
+        let ammo = starting_ammo_for(
+            &[WeaponId(255), WeaponId::NONE, WeaponId::NONE],
+            RaceId::Robot,
+            CrownKind::None,
+        );
         assert_eq!(ammo, [0; MAX_AMMO_TYPES]);
     }
 }

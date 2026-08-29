@@ -635,7 +635,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             name: "Plant",
             color: Color::srgb(0.3, 0.85, 0.35),
             max_hp: 8,
-            speed_mult: 1.0,
+            speed_mult: 1.125, // 4.5/4 GML
             pickup_range: 95.0,
             ability: AbilityKind::Snare,
             passive: PassiveKind::None,
@@ -664,6 +664,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             sprite: "images/sprMutant7Idle.png",
             walk_sprite: "images/sprMutant7Walk.png",
         },
+        // Note: GML Steroids has accuracy 1.8 (handled via spread_mult in Player)
         RaceId::Robot => CharacterDef {
             name: "Robot",
             color: Color::srgb(0.6, 0.6, 0.65),
@@ -722,8 +723,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::BigDog => CharacterDef {
             name: "Big Dog",
             color: Color::srgb(0.55, 0.38, 0.28),
-            max_hp: 12,
-            speed_mult: 0.95,
+            max_hp: 300, // GML scrPlayerRaceChange
+            speed_mult: 0.5, // GML maxspeed 2/4
             pickup_range: 95.0,
             ability: AbilityKind::RocketBarrage,
             passive: PassiveKind::None,
@@ -733,8 +734,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::Skeleton => CharacterDef {
             name: "Skeleton",
             color: Color::srgb(0.9, 0.9, 0.92),
-            max_hp: 8,
-            speed_mult: 1.0,
+            max_hp: 4, // GML
+            speed_mult: 0.75, // GML maxspeed 3/4
             pickup_range: 95.0,
             ability: AbilityKind::BloodGamble,
             passive: PassiveKind::None,

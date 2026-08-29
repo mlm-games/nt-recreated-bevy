@@ -741,8 +741,17 @@ fn process_ui_actions(
             }
             UiAction::CycleCrown(dir) => {
                 let race = selected.0;
+                // Only cycle through unlocked crowns, matching GML's crowngot check
+                let mut next = save.race_loadout(race).start_crown;
+                for _ in 0..crate::game::content::CrownKind::ALL.len() {
+                    next = crate::game::content::cycle_crown_id(next, dir);
+                    let gml = crate::game::content::crown_port_to_gml(next);
+                    if save.crown_unlocked(race, gml) || next == 0 {
+                        break;
+                    }
+                }
                 let lo = save.race_loadout_mut(race);
-                lo.start_crown = crate::game::content::cycle_crown_id(lo.start_crown, dir);
+                lo.start_crown = next;
                 let _ = manager.save(&*save);
             }
             UiAction::SelectCrown(crown_id) => {

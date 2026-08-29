@@ -135,6 +135,14 @@ impl SaveData {
             lo.stored_weapon = WeaponId(0);
         }
 
+        // Crown not unlocked -> reset to None (port 0). Matches GML's crowngot check.
+        if lo.start_crown != 0 {
+            let gml = crate::game::content::crown_port_to_gml(lo.start_crown);
+            if !self.crown_unlocked(race, gml) {
+                lo.start_crown = 0;
+            }
+        }
+
         lo
     }
 
@@ -148,6 +156,21 @@ impl SaveData {
 
             if lo.stored_weapon.0 == 0 {
                 lo.start_weapon = WeaponId(0);
+            }
+        }
+        // Crown check needs to avoid borrowing self while races is mutably borrowed
+        let mut to_reset = Vec::new();
+        for (race, lo) in self.races.iter() {
+            if lo.start_crown != 0 {
+                let gml = crate::game::content::crown_port_to_gml(lo.start_crown);
+                if !self.crown_unlocked(*race, gml) {
+                    to_reset.push(*race);
+                }
+            }
+        }
+        for race in to_reset {
+            if let Some(lo) = self.races.get_mut(&race) {
+                lo.start_crown = 0;
             }
         }
     }

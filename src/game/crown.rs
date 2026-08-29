@@ -24,8 +24,8 @@ pub fn apply_crown_to_spawn(
         CrownKind::None => {}
 
         CrownKind::Death => {
-            health.max = 1;
-            health.hp = 1;
+            health.max = (health.max - 1).max(1);
+            health.hp = health.hp.min(health.max).max(1);
             player.drop_mult += 1.0;
         }
 
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn crown_death_sets_one_hp() {
+    fn crown_death_reduces_max_by_one() {
         let mut p = base_player();
         let mut h = base_health();
         let mut inv = base_inv();
@@ -396,8 +396,8 @@ mod tests {
         apply_crown_to_spawn(CrownKind::Death, &mut p, &mut h, &mut inv);
 
         assert_eq!(p.crown, CrownKind::Death);
-        assert_eq!(h.max, 1);
-        assert_eq!(h.hp, 1);
+        assert_eq!(h.max, 7);
+        assert_eq!(h.hp, 7);
     }
 
     #[test]
