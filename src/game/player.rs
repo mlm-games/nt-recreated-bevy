@@ -62,16 +62,32 @@ pub fn player_move(
             commands.entity(entity).remove::<Dash>();
         }
     } else {
+        // GML Player/Step_0: motion_add(_movspeed) then speed = min(speed, maxspeed)
+        // Bevy: treat input as direction, accel as GML _movspeed*30 equivalent
         if input.move_axis != Vec2::ZERO {
-            vel.0 += input.move_axis * player.accel * dt;
+            // GML precise vs cardinal: use normalized direction same as rewrite
+            let dir = input.move_axis.normalize_or_zero();
+            vel.0 += dir * player.accel * dt;
         }
         let max_speed = player.speed * player.speed_mult;
         if vel.0.length() > max_speed {
             vel.0 = vel.0.normalize() * max_speed;
         }
-        vel.0 *= player
-            .friction
-            .powf(dt * crate::app::NT_SIM_HZ as f32);
+        // GML friction is subtractive: `friction = 0.45` px/frame (Player/Step_0)
+        // subtracted each tick. In Bevy units (px/s) that's friction*30 per
+        // fixed tick (~13.5 px/s at 30Hz). Scale by tick count (dt*NT_SIM_HZ)
+        // so variable dt still matches the GM per-frame feel and stops in
+        // ~9 frames from maxspeed instead of sliding.
+        let f = player.friction * 30.0 * dt * crate::app::NT_SIM_HZ as f32;
+        let sp = vel.0.length();
+        if sp > 0.0 {
+            let nsp = (sp - f).max(0.0);
+            if nsp == 0.0 {
+                vel.0 = Vec2::ZERO;
+            } else {
+                vel.0 *= nsp / sp;
+            }
+        }
         tf.translation += (vel.0 * dt).extend(0.0);
     }
 
@@ -81,12 +97,21 @@ pub fn player_move(
     clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
 }
 
-pub fn face_aim(mut q: Query<(&AimDir, &mut Sprite), With<Player>>) {
-    let Ok((aim, mut sprite)) = q.single_mut() else {
+pub fn face_aim(
+    mut q: Query<(&AimDir, &Velocity, &mut Sprite), With<Player>>,
+) {
+    let Ok((aim, vel, mut sprite)) = q.single_mut() else {
         return;
     };
-    // NT faces aim; flip X when aiming left
-    sprite.flip_x = aim.0.x < 0.0;
+    // NT: right = gunangle>90&&<270 ? -1 : 1 (aim-based). Keep aim primary,
+    // but if stick/mouse is centered (aim ~0) fall back to movement dir so
+    // keyboard-only play still rotates.
+    let x = if aim.0.length_squared() > 0.001 {
+        aim.0.x
+    } else {
+        vel.0.x
+    };
+    sprite.flip_x = x < 0.0;
 }
 
 pub fn player_aim(

@@ -178,30 +178,27 @@ fn ready_timer() -> Timer {
     t
 }
 
-/// Approximate GML `collision_line` wall check for Bandit LOS.
-/// Samples the segment against prop AABBs (walls are Props).
-fn has_line_of_sight(
-    from: Vec2,
-    to: Vec2,
-    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
-) -> bool {
-    // Sample 10 points along segment; if any sample hits a prop, blocked.
+/// Approximate GML `collision_line(Wall)` for Bandit/Scorpion LOS.
+/// Only WallTile blocks (not decor Props like barrels/cactus) — matching
+/// GML `collision_line(x,y,target.x,target.y,Wall,0,0)`. The old version
+/// checked every Prop and made Bandits blind behind decoration.
+fn has_line_of_sight(from: Vec2, to: Vec2, walls: &Query<&WallCell, With<WallTile>>) -> bool {
     let dir = to - from;
     let dist = dir.length();
     if dist < 1.0 {
         return true;
     }
-    let steps = 10;
+    let steps = (dist / 16.0).ceil().max(8.0) as usize;
     for i in 1..steps {
         let t = i as f32 / steps as f32;
         let p = from + dir * t;
-        for (_, prop, tf) in props.iter() {
-            let center = tf.translation.truncate();
-            let half = prop.size * 0.5;
-            if p.x >= center.x - half.x
-                && p.x <= center.x + half.x
-                && p.y >= center.y - half.y
-                && p.y <= center.y + half.y
+        for cell in walls.iter() {
+            let c = Vec2::new(cell.0 as f32 * 16.0 + 8.0, cell.1 as f32 * 16.0 + 8.0);
+            let half = Vec2::splat(8.0);
+            if p.x >= c.x - half.x
+                && p.x <= c.x + half.x
+                && p.y >= c.y - half.y
+                && p.y <= c.y + half.y
             {
                 return false;
             }
@@ -233,6 +230,7 @@ pub fn enemy_ai(
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
+    walls_los: Query<&WallCell, With<WallTile>>,
     corpses: Query<(Entity, &Corpse, &Transform), (With<Corpse>, Without<Enemy>)>,
 ) {
     let Ok((player_tf, player)) = player_q.single() else {
@@ -289,7 +287,8 @@ pub fn enemy_ai(
         // Scorpion: walk>0 => motion_add(direction,0.8) and speed>3 clamp
         // Bandit:  walk>0 => motion_add(direction,0.4) via Alarm_1 walk assignment
         if brain.walk > 0.0 {
-            let walk_speed = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+            let walk_speed = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion)
+            {
                 0.8 * 30.0 // 0.8 px/frame *30 = 24 px/s impulse
             } else {
                 0.4 * 30.0
@@ -324,7 +323,7 @@ pub fn enemy_ai(
             // Drive Bandit entirely via its Alarm_1 timer + walk
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
-                let los = has_line_of_sight(pos, player_pos, &props);
+                let los = has_line_of_sight(pos, player_pos, &walls_los);
                 if los {
                     if dist > 48.0 {
                         if rng.random::<f32>() < 0.25 {
@@ -352,7 +351,8 @@ pub fn enemy_ai(
                             );
                         } else {
                             // Walk random direction around target
-                            let ang = dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
+                            let ang =
+                                dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
                             let wdir = Vec2::new(ang.cos(), ang.sin());
                             vel.0 = wdir * 40.0;
                             brain.walk = 10.0 + rng.random_range(0.0..10.0);
@@ -365,7 +365,8 @@ pub fn enemy_ai(
                     } else {
                         // Too close: flee away
                         let away = -dir;
-                        let ang = away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
+                        let ang =
+                            away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
                         let wdir = Vec2::new(ang.cos(), ang.sin());
                         vel.0 = wdir * 50.0;
                         brain.walk = 40.0 + rng.random_range(0.0..10.0);
@@ -387,6 +388,11 @@ pub fn enemy_ai(
                     );
                     brain.gunangle = ang;
                     sprite.flip_x = vel.0.x < 0.0;
+                } else {
+                    // LOS blocked but no random walk: still nudge slightly so bandits don't freeze
+                    let ang = dir.y.atan2(dir.x) + rng.random_range(-45.0_f32..45.0).to_radians();
+                    let wdir = Vec2::new(ang.cos(), ang.sin());
+                    vel.0 += wdir * 20.0 * dt * crate::app::NT_SIM_HZ as f32;
                 }
             } else if rng.random::<f32>() < 0.1 && brain.attack.remaining_secs() > 1.0 {
                 // Idle random walk when no target (mirrors else branch)
@@ -436,7 +442,8 @@ pub fn enemy_ai(
                     let ang = base_ang + spread;
                     let sdir = Vec2::new(ang.cos(), ang.sin());
                     let speed = rng.random_range(90.0..120.0); // 3..4 *30
-                    let (sprite_b, anchor) = enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                    let (sprite_b, anchor) =
+                        enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
                     commands.spawn((
                         GameCleanup,
                         LevelCleanup,
@@ -471,13 +478,15 @@ pub fn enemy_ai(
                 // Alarm_1 logic
                 let target_dir = dir.y.atan2(dir.x);
                 // scrWalk(_target_direction+orandom60+180, 0,10,20) approximation
-                let walk_ang = target_dir + rng.random_range(-60_f32..60.0).to_radians() + std::f32::consts::PI;
+                let walk_ang = target_dir
+                    + rng.random_range(-60_f32..60.0).to_radians()
+                    + std::f32::consts::PI;
                 let wdir = Vec2::new(walk_ang.cos(), walk_ang.sin());
                 vel.0 = wdir * 30.0;
                 brain.walk = 10.0 + rng.random_range(0.0..10.0);
                 sprite.flip_x = vel.0.x < 0.0;
                 // visible check 210
-                let los = has_line_of_sight(pos, player_pos, &props);
+                let los = has_line_of_sight(pos, player_pos, &walls_los);
                 if los && dist < 210.0 && rng.random::<f32>() < 0.5 {
                     brain.attack = Timer::from_seconds(
                         (30.0 + rng.random_range(0.0..5.0)) / 30.0,
@@ -782,7 +791,15 @@ pub fn enemy_ai(
                 brain.attack.tick(time.delta());
                 if brain.attack.just_finished() {
                     fire_enemy_shot(
-                        &mut commands, &catalog, &asset_server, &mut rng, entity, enemy, def, pos, dir,
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        &mut rng,
+                        entity,
+                        enemy,
+                        def,
+                        pos,
+                        dir,
                     );
                     brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
                 }
@@ -808,16 +825,28 @@ fn enemy_bullet_sprite(
     for path in candidates {
         if catalog.has(path) {
             let mut s = crate::game::content::sprite_exact(catalog, asset_server, path);
-            s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
-            s.color = Color::WHITE;
+            // Scorpion bullets in GM (sprScorpionBullet) are bright green-yellow
+            // with an additive shine copy. Tint white is dim vs original.
+            if matches!(kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+                s.color = Color::srgb(1.2, 1.35, 0.6);
+                // Slightly larger so the 2-frame strip reads like GM's glow
+                s.custom_size = Some(Vec2::splat((def.projectile_size * 1.6).max(7.0)));
+            } else {
+                s.color = Color::WHITE;
+                s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
+            }
             let anchor = crate::game::content::sprite_anchor(catalog, path);
             return (s, anchor);
         }
     }
     (
         Sprite {
-            color: def.projectile_color,
-            custom_size: Some(Vec2::splat(def.projectile_size)),
+            color: if matches!(kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+                Color::srgb(1.0, 1.2, 0.45)
+            } else {
+                def.projectile_color
+            },
+            custom_size: Some(Vec2::splat(def.projectile_size * 1.4)),
             ..default()
         },
         bevy::sprite::Anchor::CENTER,
@@ -861,7 +890,7 @@ fn fire_enemy_bullet(
     ));
 }
 
- /// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
+/// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
 fn explosive_kind(kind: EnemyKind) -> bool {
     matches!(
         kind,

@@ -115,13 +115,16 @@ pub struct PlayerAnim {
 pub fn player_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
-    mut q: Query<(
-        &Velocity,
-        &mut PlayerAnim,
-        &mut SpriteAnim,
-        &mut Sprite,
-        &mut bevy::sprite::Anchor,
-    ), Without<HurtAnim>>,
+    mut q: Query<
+        (
+            &Velocity,
+            &mut PlayerAnim,
+            &mut SpriteAnim,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
+        Without<HurtAnim>,
+    >,
 ) {
     for (vel, mut pa, mut anim, mut sprite, mut anchor) in &mut q {
         // Don't interrupt a oneshot (portal suck uses oneshot too).
@@ -205,10 +208,13 @@ pub fn tick_hurt_anims(
 ) {
     for (e, mut hurt, mut anim, mut sprite, mut anchor, vel, mut pa) in &mut q {
         hurt.timer.tick(time.delta());
-        // GM exits hurt after image_index>2 (3 frames). Bevy: anim.frame>2
-        // or timer as fallback for fallback-idle freeze, or oneshot finished.
-        let frame_done = anim.frame > 2;
-        if !(hurt.timer.just_finished() || frame_done || (anim.oneshot && anim.finished)) {
+        let frame_done = anim.frame >= 2;
+        let hard_timeout = hurt.timer.elapsed_secs() > 0.35;
+        if !(hurt.timer.just_finished()
+            || frame_done
+            || hard_timeout
+            || (anim.oneshot && anim.finished))
+        {
             continue;
         }
         let moving = vel.map(|v| v.0.length_squared() > 100.0).unwrap_or(false);
@@ -233,7 +239,112 @@ pub fn tick_hurt_anims(
 /// Map idle sprite path → conventional hurt/walk names used by NT art.
 pub fn derive_hurt_path(idle: &'static str) -> &'static str {
     // Static table - keep in sync with imported spr*Hurt.png names.
-    match idle {
+    // Handles B/C skin variants like sprMutant1BIdle.png -> sprMutant1BHurt.png
+    // by stripping the skin suffix before matching.
+    let base = if idle.contains("sprMutant") {
+        // Check B/C skin variants first
+        if idle.contains("sprMutant1BIdle") {
+            return "images/sprMutant1BHurt.png";
+        }
+        if idle.contains("sprMutant1CIdle") {
+            return "images/sprMutant1CHurt.png";
+        }
+        if idle.contains("sprMutant2BIdle") {
+            return "images/sprMutant2BHurt.png";
+        }
+        if idle.contains("sprMutant2CIdle") {
+            return "images/sprMutant2CHurt.png";
+        }
+        if idle.contains("sprMutant3BIdle") {
+            return "images/sprMutant3BHurt.png";
+        }
+        if idle.contains("sprMutant3CIdle") {
+            return "images/sprMutant3CHurt.png";
+        }
+        if idle.contains("sprMutant4BIdle") {
+            return "images/sprMutant4BHurt.png";
+        }
+        if idle.contains("sprMutant4CIdle") {
+            return "images/sprMutant4CHurt.png";
+        }
+        if idle.contains("sprMutant5BIdle") {
+            return "images/sprMutant5BHurt.png";
+        }
+        if idle.contains("sprMutant5CIdle") {
+            return "images/sprMutant5CHurt.png";
+        }
+        if idle.contains("sprMutant6BIdle") {
+            return "images/sprMutant6BHurt.png";
+        }
+        if idle.contains("sprMutant6CIdle") {
+            return "images/sprMutant6CHurt.png";
+        }
+        if idle.contains("sprMutant7BIdle") {
+            return "images/sprMutant7BHurt.png";
+        }
+        if idle.contains("sprMutant7CIdle") {
+            return "images/sprMutant7CHurt.png";
+        }
+        if idle.contains("sprMutant8BIdle") {
+            return "images/sprMutant8BHurt.png";
+        }
+        if idle.contains("sprMutant8CIdle") {
+            return "images/sprMutant8CHurt.png";
+        }
+        if idle.contains("sprMutant9BIdle") {
+            return "images/sprMutant9BHurt.png";
+        }
+        if idle.contains("sprMutant9CIdle") {
+            return "images/sprMutant9CHurt.png";
+        }
+        if idle.contains("sprMutant10BIdle") {
+            return "images/sprMutant10BHurt.png";
+        }
+        if idle.contains("sprMutant10CIdle") {
+            return "images/sprMutant10CHurt.png";
+        }
+        if idle.contains("sprMutant11BIdle") {
+            return "images/sprMutant11BHurt.png";
+        }
+        if idle.contains("sprMutant11CIdle") {
+            return "images/sprMutant11CHurt.png";
+        }
+        if idle.contains("sprMutant12BIdle") {
+            return "images/sprMutant12BHurt.png";
+        }
+        if idle.contains("sprMutant12CIdle") {
+            return "images/sprMutant12CHurt.png";
+        }
+        if idle.contains("sprMutant13BIdle") {
+            return "images/sprMutant13BHurt.png";
+        }
+        if idle.contains("sprMutant13CIdle") {
+            return "images/sprMutant13CHurt.png";
+        }
+        if idle.contains("sprMutant14BIdle") {
+            return "images/sprMutant14BHurt.png";
+        }
+        if idle.contains("sprMutant14CIdle") {
+            return "images/sprMutant14CHurt.png";
+        }
+        if idle.contains("sprMutant15BIdle") {
+            return "images/sprMutant15BHurt.png";
+        }
+        if idle.contains("sprMutant15CIdle") {
+            return "images/sprMutant15CHurt.png";
+        }
+        if idle.contains("sprMutant16BIdle") {
+            return "images/sprMutant16BHurt.png";
+        }
+        if idle.contains("sprMutant16CIdle") {
+            return "images/sprMutant16CHurt.png";
+        }
+        // fall through to A variants below
+        idle
+    } else {
+        idle
+    };
+    match base {
         "images/sprBanditIdle.png" => "images/sprBanditHurt.png",
         "images/sprMaggotIdle.png" => "images/sprMaggotHurt.png",
         "images/sprScorpionIdle.png" => "images/sprScorpionHurt.png",
@@ -279,7 +390,7 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprMSpawnIdle.png" => "images/sprMSpawnHurt.png",
         // Secret boss
         "images/sprFrogQueenIdle.png" => "images/sprFrogQueenHurt.png",
-        // Mutants
+        // Mutants A
         "images/sprMutant1Idle.png" => "images/sprMutant1Hurt.png",
         "images/sprMutant2Idle.png" => "images/sprMutant2Hurt.png",
         "images/sprMutant3Idle.png" => "images/sprMutant3Hurt.png",
