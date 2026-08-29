@@ -100,6 +100,7 @@ pub fn setup_run(
 
     let (player_sprite, player_strip) =
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
+    let anchor = crate::game::content::sprite_anchor(&catalog, def.sprite);
     let fire_rate_mult = if def.passive == PassiveKind::FastReload {
         0.8 // 25% faster (lower cooldown)
     } else {
@@ -170,6 +171,7 @@ pub fn setup_run(
             moving: false,
         },
         player_sprite,
+        anchor,
         Transform::from_xyz(TILE * 0.5, TILE * 0.5, 20.0),
     ));
     if let Some(player_strip) = player_strip {

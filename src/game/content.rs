@@ -1216,6 +1216,7 @@ pub fn ammo_pickup_amount(kind: AmmoKind) -> i32 {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u16)]
 pub enum EnemyKind {
     Maggot,
     Bandit,

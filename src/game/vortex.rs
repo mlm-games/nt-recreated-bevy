@@ -1,10 +1,9 @@
 //! Portal vortex as a single WGSL quad (replaces the per-wisp entity swarm).
 //!
-//! Fidelity sources: `nt-recreated-public-rewrite` (GML) and the
-//! shipped `nuclearthrone` YYC binary (orbit constants 921/500/583/130/90,
-//! recovered from its constant pool):
-//!   - `objects/Vlambeer/Alarm_0.gml`     (SpiralCont created with the Logo)
-//!   - `objects/PlayButton/Other_10.gml`  (destroyed before campfire Menu)
+//! Fidelity source: `nt-recreated-public-rewrite` `SpiralCont/Step_0.gml`
+//! orbit `80/50` (public rewrite `* 80 / * 50`). Commercial binary uses
+//! `130/90` (recovered from `nuclearthrone` YYC constant pool `921,500,583,130,90`)
+//! but this port tracks the public rewrite per spec.
 //!   - `objects/SpiralCont/Create_0.gml`  (warmup `repeat 150`, orbit drift)
 //!   - `objects/SpiralCont/Step_0.gml`    (angle += 8 + sin_deg(a/300), spawn 1/tick)
 //!   - `objects/Spiral/Step_0.gml`        (grow law, destroy xscale>2.5)
@@ -186,14 +185,14 @@ fn spiral_angle_inc(angle: f32) -> f32 {
 }
 
 /// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
-/// DEGREES; bevy takes radians, hence the conversions). Amplitudes 130/90 are
-/// the REAL game's values - recovered from the shipped `nuclearthrone` YYC
-/// binary's constant pool (`921, 500, 583, 130, 90`); the public rewrite
-/// nerfed them to 80/50, which pins the swirl centre near mid-screen.
+/// DEGREES; bevy takes radians, hence the conversions). Public rewrite
+/// `Step_0` uses `* 80 / * 50`; commercial binary `130/90` is intentionally
+/// not used (see module header).
 fn orbit(angle: f32) -> (f32, f32) {
     (
-        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 130.0,
-        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 90.0,
+        // public rewrite Step_0: * 80 / * 50 (not commercial 130/90)
+        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 80.0,
+        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 50.0,
     )
 }
 
@@ -328,6 +327,7 @@ fn ensure_vortex_quad(
     mut commands: Commands,
     state: Res<State<AppState>>,
     asset_server: Res<AssetServer>,
+    catalog: Res<crate::game::content::AssetCatalog>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<VortexMaterial>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -346,6 +346,13 @@ fn ensure_vortex_quad(
     }
     if !existing.is_empty() {
         return;
+    }
+    for path in [
+        "images/sprSpiral.png",
+        "images/sprPortalLightning.png",
+        "images/sprDebris0.png",
+    ] {
+        catalog.require(path);
     }
     let Some((cam, _tf, proj)) = cam_q.iter().next() else {
         return;
@@ -432,6 +439,24 @@ pub fn teardown_vortex(
     }
     if ctl.is_some() {
         commands.remove_resource::<SpiralCtl>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::ui_art::{GUI_H, GUI_W};
+
+    #[test]
+    fn orbit_matches_public_rewrite() {
+        // public rewrite 80/50, not commercial 130/90
+        let (x, y) = orbit(0.0);
+        assert!((x - GUI_W / 2.0).abs() < 1e-3);
+        assert!((y - GUI_H / 2.0).abs() < 1e-3);
+        let (x2, y2) = orbit(500.0);
+        // sin(500/500)=sin1 ~0.84, so x offset ~80*0.84*sin(500/921) etc, verify within 80
+        assert!((x2 - GUI_W / 2.0).abs() <= 80.0 + 1e-3);
+        assert!((y2 - GUI_H / 2.0).abs() <= 50.0 + 1e-3);
     }
 }
 

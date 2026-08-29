@@ -115,9 +115,15 @@ pub struct PlayerAnim {
 pub fn player_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
-    mut q: Query<(&Velocity, &mut PlayerAnim, &mut SpriteAnim, &mut Sprite), Without<HurtAnim>>,
+    mut q: Query<(
+        &Velocity,
+        &mut PlayerAnim,
+        &mut SpriteAnim,
+        &mut Sprite,
+        &mut bevy::sprite::Anchor,
+    ), Without<HurtAnim>>,
 ) {
-    for (vel, mut pa, mut anim, mut sprite) in &mut q {
+    for (vel, mut pa, mut anim, mut sprite, mut anchor) in &mut q {
         // Don't interrupt a oneshot (portal suck uses oneshot too).
         if anim.oneshot && !anim.finished {
             continue;
@@ -134,6 +140,7 @@ pub fn player_anim_switch(
         anim.set_path(path, def, false);
         sprite.image = asset_server.load(path.to_string());
         sprite.rect = Some(anim.rect());
+        *anchor = crate::game::content::sprite_anchor(&catalog, path);
     }
 }
 
@@ -188,11 +195,12 @@ pub fn tick_hurt_anims(
         &mut HurtAnim,
         &mut SpriteAnim,
         &mut Sprite,
+        &mut bevy::sprite::Anchor,
         Option<&Velocity>,
         Option<&mut PlayerAnim>,
     )>,
 ) {
-    for (e, mut hurt, mut anim, mut sprite, vel, mut pa) in &mut q {
+    for (e, mut hurt, mut anim, mut sprite, mut anchor, vel, mut pa) in &mut q {
         hurt.timer.tick(time.delta());
         if !(hurt.timer.just_finished() || (anim.oneshot && anim.finished)) {
             continue;
@@ -207,6 +215,7 @@ pub fn tick_hurt_anims(
             anim.set_path(path, def, false);
             sprite.image = asset_server.load(path.to_string());
             sprite.rect = Some(anim.rect());
+            *anchor = crate::game::content::sprite_anchor(&catalog, path);
         }
         if let Some(ref mut pa) = pa {
             pa.moving = moving;
@@ -351,7 +360,14 @@ pub fn hurt_on_damage(
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut damaged: Query<
-        (Entity, &Health, &EnemySprites, &mut SpriteAnim, &mut Sprite),
+        (
+            Entity,
+            &Health,
+            &EnemySprites,
+            &mut SpriteAnim,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
         (
             Changed<Health>,
             With<crate::game::components::Enemy>,
@@ -360,7 +376,14 @@ pub fn hurt_on_damage(
         ),
     >,
     mut player_damaged: Query<
-        (Entity, &Health, &PlayerAnim, &mut SpriteAnim, &mut Sprite),
+        (
+            Entity,
+            &Health,
+            &PlayerAnim,
+            &mut SpriteAnim,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
         (
             Changed<Health>,
             With<crate::game::components::Player>,
@@ -369,7 +392,7 @@ pub fn hurt_on_damage(
         ),
     >,
 ) {
-    for (e, health, sprites, mut anim, mut sprite) in &mut damaged {
+    for (e, health, sprites, mut anim, mut sprite, mut anchor) in &mut damaged {
         // Spawning writes Health too; only react to actual damage, and let
         // resolve_deaths own the lethal case.
         if health.hp >= health.max || health.hp <= 0 {
@@ -386,8 +409,14 @@ pub fn hurt_on_damage(
             sprites.idle,
             sprites.walk,
         );
+        let hurt_path = if catalog.anim_def(sprites.hurt).is_some() {
+            sprites.hurt
+        } else {
+            sprites.idle
+        };
+        *anchor = crate::game::content::sprite_anchor(&catalog, hurt_path);
     }
-    for (e, health, pa, mut anim, mut sprite) in &mut player_damaged {
+    for (e, health, pa, mut anim, mut sprite, mut anchor) in &mut player_damaged {
         if health.hp >= health.max || health.hp <= 0 {
             continue;
         }
@@ -402,5 +431,6 @@ pub fn hurt_on_damage(
             pa.idle,
             Some(pa.walk),
         );
+        *anchor = crate::game::content::sprite_anchor(&catalog, pa.hurt);
     }
 }

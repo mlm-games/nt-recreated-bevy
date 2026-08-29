@@ -92,6 +92,7 @@ pub fn spawn_enemy(
     };
 
     let (sprite, strip) = crate::game::anim::sprite_anim(catalog, asset_server, def.sprite);
+    let anchor = crate::game::content::sprite_anchor(catalog, def.sprite);
     let hurt = crate::game::anim::derive_hurt_path(def.sprite);
     let walk = crate::game::anim::derive_walk_path(def.sprite);
     let mut ec = commands.spawn((
@@ -139,6 +140,7 @@ pub fn spawn_enemy(
         Hitbox { radius: def.radius },
         Velocity(Vec2::ZERO),
         sprite,
+        anchor,
         Transform::from_translation(pos.extend(10.0)),
     ));
     if let Some(strip) = strip {
@@ -514,7 +516,7 @@ fn enemy_bullet_sprite(
     asset_server: &AssetServer,
     kind: EnemyKind,
     def: EnemyDef,
-) -> Sprite {
+) -> (Sprite, bevy::sprite::Anchor) {
     let primary = crate::game::projectile_art::enemy_projectile_path(kind);
     let candidates = [
         primary,
@@ -528,14 +530,18 @@ fn enemy_bullet_sprite(
             let mut s = crate::game::content::sprite_exact(catalog, asset_server, path);
             s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
             s.color = Color::WHITE;
-            return s;
+            let anchor = crate::game::content::sprite_anchor(catalog, path);
+            return (s, anchor);
         }
     }
-    Sprite {
-        color: def.projectile_color,
-        custom_size: Some(Vec2::splat(def.projectile_size)),
-        ..default()
-    }
+    (
+        Sprite {
+            color: def.projectile_color,
+            custom_size: Some(Vec2::splat(def.projectile_size)),
+            ..default()
+        },
+        bevy::sprite::Anchor::CENTER,
+    )
 }
 
 fn fire_enemy_bullet(
@@ -554,7 +560,7 @@ fn fire_enemy_bullet(
     let angle = base + rng.random_range(-def.projectile_spread..def.projectile_spread);
     let shot_dir = Vec2::new(angle.cos(), angle.sin());
     let speed = def.projectile_speed * if euphoria { 0.8 } else { 1.0 };
-    let sprite = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
+    let (sprite, anchor) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -569,12 +575,13 @@ fn fire_enemy_bullet(
         },
         Velocity(shot_dir * speed),
         sprite,
+        anchor,
         Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
             .with_rotation(Quat::from_rotation_z(angle)),
     ));
 }
 
-/// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
+ /// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
 fn explosive_kind(kind: EnemyKind) -> bool {
     matches!(
         kind,
@@ -603,7 +610,7 @@ fn fire_enemy_shot(
         };
         let angle = base + offset + rng.random_range(-0.06..0.06);
         let shot_dir = Vec2::new(angle.cos(), angle.sin());
-        let sprite = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
+        let (sprite, anchor) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
         commands.spawn((
             GameCleanup,
             LevelCleanup,
@@ -618,6 +625,7 @@ fn fire_enemy_shot(
             },
             Velocity(shot_dir * def.projectile_speed),
             sprite,
+            anchor,
             Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
@@ -758,17 +766,21 @@ pub fn tick_frog_eggs(
         commands.entity(e).despawn();
         // Upstream FrogEgg Alarm_1: repeat 8 → AcidStreak at 45° steps.
         let acid_path = "images/sprAcidStreak.png";
-        let acid_sprite = if catalog.has(acid_path) {
+        let (acid_sprite, acid_anchor) = if catalog.has(acid_path) {
             let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, acid_path);
             s.custom_size = Some(Vec2::splat(8.0));
             s.color = Color::WHITE;
-            s
+            let a = crate::game::content::sprite_anchor(&catalog, acid_path);
+            (s, a)
         } else {
-            Sprite {
-                color: Color::srgb(0.55, 0.9, 0.25),
-                custom_size: Some(Vec2::splat(8.0)),
-                ..default()
-            }
+            (
+                Sprite {
+                    color: Color::srgb(0.55, 0.9, 0.25),
+                    custom_size: Some(Vec2::splat(8.0)),
+                    ..default()
+                },
+                bevy::sprite::Anchor::CENTER,
+            )
         };
         for i in 0..8 {
             let ang = (i as f32) * std::f32::consts::TAU / 8.0;
@@ -787,6 +799,7 @@ pub fn tick_frog_eggs(
                 },
                 Velocity(d * 240.0),
                 acid_sprite.clone(),
+                acid_anchor,
                 Transform::from_translation(pos.extend(15.0)),
             ));
         }

@@ -1404,28 +1404,34 @@ pub fn spawn_player_projectile_with_source(
     weapon: Option<WeaponId>,
 ) {
     let angle = dir.y.atan2(dir.x);
-    let sprite = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
+    let (sprite, anchor) = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
         let candidates = projectile_art::player_projectile_candidates(w);
         let path = projectile_art::first_existing(cat, &candidates);
         if cat.has(path) {
             let mut s = sprite_exact(cat, srv, path);
-            // Keep gameplay size; tint white so atlas colors show
             s.custom_size = Some(size);
             s.color = Color::WHITE;
-            s
+            let a = crate::game::content::sprite_anchor(cat, path);
+            (s, a)
         } else {
+            (
+                Sprite {
+                    color,
+                    custom_size: Some(size),
+                    ..default()
+                },
+                bevy::sprite::Anchor::CENTER,
+            )
+        }
+    } else {
+        (
             Sprite {
                 color,
                 custom_size: Some(size),
                 ..default()
-            }
-        }
-    } else {
-        Sprite {
-            color,
-            custom_size: Some(size),
-            ..default()
-        }
+            },
+            bevy::sprite::Anchor::CENTER,
+        )
     };
     let mut ec = commands.spawn((
         GameCleanup,
@@ -1441,6 +1447,7 @@ pub fn spawn_player_projectile_with_source(
         },
         Velocity(dir * speed),
         sprite,
+        anchor,
         Transform::from_translation(pos.extend(16.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));
 
@@ -1753,17 +1760,21 @@ pub fn ally_ai(
             tf.translation += (vel.0 * time.delta_secs()).extend(0.0);
             if ally.shoot.just_finished() {
                 let ally_path = "images/sprAllyBullet.png";
-                let ally_sprite = if catalog.has(ally_path) {
+                let (ally_sprite, ally_anchor) = if catalog.has(ally_path) {
                     let mut s = sprite_exact(&catalog, &asset_server, ally_path);
                     s.custom_size = Some(Vec2::splat(6.0));
                     s.color = Color::WHITE;
-                    s
+                    let a = crate::game::content::sprite_anchor(&catalog, ally_path);
+                    (s, a)
                 } else {
-                    Sprite {
-                        color: Color::srgb(1.0, 0.7, 0.85),
-                        custom_size: Some(Vec2::splat(6.0)),
-                        ..default()
-                    }
+                    (
+                        Sprite {
+                            color: Color::srgb(1.0, 0.7, 0.85),
+                            custom_size: Some(Vec2::splat(6.0)),
+                            ..default()
+                        },
+                        bevy::sprite::Anchor::CENTER,
+                    )
                 };
                 commands.spawn((
                     GameCleanup,
@@ -1785,6 +1796,7 @@ pub fn ally_ai(
                     Velocity(dir * 380.0),
                     Transform::from_translation(pos.extend(12.0)),
                     ally_sprite,
+                    ally_anchor,
                 ));
                 audio.play_bolt(&mut commands);
             }
