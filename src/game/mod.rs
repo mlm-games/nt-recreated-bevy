@@ -180,6 +180,7 @@ impl Plugin for GamePlugin {
                         combat::tick_spawn_grace,
                         combat::tick_flame_trails,
                         combat::tick_lightning_arcs,
+                        combat::tick_hit_effects,
                         secret_areas::tick_oasis_bandit_window,
                     )
                         .in_set(NtSimSet::Combat)

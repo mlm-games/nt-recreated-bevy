@@ -1466,7 +1466,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            projectile_speed: 190.0,
+            projectile_speed: 120.0, // GM motion_add 4 *30
             projectile_spread: 0.175,
             projectile_damage: 3,
             projectile_radius: 4.0,
@@ -1496,7 +1496,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: true,
             burst_interval: 0.033,
             fan_spread: 0.0,
-            projectile_speed: 170.0,
+            projectile_speed: 105.0, // GM random_range(3,4) avg 3.5*30
             projectile_spread: 0.175,
             projectile_damage: 2,
             projectile_radius: 4.0,
@@ -2461,7 +2461,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            projectile_speed: 380.0,
+            projectile_speed: 480.0, // GM motion_add 16*30
             projectile_spread: 0.01,
             projectile_damage: 5,
             projectile_radius: 3.5,

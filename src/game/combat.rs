@@ -298,6 +298,25 @@ pub fn tick_lightning_arcs(
     }
 }
 
+pub fn tick_hit_effects(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut PickupLifetime, Option<&mut Sprite>), Without<Pickup>>,
+) {
+    for (e, mut lt, sprite) in &mut q {
+        lt.timer.tick(time.delta());
+        if let Some(mut s) = sprite {
+            if lt.timer.remaining_secs() < 0.12 {
+                s.color
+                    .set_alpha((lt.timer.remaining_secs() / 0.12).clamp(0.0, 1.0));
+            }
+        }
+        if lt.timer.just_finished() {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
 fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let ab = b - a;
     let denom = ab.length_squared();
@@ -516,13 +535,48 @@ pub fn move_projectiles(
             }
 
             if !p.explosive {
-                VfxSpawner::spawn_burst(
-                    &mut commands,
-                    pos,
-                    3,
-                    Color::srgb(1.0, 0.9, 0.5),
-                    (30.0, 90.0),
-                );
+                let (hit_color, hit_sprite) = match *team {
+                    Team::Player => (Color::srgb(1.0, 0.92, 0.35), "images/sprBulletHit.png"),
+                    Team::Enemy => (Color::srgb(1.0, 0.35, 0.08), "images/sprEnemyBulletHit.png"),
+                };
+                VfxSpawner::spawn_burst(&mut commands, pos, 3, hit_color, (30.0, 90.0));
+                if catalog.has(hit_sprite) {
+                    if let Some(def) = catalog.anim_def(hit_sprite) {
+                        let mut sprite =
+                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
+                        sprite.color = Color::WHITE;
+                        let mut anim = crate::game::anim::SpriteAnim::oneshot(hit_sprite, def);
+                        // Play at 2× speed so the 4-frame hit spark lasts ~0.15s like OG
+                        anim.timer = Timer::from_seconds(
+                            1.0 / (def.fps * 2.0).max(1.0),
+                            TimerMode::Repeating,
+                        );
+                        commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            sprite,
+                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
+                            Transform::from_translation(pos.extend(15.0)),
+                            anim,
+                            crate::game::components::PickupLifetime {
+                                timer: Timer::from_seconds(0.25, TimerMode::Once),
+                            },
+                        ));
+                    } else {
+                        let sprite =
+                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
+                        commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            sprite,
+                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
+                            Transform::from_translation(pos.extend(15.0)),
+                            crate::game::components::PickupLifetime {
+                                timer: Timer::from_seconds(0.2, TimerMode::Once),
+                            },
+                        ));
+                    }
+                }
             }
             on_projectile_removed(
                 &mut commands,
@@ -784,7 +838,16 @@ fn on_projectile_removed(
     }
 
     if let Some(SplitOnDeath(spec)) = split {
-        spawn_split_projectiles(commands, catalog, asset_server, pos, team, spec, source, base_dir);
+        spawn_split_projectiles(
+            commands,
+            catalog,
+            asset_server,
+            pos,
+            team,
+            spec,
+            source,
+            base_dir,
+        );
     }
 
     if let Some(spec) = spawn_pickup_spec {
@@ -792,7 +855,16 @@ fn on_projectile_removed(
     }
 
     if let Some(plasma) = plasma_burst {
-        spawn_plasma_children(commands, catalog, asset_server, pos, team, plasma, source, base_dir);
+        spawn_plasma_children(
+            commands,
+            catalog,
+            asset_server,
+            pos,
+            team,
+            plasma,
+            source,
+            base_dir,
+        );
     }
 }
 
@@ -1194,6 +1266,49 @@ pub fn projectile_hits(
                 target_pos,
                 Color::srgb(1.0, 0.92, 0.35),
             );
+            // OG hit spark — sprBulletHit for player, sprEnemyBulletHit for enemy
+            {
+                let hit_sprite = match *proj_team {
+                    Team::Player => "images/sprBulletHit.png",
+                    Team::Enemy => "images/sprEnemyBulletHit.png",
+                };
+                if catalog.has(hit_sprite) {
+                    if let Some(def) = catalog.anim_def(hit_sprite) {
+                        let mut sprite =
+                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
+                        sprite.color = Color::WHITE;
+                        let mut anim = crate::game::anim::SpriteAnim::oneshot(hit_sprite, def);
+                        anim.timer = Timer::from_seconds(
+                            1.0 / (def.fps * 1.5).max(1.0),
+                            TimerMode::Repeating,
+                        );
+                        commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            sprite,
+                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
+                            Transform::from_translation(target_pos.extend(14.0)),
+                            anim,
+                            crate::game::components::PickupLifetime {
+                                timer: Timer::from_seconds(0.2, TimerMode::Once),
+                            },
+                        ));
+                    } else {
+                        let sprite =
+                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
+                        commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            sprite,
+                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
+                            Transform::from_translation(target_pos.extend(14.0)),
+                            crate::game::components::PickupLifetime {
+                                timer: Timer::from_seconds(0.15, TimerMode::Once),
+                            },
+                        ));
+                    }
+                }
+            }
 
             if proj.explosive {
                 hitstop.trigger(0.12, 0.09);
@@ -1771,9 +1886,8 @@ pub fn resolve_deaths(
             EnemyKind::Ballguy => {
                 let art_path = "images/sprBouncerBullet.png";
                 let ballguy_sprite = if catalog.has(art_path) {
-                    let mut s = crate::game::content::sprite_exact(
-                        &catalog, &asset_server, art_path,
-                    );
+                    let mut s =
+                        crate::game::content::sprite_exact(&catalog, &asset_server, art_path);
                     s.custom_size = Some(Vec2::splat(7.0));
                     s.color = Color::WHITE;
                     s

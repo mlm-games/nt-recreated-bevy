@@ -1185,6 +1185,48 @@ fn spawn_pellets(
             Some(id),
         );
     }
+    // Shell casing (scrBulletShotShellFX) — OG ejects a `Shell` with
+    // `sprBulletShell` at `gunangle + right*100 + orandom(25)` @ 2-4 speed.
+    // Bevy: small physics pop that tumbles and fades like `GroundPhysics`.
+    // OG calls this once per pellet for triple/double minigun, once for others;
+    // shotgun-type `Shells` ammo never ejects `sprBulletShell`.
+    if def.ammo == AmmoKind::Bullets && def.melee.is_none() {
+        let shell_path = "images/sprBulletShell.png";
+        if catalog.has(shell_path) {
+            // Triple/quad minigun fire 3-4 pellets but OG spawns one shell per
+            // pellet inside the loop; other bullet weapons spawn one.
+            let shells = if matches!(id.0, 2 | 83 | 49) {
+                def.pellets
+            } else {
+                1
+            };
+            for _ in 0..shells {
+                let mut rng2 = rand::rng();
+                let shell_sprite = sprite_exact(catalog, asset_server, shell_path);
+                let anchor = crate::game::content::sprite_anchor(catalog, shell_path);
+                let right = if aim.0.x >= 0.0 { 1.0 } else { -1.0 };
+                let shell_angle = aim.0.y.atan2(aim.0.x) + right * 100_f32.to_radians()
+                    + rng2.random_range(-25_f32..25.0).to_radians();
+                let shell_dir = Vec2::new(shell_angle.cos(), shell_angle.sin());
+                let shell_speed = rng2.random_range(50.0..90.0);
+                let shell_vel = shell_dir * shell_speed + Vec2::new(0.0, -20.0);
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    shell_sprite,
+                    anchor,
+                    Transform::from_translation(muzzle.extend(9.0)),
+                    GroundPhysics {
+                        vel: shell_vel,
+                        rotspeed: rng2.random_range(-12.0..12.0),
+                    },
+                    PickupLifetime {
+                        timer: Timer::from_seconds(1.4, TimerMode::Once),
+                    },
+                ));
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1410,8 +1452,25 @@ pub fn spawn_player_projectile_with_source(
         let candidates = projectile_art::player_projectile_candidates(w);
         let path = projectile_art::first_existing(cat, &candidates);
         if cat.has(path) {
-            let mut s = sprite_exact(cat, srv, path);
-            s.custom_size = Some(size);
+            // Bullet sprites store the moving projectile on frame 1 (horizontal
+            // streak) while frame 0 is a circular blob. Use the correct static
+            // frame so the bevy bullet matches `Bullet1/Bullet2: image_index = 1`
+            // in the original `game.unx` (see `~/Downloads/nuclear_throne`).
+            let frame = match path {
+                "images/sprBullet1.png" | "images/sprBullet2.png" => 1,
+                _ => 0,
+            };
+            let mut s = if frame == 0 {
+                sprite_exact(cat, srv, path)
+            } else {
+                crate::game::content::sprite_exact_frame(cat, srv, path, frame)
+            };
+            // Use native sprite size for projectiles; `def.size` is kept for
+            // gameplay tuning but the OG art is authored for its native
+            // `w×h` (e.g. Bullet1 16×6 streak). Scaling to `def.size` (10×3)
+            // squashes the art and makes NT bullets look like thin white
+            // rectangles.
+            s.custom_size = None;
             s.color = Color::WHITE;
             let a = crate::game::content::sprite_anchor(cat, path);
             (s, a)
