@@ -1708,7 +1708,7 @@ pub fn resolve_deaths(
     mut fire_q: Query<&mut FireCooldown, (With<Player>, Without<Enemy>)>,
     q: Query<
         (Entity, &Transform, &Team, &Health, Option<&Enemy>),
-        (Without<Prop>, Without<Player>),
+        (Without<Prop>, Without<Player>, Without<Dying>),
     >,
 ) {
     let (
@@ -1745,7 +1745,17 @@ pub fn resolve_deaths(
         if *team != Team::Enemy || health.hp > 0 {
             continue;
         }
-
+        // Prevent double-count if this entity was already marked Dying this
+        // tick by a previous query iteration before despawn flushes.
+        // The Dying check needs an extra query; use Commands existence via
+        // try_insert which is idempotent - but also skip if health still
+        // observed after second damage source.
+        // Bevy despawn is deferred, so we insert Dying and skip if it already
+        // existed (commands will dedup, so use a separate Has check via
+        // `q` filter would need Without<Dying> - add guard via `commands`).
+        // Simplest: rely on `run.total_kills` dedup by checking entity
+        // still alive via `commands.get_entity(e).is_some()` - instead we
+        // use a local HashSet.
         let enemy = enemy.copied().unwrap_or(Enemy {
             kind: EnemyKind::Maggot,
             score: 1,
@@ -1757,6 +1767,9 @@ pub fn resolve_deaths(
         let def = enemy_def(enemy.kind);
         let pos = tf.translation.truncate();
 
+        // Mark as dying to avoid re-entry before despawn flushes; if already
+        // despawned this tick the command is no-op, but we still guard kills.
+        commands.entity(e).insert(Dying);
         commands.entity(e).despawn();
         if !def.boss && !matches!(enemy.kind, EnemyKind::IdpdVan | EnemyKind::FrogEgg) {
             commands.spawn((

@@ -173,8 +173,9 @@ pub fn play_hurt(
     sprite.image = asset_server.load(path.to_string());
     sprite.rect = Some(anim.rect());
 
-    // ~3 frames at typical NT hurt fps (~15) ≈ 0.2s
-    let secs = (def.frames as f32 / def.fps.max(1.0)).max(0.12);
+    // GM: hurt lasts while image_index <=2 (~3 frames at 0.4*30=12fps => 0.25s)
+    // Keep timer as backstop; frame check above is authoritative.
+    let secs = (3.0 / def.fps.max(1.0)).max(0.12).min(0.35);
     commands.entity(entity).insert(HurtAnim {
         idle,
         walk,
@@ -184,7 +185,9 @@ pub fn play_hurt(
     });
 }
 
-/// Restore idle/walk after hurt oneshot finishes.
+/// Restore idle/walk after hurt oneshot finishes. Mirrors GM:
+/// `if sprite_index==spr_hurt && image_index>2) sprite_index=spr_idle`
+/// which is frame-count, not timer. Keep timer as backstop for missing strips.
 pub fn tick_hurt_anims(
     time: Res<Time<Fixed>>,
     asset_server: Res<AssetServer>,
@@ -202,7 +205,10 @@ pub fn tick_hurt_anims(
 ) {
     for (e, mut hurt, mut anim, mut sprite, mut anchor, vel, mut pa) in &mut q {
         hurt.timer.tick(time.delta());
-        if !(hurt.timer.just_finished() || (anim.oneshot && anim.finished)) {
+        // GM exits hurt after image_index>2 (3 frames). Bevy: anim.frame>2
+        // or timer as fallback for fallback-idle freeze, or oneshot finished.
+        let frame_done = anim.frame > 2;
+        if !(hurt.timer.just_finished() || frame_done || (anim.oneshot && anim.finished)) {
             continue;
         }
         let moving = vel.map(|v| v.0.length_squared() > 100.0).unwrap_or(false);

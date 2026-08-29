@@ -11,11 +11,14 @@ pub const WALL_THICK: f32 = 60.0;
 pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
 /// Base max speed: GML maxspeed 4 px/frame * 30 Hz = 120 px/s.
 pub const PLAYER_BASE_SPEED: f32 = 120.0;
-/// Approx. GML motion_add feel at 30 Hz (1.5 px/frame equivalent).
-pub const PLAYER_ACCEL: f32 = 720.0;
-/// Multiplicative friction per 30 Hz tick (GML friction is subtractive;
-/// this matches "stop in ~8–10 frames from maxspeed").
-pub const PLAYER_FRICTION: f32 = 0.55;
+/// Approx. GML motion_add feel at 30 Hz. GM Player Step uses _movspeed=3
+/// px/frame (90 px/s instantaneous, capped to maxspeed 4). Bevy integrates
+/// via accel*dt; 900 keeps the 30Hz impulse close to 3/frame.
+pub const PLAYER_ACCEL: f32 = 900.0;
+/// GML friction is subtractive: Player/Step_0 friction=0.45 (+ 2 on slime,
+/// 0.1 on ice), enemy/Create_0 friction=0.4. This is subtracted per frame
+/// (px/frame), not multiplied. See player_move subtractive branch.
+pub const PLAYER_FRICTION: f32 = 0.45;
 pub const NT_CAM_SCALE: f32 = 0.45;
 
 /// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
@@ -962,6 +965,12 @@ pub struct EnemyBrain {
     pub strafe_dir: f32,
     pub strafe_timer: Timer,
     pub melee: Timer,
+    /// GML `walk` remaining frames (Bandit/Scorpion). 0 = not walking.
+    pub walk: f32,
+    /// Bandit/Scorpion ammo for burst attacks (GML `ammo`).
+    pub ammo: u8,
+    /// Current gun angle (degrees rad) for aimed shots.
+    pub gunangle: f32,
 }
 
 // --- Boss AI (see boss_ai.rs) -----------------------------------------------
@@ -1309,6 +1318,12 @@ pub struct Corpse {
     pub life: Timer,
     pub pos: Vec2,
 }
+
+/// Marks an entity whose death has already been processed this tick.
+/// Prevents double `kills++` / double Corpse when multiple damage systems
+/// set hp<=0 the same FixedUpdate before despawn is flushed.
+#[derive(Component, Debug, Default)]
+pub struct Dying;
 
 /// Marks a wall lattice cell as a "screen end" (preferentially broken by bosses).
 #[derive(Component, Clone, Copy, Debug, Default)]

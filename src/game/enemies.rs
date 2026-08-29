@@ -130,6 +130,12 @@ pub fn spawn_enemy(
             },
             strafe_timer: Timer::from_seconds(rand::rng().random_range(0.8..1.6), TimerMode::Once),
             melee: ready_timer(),
+            walk: 0.0,
+            ammo: match kind {
+                EnemyKind::Scorpion | EnemyKind::GoldScorpion => 10,
+                _ => 0,
+            },
+            gunangle: rand::rng().random_range(0.0..std::f32::consts::TAU),
         },
         Health {
             hp,
@@ -170,6 +176,38 @@ fn ready_timer() -> Timer {
     let mut t = Timer::from_seconds(0.01, TimerMode::Once);
     t.finish();
     t
+}
+
+/// Approximate GML `collision_line` wall check for Bandit LOS.
+/// Samples the segment against prop AABBs (walls are Props).
+fn has_line_of_sight(
+    from: Vec2,
+    to: Vec2,
+    props: &Query<(Entity, &Prop, &Transform), With<Prop>>,
+) -> bool {
+    // Sample 10 points along segment; if any sample hits a prop, blocked.
+    let dir = to - from;
+    let dist = dir.length();
+    if dist < 1.0 {
+        return true;
+    }
+    let steps = 10;
+    for i in 1..steps {
+        let t = i as f32 / steps as f32;
+        let p = from + dir * t;
+        for (_, prop, tf) in props.iter() {
+            let center = tf.translation.truncate();
+            let half = prop.size * 0.5;
+            if p.x >= center.x - half.x
+                && p.x <= center.x + half.x
+                && p.y >= center.y - half.y
+                && p.y <= center.y + half.y
+            {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 pub fn enemy_ai(
@@ -246,6 +284,248 @@ pub fn enemy_ai(
 
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
+
+        // --- GML-accurate walk handling (Scorpion/Other_10, generic enemy/Other_10) ---
+        // Scorpion: walk>0 => motion_add(direction,0.8) and speed>3 clamp
+        // Bandit:  walk>0 => motion_add(direction,0.4) via Alarm_1 walk assignment
+        if brain.walk > 0.0 {
+            let walk_speed = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+                0.8 * 30.0 // 0.8 px/frame *30 = 24 px/s impulse
+            } else {
+                0.4 * 30.0
+            };
+            // direction already set by Alarm logic; add impulse
+            let walk_dir = if vel.0.length_squared() > 0.001 {
+                vel.0.normalize_or_zero()
+            } else {
+                dir
+            };
+            vel.0 += walk_dir * walk_speed * dt * 30.0 * 0.5;
+            brain.walk -= dt * 30.0;
+            if brain.walk < 0.0 {
+                brain.walk = 0.0;
+            }
+            // GML caps: Scorpion speed>3, generic enemy speed>4
+            let cap = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+                90.0 // 3*30
+            } else {
+                120.0 // 4*30
+            };
+            if vel.0.length() > cap {
+                vel.0 = vel.0.normalize() * cap;
+            }
+        }
+
+        // --- Bandit GML Alarm_1 branch ( Bandit/Alarm_1.gml ) ---
+        if matches!(
+            enemy.kind,
+            EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit
+        ) {
+            // Drive Bandit entirely via its Alarm_1 timer + walk
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &props);
+                if los {
+                    if dist > 48.0 {
+                        if rng.random::<f32>() < 0.25 {
+                            // Shoot EnemyBullet1 speed 4 (120 px/s) spread 20, wkick 4
+                            let spread = rng.random_range(-10.0_f32..10.0).to_radians();
+                            let base_ang = dir.y.atan2(dir.x);
+                            let ang = base_ang + spread;
+                            let sdir = Vec2::new(ang.cos(), ang.sin());
+                            fire_enemy_bullet(
+                                &mut commands,
+                                &catalog,
+                                &asset_server,
+                                &mut rng,
+                                entity,
+                                enemy,
+                                def,
+                                pos,
+                                sdir,
+                                euphoria,
+                            );
+                            brain.gunangle = base_ang;
+                            brain.attack = Timer::from_seconds(
+                                (20.0 + rng.random_range(0.0..5.0)) / 30.0,
+                                TimerMode::Once,
+                            );
+                        } else {
+                            // Walk random direction around target
+                            let ang = dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
+                            let wdir = Vec2::new(ang.cos(), ang.sin());
+                            vel.0 = wdir * 40.0;
+                            brain.walk = 10.0 + rng.random_range(0.0..10.0);
+                            brain.gunangle = dir.y.atan2(dir.x);
+                            brain.attack = Timer::from_seconds(
+                                (20.0 + rng.random_range(0.0..5.0)) / 30.0,
+                                TimerMode::Once,
+                            );
+                        }
+                    } else {
+                        // Too close: flee away
+                        let away = -dir;
+                        let ang = away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * 50.0;
+                        brain.walk = 40.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        brain.attack = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                    sprite.flip_x = player_pos.x < pos.x;
+                } else if rng.random::<f32>() < 0.25 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let wdir = Vec2::new(ang.cos(), ang.sin());
+                    vel.0 = wdir * 40.0;
+                    brain.walk = 20.0 + rng.random_range(0.0..10.0);
+                    brain.attack = Timer::from_seconds(
+                        (brain.walk + 10.0 + rng.random_range(0.0..30.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                    brain.gunangle = ang;
+                    sprite.flip_x = vel.0.x < 0.0;
+                }
+            } else if rng.random::<f32>() < 0.1 && brain.attack.remaining_secs() > 1.0 {
+                // Idle random walk when no target (mirrors else branch)
+                let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                vel.0 += Vec2::new(ang.cos(), ang.sin()) * 30.0 * dt;
+            }
+            // Apply friction & move, then skip generic ranged logic
+            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
+            // Fall through to common collision handling but skip generic firing below
+            // Use a flag to bypass generic firing: set def.bullets_per_shot=0 virtual
+            // We'll handle sprite + movement tail below and continue
+            // Light separation + collisions handled after this block via goto
+            // Instead, jump to shared tail: we need to still do resolve_prop etc.
+            // So just set a marker and skip generic strafe/dash
+            {
+                // Scorpion-specific walk already handled, now apply common tail
+                // Duplicate tail code inline to avoid generic path
+                if vel.0.length() > def.speed.max(40.0) {
+                    vel.0 = vel.0.normalize() * def.speed.max(40.0);
+                }
+                tf.translation += (vel.0 * dt).extend(0.0);
+                resolve_prop_collision(&mut tf.translation, def.radius, &props);
+                mask.resolve_circle(&mut tf.translation, def.radius);
+                clamp_to_arena(&mut tf.translation, def.radius);
+                // separation
+                for other in &positions {
+                    let d = pos.distance(*other);
+                    if d < def.radius + 14.0 && d > 0.001 {
+                        let push = (pos - *other).normalize() * (def.radius + 14.0 - d) * 0.5;
+                        tf.translation.x += push.x;
+                        tf.translation.y += push.y;
+                    }
+                }
+            }
+            continue;
+        }
+
+        // --- Scorpion GML Alarm_1 + Alarm_2 + Other_10 ---
+        if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+            brain.attack.tick(time.delta());
+            brain.burst_timer.tick(time.delta());
+            // Burst firing via Alarm_2 (every 2 frames) while ammo>0
+            if brain.ammo > 0 && brain.burst_left > 0 {
+                if brain.burst_timer.just_finished() {
+                    let spread = rng.random_range(-20_f32..20.0).to_radians();
+                    let base_ang = brain.gunangle;
+                    let ang = base_ang + spread;
+                    let sdir = Vec2::new(ang.cos(), ang.sin());
+                    let speed = rng.random_range(90.0..120.0); // 3..4 *30
+                    let (sprite_b, anchor) = enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        Team::Enemy,
+                        Projectile {
+                            damage: def.projectile_damage,
+                            life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
+                            radius: def.projectile_radius,
+                            knockback: 150.0,
+                            explosive: explosive_kind(enemy.kind),
+                            source: Some(DamageSource::enemy(entity, enemy.kind)),
+                        },
+                        Velocity(sdir * speed),
+                        sprite_b,
+                        anchor,
+                        Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                            .with_rotation(Quat::from_rotation_z(ang)),
+                    ));
+                    brain.ammo = brain.ammo.saturating_sub(1);
+                    brain.burst_left -= 1;
+                    if brain.ammo == 0 || brain.burst_left == 0 {
+                        brain.attack = Timer::from_seconds(
+                            (40.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                        brain.ammo = 10; // reset for next burst? GML ammo=10 resets at Alarm1 start
+                    } else {
+                        brain.burst_timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                    }
+                }
+            } else if brain.attack.just_finished() {
+                // Alarm_1 logic
+                let target_dir = dir.y.atan2(dir.x);
+                // scrWalk(_target_direction+orandom60+180, 0,10,20) approximation
+                let walk_ang = target_dir + rng.random_range(-60_f32..60.0).to_radians() + std::f32::consts::PI;
+                let wdir = Vec2::new(walk_ang.cos(), walk_ang.sin());
+                vel.0 = wdir * 30.0;
+                brain.walk = 10.0 + rng.random_range(0.0..10.0);
+                sprite.flip_x = vel.0.x < 0.0;
+                // visible check 210
+                let los = has_line_of_sight(pos, player_pos, &props);
+                if los && dist < 210.0 && rng.random::<f32>() < 0.5 {
+                    brain.attack = Timer::from_seconds(
+                        (30.0 + rng.random_range(0.0..5.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                    brain.burst_timer = Timer::from_seconds(1.0 / 30.0, TimerMode::Once);
+                    brain.burst_left = 10;
+                    brain.ammo = 10;
+                    brain.gunangle = target_dir;
+                    sprite.flip_x = player_pos.x < pos.x;
+                } else {
+                    brain.attack = Timer::from_seconds(
+                        (30.0 + rng.random_range(0.0..10.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
+                if dist < 64.0 {
+                    let away = -dir;
+                    let ang = away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
+                    if dist > 32.0 {
+                        // add 180
+                        let ang2 = ang + std::f32::consts::PI;
+                        vel.0 = Vec2::new(ang2.cos(), ang2.sin()) * 40.0;
+                    } else {
+                        vel.0 = Vec2::new(ang.cos(), ang.sin()) * 40.0;
+                    }
+                    brain.walk = 40.0;
+                }
+            }
+            // Apply movement + friction tail and skip generic firing
+            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
+            if vel.0.length() > 90.0 {
+                vel.0 = vel.0.normalize() * 90.0;
+            }
+            tf.translation += (vel.0 * dt).extend(0.0);
+            resolve_prop_collision(&mut tf.translation, def.radius, &props);
+            mask.resolve_circle(&mut tf.translation, def.radius);
+            clamp_to_arena(&mut tf.translation, def.radius);
+            for other in &positions {
+                let d = pos.distance(*other);
+                if d < def.radius + 14.0 && d > 0.001 {
+                    let push = (pos - *other).normalize() * (def.radius + 14.0 - d) * 0.5;
+                    tf.translation.x += push.x;
+                    tf.translation.y += push.y;
+                }
+            }
+            continue;
+        }
 
         // Assassin / Spider / Melee Bandit: short leap toward the player when in mid range.
         let was_dashing = brain.dash > 0.0;
