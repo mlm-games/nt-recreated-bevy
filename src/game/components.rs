@@ -9,8 +9,13 @@ pub const ARENA_W: f32 = 2560.0;
 pub const ARENA_H: f32 = 1664.0;
 pub const WALL_THICK: f32 = 60.0;
 pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
-pub const PLAYER_ACCEL: f32 = 1500.0;
-pub const PLAYER_FRICTION: f32 = 0.82;
+/// Base max speed: GML maxspeed 4 px/frame * 30 Hz = 120 px/s.
+pub const PLAYER_BASE_SPEED: f32 = 120.0;
+/// Approx. GML motion_add feel at 30 Hz (1.5 px/frame equivalent).
+pub const PLAYER_ACCEL: f32 = 720.0;
+/// Multiplicative friction per 30 Hz tick (GML friction is subtractive;
+/// this matches "stop in ~8–10 frames from maxspeed").
+pub const PLAYER_FRICTION: f32 = 0.55;
 pub const NT_CAM_SCALE: f32 = 0.45;
 
 /// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
@@ -325,7 +330,7 @@ pub struct Player {
 impl Default for Player {
     fn default() -> Self {
         Self {
-            speed: 240.0,
+            speed: PLAYER_BASE_SPEED,
             accel: PLAYER_ACCEL,
             friction: PLAYER_FRICTION,
             speed_mult: 1.0,

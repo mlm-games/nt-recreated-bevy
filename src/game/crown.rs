@@ -34,8 +34,8 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Haste => {
-            player.fire_rate_mult *= 0.75;
-            player.speed_mult *= 1.08;
+            player.fire_rate_mult *= 0.8;
+            // Haste does not boost walk speed in base NT (verify wep_load factor if needed)
         }
 
         CrownKind::Guns => {

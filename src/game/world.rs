@@ -196,9 +196,10 @@ where
 fn turn_table(rng: &mut StdRng, area: i32) -> i32 {
     const Z: i32 = 0;
     match area {
-        0 => rng_choose(rng, &[Z, Z, 90, -90, 90, -90, 180]),
+        1 => rng_choose(rng, &[Z, Z, 90, -90, 90, -90, 180]),
         2 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 90, -90, 180]),
         3 => rng_choose(rng, &[Z, Z, Z, Z, Z, 90, -90]),
+        4 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, 90, -90, 180]),
         5 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 180, 180]),
         6 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180]),
         7 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180]),

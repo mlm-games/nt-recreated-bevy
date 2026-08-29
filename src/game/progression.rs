@@ -115,9 +115,16 @@ pub fn setup_run(
     // Build player components as locals so the crown can mutate them before
     // insertion (upstream crowns reshape HP/weapons at run start).
     let mut player_comp = Player {
-        speed: 240.0 * def.speed_mult,
+        speed: crate::game::components::PLAYER_BASE_SPEED,
+        speed_mult: def.speed_mult,
         pickup_range: def.pickup_range,
         fire_rate_mult,
+        // Steroids: GML accuracy 1.8 → wider spread
+        spread_mult: if character.0 == RaceId::Steroids {
+            1.8
+        } else {
+            1.0
+        },
         chain_explosions: def.passive == PassiveKind::ChainExplosions,
         shield_on_hit: def.passive == PassiveKind::ShieldOnHit,
         ability: def.ability,

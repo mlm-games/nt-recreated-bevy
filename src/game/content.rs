@@ -680,7 +680,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             name: "Chicken",
             color: Color::srgb(0.95, 0.9, 0.6),
             max_hp: 8,
-            speed_mult: 1.2,
+            speed_mult: 1.0, // GML maxspeed 4 like Fish
             pickup_range: 95.0,
             ability: AbilityKind::Throw,
             passive: PassiveKind::Headless,

@@ -271,24 +271,26 @@ pub fn player_ability(
     let pos = tf.translation.truncate();
     let ability = player.ability;
 
-    let cd = match ability {
-        AbilityKind::Flip => 3.5,
-        AbilityKind::Shield => 5.0,
-        AbilityKind::Telekinesis => 4.5,
-        AbilityKind::Detonate => 5.5,
-        AbilityKind::Snare => 4.0,
-        AbilityKind::PopPop => 3.0,
-        AbilityKind::GetLoaded => 7.0,
-        AbilityKind::EatWeapon => 1.0,
-        AbilityKind::Throw => 4.0,
-        AbilityKind::SpawnAlly => 8.0,
-        AbilityKind::HorrorBeam => 5.0,
-        AbilityKind::PortalStrike => 6.0,
-        AbilityKind::RocketBarrage => 7.0,
-        AbilityKind::BloodGamble => 4.0,
-        AbilityKind::ToxicPuke => 5.0,
-        AbilityKind::CuzSwap => 0.4,
+    // GML alarms are in frames @30Hz; keep parity as frames/30.
+    let cd_frames: f32 = match ability {
+        AbilityKind::Flip => 105.0,
+        AbilityKind::Shield => 150.0,
+        AbilityKind::Telekinesis => 135.0,
+        AbilityKind::Detonate => 165.0,
+        AbilityKind::Snare => 120.0,
+        AbilityKind::PopPop => 90.0,
+        AbilityKind::GetLoaded => 210.0,
+        AbilityKind::EatWeapon => 30.0,
+        AbilityKind::Throw => 120.0,
+        AbilityKind::SpawnAlly => 240.0,
+        AbilityKind::HorrorBeam => 150.0,
+        AbilityKind::PortalStrike => 180.0,
+        AbilityKind::RocketBarrage => 210.0,
+        AbilityKind::BloodGamble => 120.0,
+        AbilityKind::ToxicPuke => 150.0,
+        AbilityKind::CuzSwap => 12.0,
     };
+    let cd = cd_frames / 30.0;
 
     let ability_mult = if player.throne_butt {
         player.ultra_ability_mult * 1.35
