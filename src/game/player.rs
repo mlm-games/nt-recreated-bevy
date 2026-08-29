@@ -10,6 +10,7 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
+use crate::game::projectile_art;
 use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
 use crate::game::secret_areas::SecretTriggers;
@@ -233,6 +234,8 @@ pub fn player_ability(
     mut slow_mo: ResMut<SlowMotion>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
     mut q: Query<
@@ -523,6 +526,8 @@ pub fn player_ability(
 
             spawn_player_projectile_with_source(
                 &mut commands,
+                Some(&catalog),
+                Some(&asset_server),
                 pos + dir * 18.0,
                 dir,
                 520.0,
@@ -542,6 +547,7 @@ pub fn player_ability(
                     ..ProjectileArchetype::default()
                 },
                 Some(DamageSource::player_weapon(player_e, held)),
+                Some(held),
             );
 
             health.invuln = Timer::from_seconds(0.25, TimerMode::Once);
@@ -659,6 +665,19 @@ pub fn player_ability(
             } else {
                 -2..=2
             };
+            let rocket_path = "images/sprRocket.png";
+            let rocket_sprite = if catalog.has(rocket_path) {
+                let mut s = sprite_exact(&catalog, &asset_server, rocket_path);
+                s.custom_size = Some(Vec2::splat(10.0));
+                s.color = Color::WHITE;
+                s
+            } else {
+                Sprite {
+                    color: Color::srgb(1.0, 0.55, 0.15),
+                    custom_size: Some(Vec2::splat(10.0)),
+                    ..default()
+                }
+            };
             for i in rockets {
                 let ang = (i as f32) * 0.12;
                 let dir = Vec2::new(
@@ -682,11 +701,7 @@ pub fn player_ability(
                     Team::Player,
                     Velocity(dir * 420.0),
                     Transform::from_translation(pos.extend(12.0)),
-                    Sprite {
-                        color: Color::srgb(1.0, 0.55, 0.15),
-                        custom_size: Some(Vec2::splat(10.0)),
-                        ..default()
-                    },
+                    rocket_sprite.clone(),
                 ));
             }
             ScreenEffects::add_trauma(&mut trauma, 0.25);
@@ -772,6 +787,8 @@ pub fn player_fire(
     _flash: ResMut<FlashWhite>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut player_q: Query<
         (
             Entity,
@@ -831,6 +848,8 @@ pub fn player_fire(
             &audio,
             &mut rumble,
             &gamepads,
+            &catalog,
+            &asset_server,
             player_ent,
             tf,
             aim,
@@ -849,6 +868,8 @@ pub fn player_fire(
                     &audio,
                     &mut rumble,
                     &gamepads,
+                    &catalog,
+                    &asset_server,
                     player_ent,
                     tf,
                     aim,
@@ -937,6 +958,8 @@ pub fn player_fire(
         &audio,
         &mut rumble,
         &gamepads,
+        &catalog,
+        &asset_server,
         player_ent,
         tf,
         aim,
@@ -972,6 +995,8 @@ pub fn player_fire(
                 &audio,
                 &mut rumble,
                 &gamepads,
+                &catalog,
+                &asset_server,
                 player_ent,
                 tf,
                 aim,
@@ -1030,6 +1055,8 @@ fn spawn_pellets(
     audio: &GameAudio,
     rumble: &mut MessageWriter<GamepadRumbleRequest>,
     gamepads: &Query<(Entity, &Gamepad)>,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     player_ent: Entity,
     tf: &Transform,
     aim: &AimDir,
@@ -1095,6 +1122,8 @@ fn spawn_pellets(
     if let Some(sentry) = archetype.deploys_sentry {
         spawn_player_projectile_with_source(
             commands,
+            Some(catalog),
+            Some(asset_server),
             muzzle,
             aim.0.normalize_or_zero(),
             260.0,
@@ -1114,6 +1143,7 @@ fn spawn_pellets(
                 ..ProjectileArchetype::default()
             },
             Some(DamageSource::player_weapon(player_ent, id)),
+            Some(id),
         );
         return;
     }
@@ -1132,6 +1162,8 @@ fn spawn_pellets(
         let dir = Vec2::new(angle.cos(), angle.sin());
         spawn_player_projectile_with_source(
             commands,
+            Some(catalog),
+            Some(asset_server),
             muzzle,
             dir,
             def.speed,
@@ -1148,6 +1180,7 @@ fn spawn_pellets(
             def.split,
             archetype,
             Some(DamageSource::player_weapon(player_ent, id)),
+            Some(id),
         );
     }
 }
@@ -1323,8 +1356,11 @@ pub fn spawn_player_projectile(
     color: Color,
     size: Vec2,
 ) {
+    // Fallback path without art (tests / simple spawns) - spawn a colored quad
     spawn_player_projectile_with_source(
         commands,
+        None,
+        None,
         pos,
         dir,
         speed,
@@ -1341,11 +1377,14 @@ pub fn spawn_player_projectile(
         None,
         ProjectileArchetype::default(),
         None,
+        None,
     )
 }
 
 pub fn spawn_player_projectile_with_source(
     commands: &mut Commands,
+    catalog: Option<&AssetCatalog>,
+    asset_server: Option<&AssetServer>,
     pos: Vec2,
     dir: Vec2,
     speed: f32,
@@ -1362,8 +1401,32 @@ pub fn spawn_player_projectile_with_source(
     split: Option<SplitDef>,
     archetype: ProjectileArchetype,
     source: Option<DamageSource>,
+    weapon: Option<WeaponId>,
 ) {
     let angle = dir.y.atan2(dir.x);
+    let sprite = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
+        let candidates = projectile_art::player_projectile_candidates(w);
+        let path = projectile_art::first_existing(cat, &candidates);
+        if cat.has(path) {
+            let mut s = sprite_exact(cat, srv, path);
+            // Keep gameplay size; tint white so atlas colors show
+            s.custom_size = Some(size);
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color,
+                custom_size: Some(size),
+                ..default()
+            }
+        }
+    } else {
+        Sprite {
+            color,
+            custom_size: Some(size),
+            ..default()
+        }
+    };
     let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1377,11 +1440,7 @@ pub fn spawn_player_projectile_with_source(
             source,
         },
         Velocity(dir * speed),
-        Sprite {
-            color,
-            custom_size: Some(size),
-            ..default()
-        },
+        sprite,
         Transform::from_translation(pos.extend(16.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));
 
@@ -1660,6 +1719,8 @@ pub fn tick_hazard_clouds(
 pub fn ally_ai(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut allies: Query<(Entity, &mut Ally, &mut Transform, &mut Velocity), Without<Enemy>>,
     enemies: Query<&Transform, With<Enemy>>,
     audio: Res<GameAudio>,
@@ -1685,6 +1746,19 @@ pub fn ally_ai(
             vel.0 = dir * 140.0;
             tf.translation += (vel.0 * time.delta_secs()).extend(0.0);
             if ally.shoot.just_finished() {
+                let ally_path = "images/sprAllyBullet.png";
+                let ally_sprite = if catalog.has(ally_path) {
+                    let mut s = sprite_exact(&catalog, &asset_server, ally_path);
+                    s.custom_size = Some(Vec2::splat(6.0));
+                    s.color = Color::WHITE;
+                    s
+                } else {
+                    Sprite {
+                        color: Color::srgb(1.0, 0.7, 0.85),
+                        custom_size: Some(Vec2::splat(6.0)),
+                        ..default()
+                    }
+                };
                 commands.spawn((
                     GameCleanup,
                     LevelCleanup,
@@ -1704,11 +1778,7 @@ pub fn ally_ai(
                     Team::Player,
                     Velocity(dir * 380.0),
                     Transform::from_translation(pos.extend(12.0)),
-                    Sprite {
-                        color: Color::srgb(1.0, 0.7, 0.85),
-                        custom_size: Some(Vec2::splat(6.0)),
-                        ..default()
-                    },
+                    ally_sprite,
                 ));
                 audio.play_bolt(&mut commands);
             }

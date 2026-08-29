@@ -183,6 +183,8 @@ pub fn tick_beams(
 pub fn tick_sentry_turrets(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     enemies: Query<&Transform, With<Enemy>>,
     mut sentries: Query<(Entity, &Transform, &mut SentryTurret)>,
 ) {
@@ -217,6 +219,19 @@ pub fn tick_sentry_turrets(
 
         let dir = (target - pos).normalize_or_zero();
         let angle = dir.y.atan2(dir.x);
+        let sentry_path = "images/sprAllyBullet.png";
+        let sentry_sprite = if catalog.has(sentry_path) {
+            let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, sentry_path);
+            s.custom_size = Some(Vec2::new(8.0, 3.0));
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color: Color::srgb(0.95, 0.9, 0.7),
+                custom_size: Some(Vec2::new(8.0, 3.0)),
+                ..default()
+            }
+        };
 
         commands.spawn((
             GameCleanup,
@@ -231,11 +246,7 @@ pub fn tick_sentry_turrets(
                 source: None,
             },
             Velocity(dir * sentry.projectile_speed),
-            Sprite {
-                color: Color::srgb(0.95, 0.9, 0.7),
-                custom_size: Some(Vec2::new(8.0, 3.0)),
-                ..default()
-            },
+            sentry_sprite,
             Transform::from_translation(pos.extend(14.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
@@ -550,6 +561,8 @@ fn spawn_hazard_cloud(commands: &mut Commands, pos: Vec2, team: Team, spec: Haza
 
 fn spawn_split_projectiles(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     pos: Vec2,
     team: Team,
     split: SplitDef,
@@ -561,6 +574,9 @@ fn spawn_split_projectiles(
         .map(|_| rng.random_range(-1.0f32..1.0))
         .collect();
 
+    // Prefer art if available, else colored fallback
+    let split_art = "images/sprBullet1.png";
+    let use_art = catalog.has(split_art);
     for dir in crate::game::projectile_math::split_directions(
         base_dir,
         split.pellets,
@@ -568,6 +584,18 @@ fn spawn_split_projectiles(
         &samples,
     ) {
         let angle = dir.y.atan2(dir.x);
+        let sprite = if use_art {
+            let mut s = crate::game::content::sprite_exact(catalog, asset_server, split_art);
+            s.custom_size = Some(split.size);
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color: split.color,
+                custom_size: Some(split.size),
+                ..default()
+            }
+        };
 
         commands.spawn((
             GameCleanup,
@@ -582,11 +610,7 @@ fn spawn_split_projectiles(
                 source,
             },
             Velocity(dir * split.speed),
-            Sprite {
-                color: split.color,
-                custom_size: Some(split.size),
-                ..default()
-            },
+            sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
@@ -596,6 +620,8 @@ fn spawn_split_projectiles(
 /// Plasma secondary burst: an even ring of children around the impact point.
 fn spawn_plasma_children(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     pos: Vec2,
     team: Team,
     plasma: PlasmaBurst,
@@ -608,10 +634,24 @@ fn spawn_plasma_children(
         0.0
     };
 
+    let plasma_art = "images/sprPlasmaBall.png";
+    let use_plasma_art = catalog.has(plasma_art);
     for i in 0..plasma.pellets.max(1) {
         let t = i as f32 / plasma.pellets.max(1) as f32;
         let angle = base_angle + t * std::f32::consts::TAU;
         let dir = Vec2::new(angle.cos(), angle.sin());
+        let sprite = if use_plasma_art {
+            let mut s = crate::game::content::sprite_exact(catalog, asset_server, plasma_art);
+            s.custom_size = Some(plasma.size);
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color: plasma.color,
+                custom_size: Some(plasma.size),
+                ..default()
+            }
+        };
 
         commands.spawn((
             GameCleanup,
@@ -626,11 +666,7 @@ fn spawn_plasma_children(
                 source,
             },
             Velocity(dir * plasma.speed),
-            Sprite {
-                color: plasma.color,
-                custom_size: Some(plasma.size),
-                ..default()
-            },
+            sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
@@ -716,7 +752,7 @@ fn on_projectile_removed(
     }
 
     if let Some(SplitOnDeath(spec)) = split {
-        spawn_split_projectiles(commands, pos, team, spec, source, base_dir);
+        spawn_split_projectiles(commands, catalog, asset_server, pos, team, spec, source, base_dir);
     }
 
     if let Some(spec) = spawn_pickup_spec {
@@ -724,7 +760,7 @@ fn on_projectile_removed(
     }
 
     if let Some(plasma) = plasma_burst {
-        spawn_plasma_children(commands, pos, team, plasma, source, base_dir);
+        spawn_plasma_children(commands, catalog, asset_server, pos, team, plasma, source, base_dir);
     }
 }
 
@@ -1667,6 +1703,21 @@ pub fn resolve_deaths(
         match enemy.kind {
             // Exploder (Ballguy): bursts into a ring of bullets.
             EnemyKind::Ballguy => {
+                let art_path = "images/sprBouncerBullet.png";
+                let ballguy_sprite = if catalog.has(art_path) {
+                    let mut s = crate::game::content::sprite_exact(
+                        &catalog, &asset_server, art_path,
+                    );
+                    s.custom_size = Some(Vec2::splat(7.0));
+                    s.color = Color::WHITE;
+                    s
+                } else {
+                    Sprite {
+                        color: Color::srgb(1.0, 0.75, 0.25),
+                        custom_size: Some(Vec2::splat(7.0)),
+                        ..default()
+                    }
+                };
                 for i in 0..8 {
                     let ang = (i as f32) * std::f32::consts::TAU / 8.0;
                     let d = Vec2::new(ang.cos(), ang.sin());
@@ -1683,11 +1734,7 @@ pub fn resolve_deaths(
                             source: Some(DamageSource::enemy(e, enemy.kind)),
                         },
                         Velocity(d * 190.0),
-                        Sprite {
-                            color: Color::srgb(1.0, 0.75, 0.25),
-                            custom_size: Some(Vec2::splat(7.0)),
-                            ..default()
-                        },
+                        ballguy_sprite.clone(),
                         Transform::from_translation(pos.extend(15.0)),
                     ));
                 }

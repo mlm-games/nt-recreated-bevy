@@ -515,18 +515,19 @@ fn enemy_bullet_sprite(
     kind: EnemyKind,
     def: EnemyDef,
 ) -> Sprite {
-    const CANDIDATES: &[&str] = &[
+    let primary = crate::game::projectile_art::enemy_projectile_path(kind);
+    let candidates = [
+        primary,
+        "images/sprEnemyBullet1.png",
         "images/sprEnemyBullet.png",
         "images/sprBullet1.png",
         "images/sprBullet2.png",
-        "images/sprScorpionBullet.png",
-        "images/sprBanditBullet.png",
     ];
-    for path in CANDIDATES {
+    for path in candidates {
         if catalog.has(path) {
             let mut s = crate::game::content::sprite_exact(catalog, asset_server, path);
             s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
-            let _ = kind;
+            s.color = Color::WHITE;
             return s;
         }
     }
@@ -740,8 +741,8 @@ pub fn tick_delayed_boss_spawns(
 pub fn tick_frog_eggs(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    _catalog: Res<AssetCatalog>,
-    _asset_server: Res<AssetServer>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     _run: Res<Run>,
     mut q: Query<(Entity, &Enemy, &mut EnemyBrain, &Transform), With<Enemy>>,
 ) {
@@ -756,6 +757,19 @@ pub fn tick_frog_eggs(
         let pos = tf.translation.truncate();
         commands.entity(e).despawn();
         // Upstream FrogEgg Alarm_1: repeat 8 → AcidStreak at 45° steps.
+        let acid_path = "images/sprAcidStreak.png";
+        let acid_sprite = if catalog.has(acid_path) {
+            let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, acid_path);
+            s.custom_size = Some(Vec2::splat(8.0));
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color: Color::srgb(0.55, 0.9, 0.25),
+                custom_size: Some(Vec2::splat(8.0)),
+                ..default()
+            }
+        };
         for i in 0..8 {
             let ang = (i as f32) * std::f32::consts::TAU / 8.0;
             let d = Vec2::new(ang.cos(), ang.sin());
@@ -772,11 +786,7 @@ pub fn tick_frog_eggs(
                     source: Some(DamageSource::enemy(e, enemy.kind)),
                 },
                 Velocity(d * 240.0),
-                Sprite {
-                    color: Color::srgb(0.55, 0.9, 0.25),
-                    custom_size: Some(Vec2::splat(8.0)),
-                    ..default()
-                },
+                acid_sprite.clone(),
                 Transform::from_translation(pos.extend(15.0)),
             ));
         }

@@ -22,6 +22,7 @@ pub mod pickups;
 pub mod player;
 pub mod progression;
 pub mod projectile_archetypes;
+pub mod projectile_art;
 pub mod projectile_math;
 pub mod reactive_audio;
 pub mod secret_areas;

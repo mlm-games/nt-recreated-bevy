@@ -182,6 +182,8 @@ pub fn tick_crown_love(
 pub fn tick_crown_curses(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut q: Query<(&mut CrownState, &Transform), With<Player>>,
 ) {
     for (mut state, tf) in &mut q {
@@ -198,6 +200,19 @@ pub fn tick_crown_curses(
         let pos = tf.translation.truncate();
         let mut rng = rand::rng();
 
+        let curse_path = "images/sprEBullet3.png";
+        let curse_sprite = if catalog.has(curse_path) {
+            let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, curse_path);
+            s.custom_size = Some(Vec2::splat(7.0));
+            s.color = Color::WHITE;
+            s
+        } else {
+            Sprite {
+                color: Color::srgb(0.55, 0.25, 0.85),
+                custom_size: Some(Vec2::splat(7.0)),
+                ..default()
+            }
+        };
         for _ in 0..4 {
             let dir = Vec2::from_angle(rng.random_range(0.0..std::f32::consts::TAU));
             commands.spawn((
@@ -213,11 +228,7 @@ pub fn tick_crown_curses(
                 },
                 Team::Enemy,
                 Velocity(dir * 230.0),
-                Sprite {
-                    color: Color::srgb(0.55, 0.25, 0.85),
-                    custom_size: Some(Vec2::splat(7.0)),
-                    ..default()
-                },
+                curse_sprite.clone(),
                 Transform::from_translation((pos + dir * 80.0).extend(13.0)),
             ));
         }
