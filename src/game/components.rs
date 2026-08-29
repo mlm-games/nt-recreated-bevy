@@ -640,12 +640,25 @@ impl Default for Sticky {
     }
 }
 
+/// Continuous flame: leaves fire hazard while projectile flies.
+#[derive(Component, Debug)]
+pub struct FlameTrail {
+    pub timer: Timer,
+    pub spec: HazardDef,
+}
+
 /// Lightning jumps between distinct targets instead of piercing linearly.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ChainLightning {
     pub jumps_left: u8,
     pub range: f32,
     pub falloff: f32,
+}
+
+/// Short-lived lightning arc visual.
+#[derive(Component, Debug)]
+pub struct LightningArc {
+    pub timer: Timer,
 }
 
 /// Projectile payload that deploys an autonomous turret on death.

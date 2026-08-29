@@ -258,6 +258,22 @@ fn archetyped(name: &str) -> ProjectileArchetype {
             ..default()
         },
 
+        "CROSSBOW" | "HEAVY CROSSBOW" | "AUTO CROSSBOW" | "SUPER CROSSBOW" | "HEAVY AUTO CROSSBOW"
+        | "ULTRA CROSSBOW" => ProjectileArchetype {
+            sticky: Some(Sticky::default()),
+            ..default()
+        },
+
+        "SPLINTER GUN" | "SPLINTER PISTOL" | "SUPER SPLINTER GUN" => ProjectileArchetype {
+            sticky: Some(Sticky::default()),
+            ..default()
+        },
+
+        "TOXIC BOW" => ProjectileArchetype {
+            sticky: Some(Sticky::default()),
+            ..default()
+        },
+
         _ => {
             // Fallback: any name containing DISC or BOUNCER gets friendly-fire (future weapons)
             if name.contains("DISC") || name.contains("BOUNCER") {
@@ -429,7 +445,10 @@ mod tests {
             let a = projectile_archetype(id);
             let base = base_weapon_name(meta.wep_name);
 
-            let wants_sticky = base.contains("STICKY");
+            let wants_sticky = base.contains("STICKY")
+                || base.contains("CROSSBOW")
+                || base.contains("SPLINTER")
+                || base.contains("TOXIC BOW");
             let wants_homing = base.contains("SMART GUN") || base.contains("SEEKER");
             let wants_chain = base.contains("LIGHTNING") && !base.contains("HAMMER");
             let wants_blood = base.contains("BLOOD LAUNCHER") || base.contains("BLOOD CANNON");
@@ -455,7 +474,7 @@ mod tests {
             );
             assert_eq!(
                 a.custom_explosion.is_some(),
-                wants_nuke || wants_sticky,
+                wants_nuke || base.contains("STICKY"),
                 "{}",
                 meta.wep_name
             );

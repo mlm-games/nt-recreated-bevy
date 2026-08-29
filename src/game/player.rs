@@ -1453,6 +1453,12 @@ pub fn spawn_player_projectile_with_source(
     }
     if let Some(spec) = hazard {
         ec.insert(SpawnHazardOnDeath(spec));
+        if spec.kind == HazardKind::Fire {
+            ec.insert(FlameTrail {
+                timer: Timer::from_seconds(0.12, TimerMode::Repeating),
+                spec,
+            });
+        }
     }
     if let Some(spec) = split {
         ec.insert(SplitOnDeath(spec));

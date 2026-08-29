@@ -266,6 +266,38 @@ pub fn tick_spawn_grace(
     }
 }
 
+pub fn tick_flame_trails(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(&Transform, &Team, &mut FlameTrail), With<Projectile>>,
+) {
+    for (tf, team, mut trail) in &mut q {
+        trail.timer.tick(time.delta());
+        if !trail.timer.just_finished() {
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        // Spawn a small lingering fire hazard at the projectile's current position.
+        // Use the weapon's hazard spec but with short lifetime so trail fades.
+        spawn_hazard_cloud(&mut commands, pos, *team, trail.spec);
+    }
+}
+
+pub fn tick_lightning_arcs(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut LightningArc, &mut Sprite)>,
+) {
+    for (e, mut arc, mut sprite) in &mut q {
+        arc.timer.tick(time.delta());
+        let t = arc.timer.fraction();
+        sprite.color.set_alpha((1.0 - t).clamp(0.0, 1.0) * 0.9);
+        if arc.timer.just_finished() {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
 fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let ab = b - a;
     let denom = ab.length_squared();
@@ -1070,6 +1102,7 @@ pub fn projectile_hits(
         let mut hit_player = false;
         let mut hit_pos = proj_pos;
         let mut hit_target = None::<Entity>;
+        let mut stuck_bolt = false;
 
         for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in
             targets.iter_mut()
@@ -1097,9 +1130,10 @@ pub fn projectile_hits(
                 continue;
             }
 
-            // Sticky grenades attach instead of dealing immediate damage.
+            // Sticky grenades (explosive) attach instead of dealing immediate damage.
             if let Some(ref mut sticky) = sticky
                 && !sticky.armed
+                && proj.explosive
             {
                 sticky.armed = true;
                 sticky.stuck_to = Some(target_e);
@@ -1164,9 +1198,23 @@ pub fn projectile_hits(
             if proj.explosive {
                 hitstop.trigger(0.12, 0.09);
             }
+            // Bolt stick: deal damage then remain stuck to target
+            if let Some(ref mut sticky) = sticky
+                && !sticky.armed
+                && !proj.explosive
+            {
+                sticky.armed = true;
+                sticky.stuck_to = Some(target_e);
+                sticky.offset = proj_pos - target_pos;
+                proj_vel.0 = Vec2::ZERO;
+                stuck_bolt = true;
+            }
             break;
         }
 
+        if stuck_bolt {
+            continue;
+        }
         if !hit {
             continue;
         }
@@ -1325,6 +1373,24 @@ fn chain_to_nearby_targets(
                 Color::srgb(0.75, 0.95, 1.0),
                 (30.0, 90.0),
             );
+            // Lightning arc mesh - thin line that fades
+            let mid = (current_pos + next_pos) * 0.5;
+            let dist = current_pos.distance(next_pos);
+            let ang = (next_pos - current_pos).y.atan2((next_pos - current_pos).x);
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                LightningArc {
+                    timer: Timer::from_seconds(0.09, TimerMode::Once),
+                },
+                Sprite {
+                    color: Color::srgba(0.75, 0.95, 1.0, 0.9),
+                    custom_size: Some(Vec2::new(dist, 3.0)),
+                    ..default()
+                },
+                Transform::from_translation(mid.extend(16.0))
+                    .with_rotation(Quat::from_rotation_z(ang)),
+            ));
             break;
         }
 
