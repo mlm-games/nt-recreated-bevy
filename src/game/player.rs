@@ -1164,7 +1164,7 @@ fn spawn_pellets(
     }
 
     let mut rng = rand::rng();
-    let spread = def.spread * player.spread_mult;
+    let spread = def.spread * player.spread_mult * player.accuracy;
     // Chain bolts jump between targets instead of piercing linearly.
     let pierce = if archetype.chain_lightning.is_some() {
         0
