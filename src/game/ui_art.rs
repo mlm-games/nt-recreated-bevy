@@ -24,6 +24,36 @@ use game_utils_bevy::transitions::Transition;
 #[derive(Component)]
 pub struct TitleArt;
 
+/// World-space campfire scene (floors/walls/fire/chars). NOT parented to camera.
+#[derive(Component)]
+pub struct TitleWorldArt;
+
+#[derive(Component)]
+struct CampCharArt {
+    race: usize,
+    /// NT-pixel offset from campfire (GM x-64, y-64).
+    offset: Vec2,
+    path_slct: &'static str,
+    path_to: &'static str,
+    path_menu: &'static str,
+    path_from: &'static str,
+    current: CampCharPhase,
+    anim: f32,
+    frames: usize,
+    fw: f32,
+    fh: f32,
+    /// pixel scale at spawn
+    s: f32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CampCharPhase {
+    Slct,
+    To,
+    Menu,
+    From,
+}
+
 /// Marker for in-game HUD art; despawned with the level.
 #[derive(Component)]
 pub struct HudArt;
@@ -692,6 +722,110 @@ fn wall0_out_frame(catalog: &AssetCatalog) -> usize {
     campfire_wall_out_frame(catalog)
 }
 
+fn camp_char_sprite_set(
+    catalog: &AssetCatalog,
+    race: crate::game::content::RaceId,
+) -> Option<(&'static str, &'static str, &'static str, &'static str)> {
+    use crate::game::content::RaceId;
+    if race == RaceId::BigDog {
+        let slct = "images/sprScrapBossSleep.png";
+        let menu = "images/sprScrapBossIdle.png";
+        let to = "images/sprScrapBossIntro.png";
+        let from = "images/sprScrapBossSleepHurt.png";
+        if catalog.has(slct) {
+            return Some((slct, to, menu, from));
+        }
+    }
+    let base = match race {
+        RaceId::Fish => "Fish",
+        RaceId::Crystal => "Crystal",
+        RaceId::Eyes => "Eyes",
+        RaceId::Melting => "Melting",
+        RaceId::Plant => "Plant",
+        RaceId::Venuz => "Venuz",
+        RaceId::Steroids => "Steroids",
+        RaceId::Robot => "Robot",
+        RaceId::Chicken => "Chicken",
+        RaceId::Rebel => "Rebel",
+        RaceId::Horror => "Horror",
+        RaceId::Rogue => "Rogue",
+        RaceId::BigDog => "Dog",
+        RaceId::Skeleton => "Skeleton",
+        RaceId::Frog => "Fish",
+        RaceId::Cuz => "Cuz",
+        RaceId::Random => return None,
+    };
+    let menu = format!("images/spr{base}Menu.png");
+    let sel = format!("images/spr{base}MenuSelect.png");
+    let selected = format!("images/spr{base}MenuSelected.png");
+    let desel = format!("images/spr{base}MenuDeselect.png");
+    let idle = format!("images/sprMutant{}Idle.png", race as u8);
+    let pick = |p: String, fb: &str| -> Option<&'static str> {
+        if catalog.has(&p) {
+            Some(Box::leak(p.into_boxed_str()))
+        } else if !fb.is_empty() && catalog.has(fb) {
+            Some(Box::leak(fb.to_string().into_boxed_str()))
+        } else {
+            None
+        }
+    };
+    let slct = pick(menu.clone(), &idle)?;
+    let to = pick(sel, slct).unwrap_or(slct);
+    let menu_s = pick(selected, slct).unwrap_or(slct);
+    let from = pick(desel, slct).unwrap_or(slct);
+    Some((slct, to, menu_s, from))
+}
+
+fn spawn_world_sprite(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    assets: &AssetServer,
+    path: &'static str,
+    frame: usize,
+    nt_x: f32,
+    nt_y: f32,
+    s: f32,
+    z: f32,
+    flip_x: bool,
+) -> Entity {
+    let m = meta_of(catalog, path);
+    let (frames, fw, fh, _fps, xorigin, yorigin) = (m[0].max(1.0), m[1].max(1.0), m[2].max(1.0), m[3], m[4], m[5]);
+    let frame = frame % frames as usize;
+    let mut sprite = sprite_exact(catalog, assets, path);
+    sprite.rect = Some(Rect::new(frame as f32 * fw, 0.0, (frame as f32 + 1.0) * fw, fh));
+    sprite.custom_size = Some(Vec2::new(fw * s, fh * s));
+    sprite.flip_x = flip_x;
+    let left = nt_x - xorigin;
+    let top = nt_y - yorigin;
+    let cx = (left + fw * 0.5) * s;
+    let cy = -(top + fh * 0.5) * s;
+    commands
+        .spawn((TitleArt, TitleWorldArt, sprite, Transform::from_xyz(cx, cy, z)))
+        .id()
+}
+
+fn apply_camp_char_path(
+    catalog: &AssetCatalog,
+    assets: &AssetServer,
+    spr: &mut Sprite,
+    path: &'static str,
+    cc: &mut CampCharArt,
+) {
+    let m = meta_of(catalog, path);
+    cc.frames = m[0].max(1.0) as usize;
+    cc.fw = m[1].max(1.0);
+    cc.fh = m[2].max(1.0);
+    spr.image = assets.load(path);
+    spr.rect = Some(Rect::new(0.0, 0.0, cc.fw, cc.fh));
+    spr.custom_size = Some(Vec2::new(cc.fw * cc.s, cc.fh * cc.s));
+}
+
+fn set_title_camera_clear(mut q: Query<&mut Camera, With<Camera2d>>) {
+    for mut camera in &mut q {
+        camera.clear_color = bevy::camera::ClearColorConfig::Custom(Color::srgb_u8(106, 122, 175));
+    }
+}
+
 /// Card stage lengths. Upstream Vlambeer/Create_0 sets alarm[0]=120 and
 /// Alarm_0 re-arms 60 (+60 for the Vlambeer card) at a game speed of
 /// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
@@ -1267,6 +1401,7 @@ impl Plugin for UiArtPlugin {
                 OnEnter(AppState::Title),
                 (
                     reset_camera_view,
+                    set_title_camera_clear,
                     spawn_char_select,
                     // PlayButton/Other_10: SpiralCont dies before the campfire
                     // menu exists - no swirl (and no portal drone) on char select.
@@ -1275,7 +1410,7 @@ impl Plugin for UiArtPlugin {
             )
             .add_systems(
                 OnExit(AppState::Title),
-                (despawn_title_art, despawn_hud_art),
+                (despawn_title_art, despawn_hud_art, restore_camera_clear),
             )
             .add_systems(Update, main_menu_hover)
             .add_systems(Update, boot_intro)
@@ -1351,8 +1486,17 @@ struct CharSelectArt {
     campfire_anim: f32,
     /// sprLogMenu bench above the fire.
     log: Option<Entity>,
-    /// CampChar mutants around the fire: (entity, frames, fw, fh).
-    chars: Vec<(Entity, usize, f32, f32)>,
+    /// CampChar mutants around the fire.
+    chars: Vec<Entity>,
+    /// Last selection_epoch we reacted to.
+    last_selection_epoch: u32,
+    /// view lerp state in NT pixels relative to campfire (0,0)=fire centre.
+    view_x: f32,
+    view_y: f32,
+    /// pixel scale used when spawning world art (map.s at spawn).
+    world_s: f32,
+    campfire_entity: Option<Entity>,
+    /// legacy anim kept for compat (unused after phase machine)
     char_anim: f32,
     /// Right-side loadout art (scrMenuDrawLoadout).
     arrow: Option<Entity>,
@@ -1369,6 +1513,7 @@ struct CharSelectArt {
     /// Skin column: (entity, skin idx, last locked). Positions are live -
     /// the column start depends on the selected race's skin count.
     skin_grid: Vec<(Entity, usize, bool)>,
+    prev_go_visible: bool,
 }
 
 const GO_W: f32 = 31.0;
@@ -1427,103 +1572,77 @@ fn spawn_char_select(
         art.pods.push((pod, race_id, x));
     }
 
-    // Campfire-area level (MenuGen): backdrop colour scrAreaGetBackround
-    // Color(area_campfire) = #6a7aaf, then a jittered sprFloor0 tile field.
-    // The floor renders in front of the portal spiral, like upstream depths.
+    // World-space campfire level (MenuGen): floors/walls/decals are WORLD objects
+    // (not ChildOf(cam)) so camera focus pans. Background is camera clear #6a7aaf.
     {
-        let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
-        commands.spawn((
-            TitleArt,
-            ChildOf(cam),
-            Sprite {
-                color: Color::srgb_u8(106, 122, 175),
-                custom_size: Some(Vec2::new(GUI_W * map.s, GUI_H * map.s)),
-                ..default()
-            },
-            Transform::from_xyz(c.x, c.y, -899.0),
-        ));
-    }
-    {
-        // MenuGen + FloorMaker exact topology. This replaces the previous
-        // rectangular 12x10 fill. Coordinates are GameMaker world positions
-        // converted around the campfire at (64,64) -> GUI center.
+        let s = map.s;
+        art.world_s = s;
+        art.view_x = 0.0;
+        art.view_y = 0.0;
         let title_floor: HashSet<(i32, i32)> = menu_gen_floor_cells();
 
         for &(cx, cy) in &title_floor {
-            let (gx, gy) = title_world_to_gui(cx as f32 * 32.0, cy as f32 * 32.0);
-            let (spr, mut tf) = gm_sprite(
+            let nt_x = cx as f32 * 32.0 - 64.0;
+            let nt_y = cy as f32 * 32.0 - 64.0;
+            spawn_world_sprite(
+                &mut commands,
                 &catalog,
                 &asset_server,
-                &map,
                 "images/sprFloor0.png",
                 campfire_floor_frame(&catalog),
-                gx,
-                gy,
-                1.0,
-                1.0,
-                Color::WHITE,
+                nt_x,
+                nt_y,
+                s,
                 -890.0,
+                false,
             );
-            tf.translation.z = -890.0;
-            commands.spawn((TitleArt, ChildOf(cam), spr, tf));
         }
 
-        // MenuGen/Alarm_1 decor pass:
-        // with(Floor) if random(6)<1 spawn either NightCactus or
-        // TopDecalNightDesert. Avoid hard failure when extracted assets are
-        // absent; use the exact upstream names when present.
         for &(cx, cy) in &title_floor {
             if rand::random::<f32>() * 6.0 >= 1.0 {
                 continue;
             }
-
-            let (gx, gy) = title_world_to_gui(cx as f32 * 32.0 + 16.0, cy as f32 * 32.0 + 16.0);
-
+            let nt_x = cx as f32 * 32.0 + 16.0 - 64.0;
+            let nt_y = cy as f32 * 32.0 + 16.0 - 64.0;
             if rand::rng().random_range(0..=21) != 0 {
-                let cactus_path = match pick_i32(&[1, 2, 3]) {
+                let cactus_path: &'static str = match pick_i32(&[1, 2, 3]) {
                     1 => "images/sprNightCactus.png",
                     2 => "images/sprNightCactus2.png",
                     _ => "images/sprNightCactus3.png",
                 };
-
                 if catalog.has(cactus_path) {
-                    let (spr, tf) = gm_sprite(
+                    spawn_world_sprite(
+                        &mut commands,
                         &catalog,
                         &asset_server,
-                        &map,
                         cactus_path,
                         0,
-                        gx,
-                        gy,
-                        1.0,
-                        1.0,
-                        Color::WHITE,
+                        nt_x,
+                        nt_y,
+                        s,
                         -865.0,
+                        false,
                     );
-                    commands.spawn((TitleArt, ChildOf(cam), spr, tf));
                 }
             } else if catalog.has("images/sprNightDesertTopDecal.png") {
                 let frame = rand::rng().random_range(
                     0..sprite_frame_count(&catalog, "images/sprNightDesertTopDecal.png"),
                 );
-                let (spr, tf) = gm_sprite(
+                spawn_world_sprite(
+                    &mut commands,
                     &catalog,
                     &asset_server,
-                    &map,
                     "images/sprNightDesertTopDecal.png",
                     frame,
-                    gx,
-                    gy,
-                    1.0,
-                    1.0,
-                    Color::WHITE,
+                    nt_x,
+                    nt_y,
+                    s,
                     -864.0,
+                    false,
                 );
-                commands.spawn((TitleArt, ChildOf(cam), spr, tf));
             }
         }
 
-        // Wall/Create_0 from every final Floor via mcr_floor_make_walls.
         let mut wall_seen: HashSet<(i32, i32)> = HashSet::new();
         let probes = [
             (-1, -1),
@@ -1539,7 +1658,6 @@ fn spawn_char_select(
             (1, 2),
             (2, 2),
         ];
-
         for &(cx, cy) in &title_floor {
             for (ox, oy) in probes {
                 let wx = cx * 2 + ox;
@@ -1548,59 +1666,51 @@ fn spawn_char_select(
                 if title_floor.contains(&owner) || !wall_seen.insert((wx, wy)) {
                     continue;
                 }
-
-                let (gx, gy) = title_wall_xy(wx, wy);
+                let nt_x = wx as f32 * 16.0 - 64.0;
+                let nt_y = wy as f32 * 16.0 - 64.0;
                 let floor_below = title_floor.contains(&title_floor_owner_below(wx, wy));
-
                 if catalog.has("images/sprWall0Out.png") {
-                    let (s, t) = gm_sprite(
+                    spawn_world_sprite(
+                        &mut commands,
                         &catalog,
                         &asset_server,
-                        &map,
                         "images/sprWall0Out.png",
                         campfire_wall_out_frame(&catalog),
-                        gx,
-                        gy,
-                        1.0,
-                        1.0,
-                        Color::WHITE,
+                        nt_x,
+                        nt_y,
+                        s,
                         -889.5,
+                        false,
                     );
-                    commands.spawn((TitleArt, ChildOf(cam), s, t));
                 }
-
                 if floor_below && catalog.has("images/sprWall0Bot.png") {
-                    let (s, t) = gm_sprite(
+                    spawn_world_sprite(
+                        &mut commands,
                         &catalog,
                         &asset_server,
-                        &map,
                         "images/sprWall0Bot.png",
                         campfire_wall_body_frame(&catalog),
-                        gx,
-                        gy,
-                        1.0,
-                        1.0,
-                        Color::WHITE,
+                        nt_x,
+                        nt_y,
+                        s,
                         -889.0,
+                        false,
                     );
-                    commands.spawn((TitleArt, ChildOf(cam), s, t));
                 }
-
                 if catalog.has("images/sprWall0Top.png") {
-                    let (s, t) = gm_sprite(
+                    // Top piece is 8px up (gy - 8).
+                    spawn_world_sprite(
+                        &mut commands,
                         &catalog,
                         &asset_server,
-                        &map,
                         "images/sprWall0Top.png",
                         campfire_wall_top_frame(&catalog),
-                        gx,
-                        gy - 8.0,
-                        1.0,
-                        1.0,
-                        Color::WHITE,
+                        nt_x,
+                        nt_y - 8.0,
+                        s,
                         -888.0,
+                        false,
                     );
-                    commands.spawn((TitleArt, ChildOf(cam), s, t));
                 }
             }
         }
@@ -1673,45 +1783,38 @@ fn spawn_char_select(
         }
     }
 
-    // Campfire scene (scrCampfireMenuCreate): the camera centres on the fire,
-    // so in GUI coords the fire sits at the screen centre with the log bench
-    // above it and the fixed four mutants around it.
+    // Campfire scene (scrCampfireMenuCreate): WORLD objects at NT offsets from fire (0,0).
     {
-        // Campfire: image_speed 0.4 @ 30 fps, random horizontal flip.
-        let (mut spr, tf) = gm_sprite(
+        let s = art.world_s.max(0.001);
+        let camp = spawn_world_sprite(
+            &mut commands,
             &catalog,
             &asset_server,
-            &map,
             "images/sprCampfire.png",
             0,
-            GUI_W / 2.0,
-            GUI_H / 2.0,
-            1.0,
-            1.0,
-            Color::WHITE,
+            0.0,
+            0.0,
+            s,
             -872.0,
+            rand::random::<bool>(),
         );
-        spr.flip_x = rand::random::<bool>();
-        art.campfire = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.campfire = Some(camp);
+        art.campfire_entity = Some(camp);
 
-        // LogMenu bench at (0, -32) relative to the fire.
-        let (spr, tf) = gm_sprite(
+        let log = spawn_world_sprite(
+            &mut commands,
             &catalog,
             &asset_server,
-            &map,
             "images/sprLogMenu.png",
             0,
-            GUI_W / 2.0,
-            GUI_H / 2.0 - 32.0,
-            1.0,
-            1.0,
-            Color::WHITE,
+            0.0,
+            -32.0,
+            s,
             -884.0,
+            false,
         );
-        art.log = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.log = Some(log);
 
-        // The fixed four: Fish (0,-32), Crystal (+32 below), Eyes (+40,0),
-        // Melting (-40,0). Everyone else scatters 40..110 px out.
         use crate::game::content::RaceId;
         let fixed: [(RaceId, f32, f32); 4] = [
             (RaceId::Fish, 0.0, -32.0),
@@ -1719,80 +1822,7 @@ fn spawn_char_select(
             (RaceId::Eyes, 40.0, 0.0),
             (RaceId::Melting, -40.0, 0.0),
         ];
-        // Resolves the idle strip for a mutant (plain Menu sprite where the
-        // dump has it; frozen Deselect frame stands in otherwise) and builds
-        // its sprite centred on the GUI origin, ready to place.
-        let mut menu_sprite = |race: RaceId| -> Option<(Sprite, Transform, usize, f32, f32)> {
-            let (path, fallback): (&'static str, &'static str) = match race {
-                RaceId::Fish => ("images/sprFishMenu.png", "images/sprFishMenuDeselect.png"),
-                RaceId::Crystal => ("images/sprCrystalMenu.png", ""),
-                RaceId::Eyes => ("images/sprEyesMenu.png", ""),
-                RaceId::Melting => ("images/sprMeltingMenu.png", ""),
-                RaceId::Plant => ("images/sprPlantMenu.png", ""),
-                RaceId::Venuz => ("images/sprVenuzMenu.png", "images/sprVenuzMenuDeselect.png"),
-                RaceId::Steroids => (
-                    "images/sprSteroidsMenu.png",
-                    "images/sprSteroidsMenuDeselect.png",
-                ),
-                RaceId::Robot => ("images/sprRobotMenu.png", ""),
-                RaceId::Chicken => ("images/sprChickenMenu.png", ""),
-                RaceId::Rebel => ("images/sprRebelMenu.png", ""),
-                RaceId::Horror => ("images/sprHorrorMenu.png", ""),
-                RaceId::Rogue => ("images/sprRogueMenu.png", "images/sprRogueMenuDeselect.png"),
-                RaceId::BigDog => ("images/sprDogMenu.png", "images/sprDogMenuDeselect.png"),
-                RaceId::Skeleton => (
-                    "images/sprSteroidsMenu.png",
-                    "images/sprSteroidsMenuDeselect.png",
-                ),
-                RaceId::Frog => ("images/sprFishMenu.png", "images/sprFishMenuDeselect.png"),
-                RaceId::Cuz => ("images/sprCuzMenu.png", ""),
-                RaceId::Random => return None,
-            };
-            let chosen: &'static str = if catalog.anims.contains_key(path) {
-                path
-            } else if !fallback.is_empty() && catalog.anims.contains_key(fallback) {
-                fallback
-            } else {
-                // Gamemaker fallback: scr_race_get_sprite(_name, "Menu", _default) where _default is mutant idle.
-                let mutant_path = format!("images/sprMutant{}Idle.png", race as u8);
-                if catalog.has(&mutant_path) {
-                    Box::leak(mutant_path.into_boxed_str())
-                } else {
-                    return None;
-                }
-            };
-            let m = meta_of(&catalog, chosen);
-            let (frames, fw, fh) = (m[0].max(1.0), m[1].max(1.0), m[2].max(1.0));
-            let (mut spr, mut tf) = gm_sprite(
-                &catalog,
-                &asset_server,
-                &map,
-                chosen,
-                0,
-                GUI_W / 2.0,
-                GUI_H / 2.0,
-                1.0,
-                1.0,
-                Color::WHITE,
-                -866.0,
-            );
-            spr.flip_x = rand::random::<bool>();
-            Some((spr, tf, frames as usize, fw, fh))
-        };
-        let mut place =
-            |spr: Sprite, mut tf: Transform, dx: f32, dy: f32, frames: usize, fw: f32, fh: f32| {
-                let c = map.to_world(GUI_W / 2.0 + dx, GUI_H / 2.0 + dy);
-                tf.translation = c.extend(-866.0);
-                let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
-                art.chars.push((e, frames, fw, fh));
-            };
-
-        for (race, dx, dy) in fixed {
-            if let Some((spr, tf, frames, fw, fh)) = menu_sprite(race) {
-                place(spr, tf, dx, dy, frames, fw, fh);
-            }
-        }
-        for race in [
+        let others = [
             RaceId::Plant,
             RaceId::Venuz,
             RaceId::Steroids,
@@ -1805,13 +1835,128 @@ fn spawn_char_select(
             RaceId::Skeleton,
             RaceId::Frog,
             RaceId::Cuz,
-        ] {
+        ];
+
+        // collect existing offsets for simple distance rejection
+        let mut placed_offsets: Vec<Vec2> = Vec::new();
+        for (race, dx, dy) in fixed.iter().copied() {
+            if !save.race_unlocked(race) {
+                continue;
+            }
+            let Some((slct, to, menu, from)) = camp_char_sprite_set(&catalog, race) else {
+                continue;
+            };
+            let e = spawn_world_sprite(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                slct,
+                0,
+                dx,
+                dy,
+                s,
+                -866.0,
+                rand::random::<bool>(),
+            );
+            let m = meta_of(&catalog, slct);
+            commands.entity(e).insert(CampCharArt {
+                race: race as usize,
+                offset: Vec2::new(dx, dy),
+                path_slct: slct,
+                path_to: to,
+                path_menu: menu,
+                path_from: from,
+                current: CampCharPhase::Slct,
+                anim: 0.0,
+                frames: m[0].max(1.0) as usize,
+                fw: m[1].max(1.0),
+                fh: m[2].max(1.0),
+                s,
+            });
+            art.chars.push(e);
+            placed_offsets.push(Vec2::new(dx, dy));
+        }
+        for race in others {
+            if !save.race_unlocked(race) {
+                continue;
+            }
+            let Some((slct, to, menu, from)) = camp_char_sprite_set(&catalog, race) else {
+                continue;
+            };
+            // random distance like upstream: 32+rand*32 + rand*64*rand
+            let r1: f32 = rand::random();
+            let r2: f32 = rand::random();
+            let r3: f32 = rand::random();
+            let dist = 32.0 + r1 * 32.0 + r2 * 64.0 * r3;
             let ang = rand::random::<f32>() * std::f32::consts::TAU;
-            let dist = rand::random::<f32>() * 70.0 + 40.0;
             let dx = ang.cos() * dist;
-            let dy = ang.sin() * dist * 0.75;
-            if let Some((spr, tf, frames, fw, fh)) = menu_sprite(race) {
-                place(spr, tf, dx, dy, frames, fw, fh);
+            let dy = ang.sin() * dist;
+            // reject if too close to another char (<32)
+            let mut too_close = false;
+            for p in &placed_offsets {
+                if (*p - Vec2::new(dx, dy)).length() < 32.0 {
+                    too_close = true;
+                    break;
+                }
+            }
+            if too_close {
+                continue;
+            }
+            let e = spawn_world_sprite(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                slct,
+                0,
+                dx,
+                dy,
+                s,
+                -866.0,
+                rand::random::<bool>(),
+            );
+            let m = meta_of(&catalog, slct);
+            commands.entity(e).insert(CampCharArt {
+                race: race as usize,
+                offset: Vec2::new(dx, dy),
+                path_slct: slct,
+                path_to: to,
+                path_menu: menu,
+                path_from: from,
+                current: CampCharPhase::Slct,
+                anim: 0.0,
+                frames: m[0].max(1.0) as usize,
+                fw: m[1].max(1.0),
+                fh: m[2].max(1.0),
+                s,
+            });
+            art.chars.push(e);
+            placed_offsets.push(Vec2::new(dx, dy));
+
+            // Chicken TV
+            if race == RaceId::Chicken {
+                let tv_path = if catalog.has("images/sprTV.png") {
+                    "images/sprTV.png"
+                } else if catalog.has("images/sprTV.gif") {
+                    "images/sprTV.gif"
+                } else {
+                    ""
+                };
+                if !tv_path.is_empty() {
+                    let jx = (rand::random::<f32>() - 0.5) * 4.0;
+                    let jy = (rand::random::<f32>() - 0.5) * 8.0 - 32.0;
+                    spawn_world_sprite(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        tv_path,
+                        0,
+                        dx + jx,
+                        dy + jy,
+                        s,
+                        -865.0,
+                        false,
+                    );
+                }
             }
         }
     }
@@ -2125,13 +2270,15 @@ fn main_menu_hover(
 fn char_select_tick(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<(&Camera, &GlobalTransform, &Projection), With<Camera2d>>,
+    mut cam_tf: Query<(&mut Transform, Option<&mut CameraBase>), (With<Camera2d>, Without<CampCharArt>)>,
+    mut camp_chars: Query<(&mut CampCharArt, &mut Sprite, &mut Transform), (With<CampCharArt>, Without<Camera2d>)>,
     mut art: ResMut<CharSelectArt>,
     bridge: Res<UiBridge>,
     save: Res<SaveData>,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
-    mut sprites: Query<&mut Sprite>,
-    mut transforms: Query<&mut Transform>,
+    mut sprites: Query<&mut Sprite, Without<CampCharArt>>,
+    mut transforms: Query<&mut Transform, (Without<CampCharArt>, Without<Camera2d>)>,
     mut visibility: Query<&mut Visibility>,
     time: Res<Time>,
 ) {
@@ -2227,6 +2374,17 @@ fn char_select_tick(
             let f = (sub as f32).clamp(0.0, m[0] - 1.0);
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
+        if let Ok(mut tf) = transforms.get_mut(e) {
+            let m = meta_of(&catalog, "images/sprBigPortrait.png");
+            let (fw, fh, xorigin, yorigin) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+            let draw_x = 16.0 - ui.portrait_offset;
+            let draw_y = GUI_H;
+            let left = draw_x - xorigin;
+            let top = draw_y - yorigin;
+            let center = map.to_world(left + fw * 0.5, top + fh * 0.5);
+            tf.translation.x = center.x;
+            tf.translation.y = center.y;
+        }
     }
     if let Some(e) = art.big_name {
         if let Ok(mut vis) = visibility.get_mut(e) {
@@ -2244,8 +2402,62 @@ fn char_select_tick(
         }
     }
 
-    // Campfire scene animation: fire at 12 fps (image_speed 0.4 @ 30 tps),
-    // mutants idle-looping at 6 fps.
+    // --- Menu/Step_1 camera focus (view lerp) ---
+    {
+        let s = art.world_s.max(0.001);
+        let target = if selected_race == 0 {
+            Vec2::ZERO
+        } else {
+            let mut t = Vec2::ZERO;
+            let mut found = false;
+            for (cc, _, _) in camp_chars.iter() {
+                if cc.race == selected_race {
+                    t = cc.offset;
+                    found = true;
+                    break;
+                }
+            }
+            if found { t } else { Vec2::ZERO }
+        };
+        let k = 1.0 - (0.9_f32).powf(time.delta_secs() * 30.0);
+        art.view_x += (target.x - art.view_x) * k;
+        art.view_y += (target.y - art.view_y) * k;
+        if let Ok((mut tf, base)) = cam_tf.single_mut() {
+            tf.translation.x = art.view_x * s;
+            tf.translation.y = -art.view_y * s;
+            if let Some(mut b) = base {
+                b.translation.x = tf.translation.x;
+                b.translation.y = tf.translation.y;
+            }
+        }
+    }
+
+    // portrait slide + text appear approach
+    if ui.portrait_offset > 0.0 {
+        ui.portrait_offset = (ui.portrait_offset - 12.0 * 30.0 * time.delta_secs()).max(0.0);
+    }
+    if ui.text_appear > 0.0 {
+        ui.text_appear = (ui.text_appear - 30.0 * time.delta_secs()).max(0.0);
+    }
+
+    // CampChar selection epoch -> phase kicks
+    if ui.selection_epoch != art.last_selection_epoch {
+        art.last_selection_epoch = ui.selection_epoch;
+        art.splat_anim = 0.0;
+        for (mut cc, mut spr, _) in camp_chars.iter_mut() {
+            let want_sel = cc.race == selected_race && selected_race != 0;
+            if want_sel {
+                cc.current = CampCharPhase::To;
+                apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_to, &mut cc);
+            } else if cc.current == CampCharPhase::Menu || cc.current == CampCharPhase::To {
+                cc.current = CampCharPhase::From;
+                apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_from, &mut cc);
+            }
+            cc.anim = 0.0;
+        }
+    }
+
+    // Campfire scene animation: fire at 12 fps (image_speed 0.4 @ 30 tps)
     art.campfire_anim = (art.campfire_anim + 12.0 * time.delta_secs()) % 4.0;
     if let Some(e) = art.campfire
         && let Ok(mut spr) = sprites.get_mut(e)
@@ -2254,13 +2466,44 @@ fn char_select_tick(
         let f = art.campfire_anim.floor().min(3.0);
         spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
     }
-    art.char_anim += 6.0 * time.delta_secs();
-    for (e, frames, fw, fh) in &art.chars {
-        if let Ok(mut spr) = sprites.get_mut(*e) {
-            let f = art.char_anim.floor() as usize % (*frames).max(1);
-            let (fw, fh) = (*fw, *fh);
-            spr.rect = Some(Rect::new(f as f32 * fw, 0.0, (f + 1) as f32 * fw, fh));
+    // CampChar phase machine @ image_speed 0.4 *30 =12 fps
+    let dt_frames = 12.0 * time.delta_secs();
+    for (mut cc, mut spr, _) in camp_chars.iter_mut() {
+        let focused = cc.race == selected_race && selected_race != 0;
+        cc.anim += dt_frames;
+        let frames = cc.frames.max(1);
+        if cc.anim >= frames as f32 {
+            cc.anim = 0.0;
+            match cc.current {
+                CampCharPhase::To if focused => {
+                    cc.current = CampCharPhase::Menu;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_menu, &mut cc);
+                }
+                CampCharPhase::From if !focused => {
+                    cc.current = CampCharPhase::Slct;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_slct, &mut cc);
+                }
+                CampCharPhase::Menu if !focused => {
+                    cc.current = CampCharPhase::From;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_from, &mut cc);
+                }
+                CampCharPhase::Slct if focused => {
+                    cc.current = CampCharPhase::To;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_to, &mut cc);
+                }
+                CampCharPhase::To if !focused => {
+                    cc.current = CampCharPhase::From;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_from, &mut cc);
+                }
+                CampCharPhase::From if focused => {
+                    cc.current = CampCharPhase::To;
+                    apply_camp_char_path(&catalog, &asset_server, &mut spr, cc.path_to, &mut cc);
+                }
+                _ => {}
+            }
         }
+        let f = (cc.anim.floor() as usize).min(frames - 1);
+        spr.rect = Some(Rect::new(f as f32 * cc.fw, 0.0, (f as f32 + 1.0) * cc.fw, cc.fh));
     }
 
     // Right-side loadout (scrMenuDrawLoadout): the splat shows while closed,
@@ -2537,6 +2780,10 @@ fn char_select_tick(
                 m.x >= gx && m.x <= gx + GO_W && m.y >= top_base && m.y <= top_base + GO_H
             });
 
+        if ui.title_go_visible && !art.prev_go_visible {
+            art.addy = 1.0;
+        }
+        art.prev_go_visible = ui.title_go_visible;
         art.go_anim = if pointed {
             art.go_anim + 0.4 * 60.0 * time.delta_secs()
         } else {

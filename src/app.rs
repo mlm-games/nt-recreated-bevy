@@ -151,6 +151,12 @@ pub struct SharedUi {
     pub stored_weapon_id: u8,
     pub crown_id: u8,
     pub selected_skin: u8,
+    /// Menu.portrait_offsets[0]: starts at 180 on race change, approaches 0.
+    pub portrait_offset: f32,
+    /// Menu.textappear[0]: 2 on race change; skills text uses this.
+    pub text_appear: f32,
+    /// Bumped when race changes so ui_art can reset splat / char anims.
+    pub selection_epoch: u32,
 
     /// Viewport data used to pick HUD layout without adaptive APIs.
     pub viewport_width: f32,
@@ -215,6 +221,9 @@ impl Default for SharedUi {
             stored_weapon_id: 0,
             crown_id: 0,
             selected_skin: 0,
+            portrait_offset: 0.0,
+            text_appear: 0.0,
+            selection_epoch: 0,
             viewport_width: 1280.0,
             viewport_height: 720.0,
             hud_compact: false,
@@ -417,6 +426,8 @@ fn sync_shared_ui(
             crate::game::content::RaceId::Random => "Random".to_string(),
             r => crate::game::content::character_def(r).name.to_string(),
         };
+        ui.portrait_offset = 0.0;
+        ui.text_appear = 0.0;
     }
     if state.is_changed() && *state.get() == AppState::MainMenu {
         ui.main_menu_hover = -1;
@@ -678,7 +689,10 @@ fn process_ui_actions(
                     continue;
                 }
 
+                // scrCampfireMenuSelectionChange
                 selected.0 = race;
+                let lo = save.race_loadout(race);
+
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.selected_character = i;
                     ui.character = match race {
@@ -686,6 +700,60 @@ fn process_ui_actions(
                         r => crate::game::content::character_def(r).name.to_string(),
                     };
                     ui.title_go_visible = true;
+                    ui.selected_skin = lo.preferred_skin;
+                    ui.crown_id = crate::game::content::crown_port_to_gml(lo.start_crown);
+                    let start = crate::game::content::resolve_start_weapon(lo.start_weapon);
+                    ui.start_weapon_id = start.0;
+                    ui.stored_weapon_id = lo.stored_weapon.0;
+                    ui.start_weapon_name =
+                        crate::game::content::weapon_id_name(start).to_string();
+                    ui.stored_weapon_name = if lo.stored_weapon.0 == 0 {
+                        "NONE".to_string()
+                    } else {
+                        crate::game::content::weapon_id_name(lo.stored_weapon).to_string()
+                    };
+                    if matches!(
+                        race,
+                        crate::game::content::RaceId::BigDog
+                            | crate::game::content::RaceId::Skeleton
+                            | crate::game::content::RaceId::Frog
+                    ) {
+                        ui.loadout_open = false;
+                    }
+                    ui.portrait_offset = 180.0;
+                    ui.text_appear = 2.0;
+                    ui.selection_epoch = ui.selection_epoch.wrapping_add(1);
+                }
+
+                let race_sfx = format!(
+                    "snd{}Slct",
+                    match race {
+                        crate::game::content::RaceId::Fish => "Fish",
+                        crate::game::content::RaceId::Crystal => "Crystal",
+                        crate::game::content::RaceId::Eyes => "Eyes",
+                        crate::game::content::RaceId::Melting => "Melting",
+                        crate::game::content::RaceId::Plant => "Plant",
+                        crate::game::content::RaceId::Venuz => "Venuz",
+                        crate::game::content::RaceId::Steroids => "Steroids",
+                        crate::game::content::RaceId::Robot => "Robot",
+                        crate::game::content::RaceId::Chicken => "Chicken",
+                        crate::game::content::RaceId::Rebel => "Rebel",
+                        crate::game::content::RaceId::Horror => "Horror",
+                        crate::game::content::RaceId::Rogue => "Rogue",
+                        crate::game::content::RaceId::BigDog => "Dog",
+                        crate::game::content::RaceId::Skeleton => "Skeleton",
+                        crate::game::content::RaceId::Frog => "Frog",
+                        crate::game::content::RaceId::Cuz => "Cuz",
+                        crate::game::content::RaceId::Random => "MenuSelect",
+                    }
+                );
+                if catalog
+                    .resolve_audio_path(&race_sfx)
+                    .is_some()
+                {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, &race_sfx, 1.0);
+                } else {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuSelect", 1.0);
                 }
             }
             UiAction::SelectSkin(s) => {

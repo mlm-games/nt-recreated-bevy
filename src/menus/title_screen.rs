@@ -140,12 +140,32 @@ fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
     let active =
         crate::game::content::ability_name(crate::game::content::character_def(race).ability);
 
+    // text_appear: 2 hides skill lines until it decays (upstream textappear)
+    if st.text_appear >= 2.0 {
+        return Row(Modifier::new()
+            .fill_max_size()
+            .padding_values(PaddingValues {
+                left: v.ox + 2.0 * v.s,
+                right: 0.0,
+                top: v.oy + (240.0 - 36.0 - 32.0) * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START))
+        .child(
+            RText(name)
+                .size((14.0 * v.s).clamp(10.0, 160.0))
+                .font_family("Silkscreen")
+                .color(RColor::WHITE)
+                .single_line(),
+        );
+    }
+
     Row(Modifier::new()
         .fill_max_size()
         .padding_values(PaddingValues {
             left: v.ox + 2.0 * v.s,
             right: 0.0,
-            top: v.oy + (240.0 - 36.0 - 32.0) * v.s,
+            top: v.oy + (240.0 - 36.0 - 32.0 + st.text_appear * 2.0) * v.s,
             bottom: 0.0,
         })
         .align_items(AlignItems::FLEX_START))
