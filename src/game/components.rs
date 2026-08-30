@@ -11,15 +11,34 @@ pub const WALL_THICK: f32 = 60.0;
 pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
 /// Base max speed: GML maxspeed 4 px/frame * 30 Hz = 120 px/s.
 pub const PLAYER_BASE_SPEED: f32 = 120.0;
-/// Approx. GML motion_add feel at 30 Hz. GM Player Step uses _movspeed=3
-/// px/frame (90 px/s instantaneous, capped to maxspeed 4). Bevy integrates
-/// via accel*dt; 900 keeps the 30Hz impulse close to 3/frame.
-pub const PLAYER_ACCEL: f32 = 900.0;
+/// GML Player/Step_0 _movspeed=3 px/frame =90 px/s per tick. Bevy dt=1/30 -> need 2700 to match 90.
+/// Previous 900 gave only 30 px/s (1 px/frame) – 3× sluggish turn-in.
+pub const PLAYER_ACCEL: f32 = 2700.0;
 /// GML friction is subtractive: Player/Step_0 friction=0.45 (+ 2 on slime,
 /// 0.1 on ice), enemy/Create_0 friction=0.4. This is subtracted per frame
 /// (px/frame), not multiplied. See player_move subtractive branch.
 pub const PLAYER_FRICTION: f32 = 0.45;
 pub const NT_CAM_SCALE: f32 = 0.45;
+
+/// GML subtractive friction (px/frame) -> px/s continuous, FixedUpdate-safe.
+#[inline]
+pub fn apply_gml_friction(vel: &mut Vec2, friction_f: f32, dt: f32) {
+    let friction_ps = friction_f * 30.0;
+    let sp = vel.length();
+    if sp > 0.0 {
+        let nsp = (sp - friction_ps * dt * crate::app::NT_SIM_HZ as f32).max(0.0);
+        *vel = if nsp == 0.0 { Vec2::ZERO } else { *vel * (nsp / sp) };
+    }
+}
+/// GML motion_add + speed clamp, FixedUpdate-safe.
+#[inline]
+pub fn gml_motion_add_clamp(vel: &mut Vec2, dir: Vec2, impulse_f: f32, cap_f: f32, dt: f32) {
+    *vel += dir.normalize_or_zero() * (impulse_f * 30.0) * dt;
+    let cap = cap_f * 30.0;
+    if vel.length() > cap {
+        *vel = vel.normalize() * cap;
+    }
+}
 
 /// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
 pub const TILE: f32 = 32.0;
@@ -288,7 +307,8 @@ pub struct Player {
     pub next_level_rads: u32,
     pub pickup_range: f32,
     pub fire_rate_mult: f32,
-    pub spread_mult: f32,
+    pub spread_mult: f32, // GML accuracy: Steroids 1.8, Eagle Eyes 0.4 -> multiplied into spread
+    pub accuracy: f32,
     pub knockback_mult: f32,
     pub melee_range_mult: f32,
     pub drop_mult: f32,
@@ -343,6 +363,7 @@ impl Default for Player {
             pickup_range: 95.0,
             fire_rate_mult: 1.0,
             spread_mult: 1.0,
+            accuracy: 1.0,
             knockback_mult: 1.0,
             melee_range_mult: 1.0,
             drop_mult: 0.0,

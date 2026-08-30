@@ -71,12 +71,16 @@ pub fn spawn_enemy(
     commands: &mut Commands,
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
-    kind: EnemyKind,
+    mut kind: EnemyKind,
     pos: Vec2,
     difficulty: f32,
     scarier_face: bool,
     heavy_heart: bool,
 ) {
+    // GML Create_0 hooks that mutate spawn before spawn_enemy body
+    // Scorpion -> GoldScorpion  Scorpion/Create_0.gml:18 if random(_rand)<1+loops*5 && subarea>1
+    // Gatl logic needs Run loops/subarea – caller passes correct kind via world.rs;
+    // keep hook as fallback for direct spawns (Blood crown _rand*0.7 handled in world)
     let def = enemy_def(kind);
     let hp = (def.hp as f32 * difficulty).round().max(1.0) as i32;
     let hp = if scarier_face {
@@ -283,35 +287,57 @@ pub fn enemy_ai(
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
-        // --- GML-accurate walk handling (Scorpion/Other_10, generic enemy/Other_10) ---
-        // Scorpion: walk>0 => motion_add(direction,0.8) and speed>3 clamp
-        // Bandit:  walk>0 => motion_add(direction,0.4) via Alarm_1 walk assignment
+        // --- Exact GML walk (Other_10) + subtractive friction. FixedUpdate==30Hz ---
+        // Bandit: motion_add(dir,0.8) cap3 ; Scorpion/Gold 2 cap4 ; generic fallback 0.4/4
+        // friction 0.4 px/frame (enemy/Create_0) everywhere subtractive.
         if brain.walk > 0.0 {
-            let walk_speed = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion)
-            {
-                0.8 * 30.0 // 0.8 px/frame *30 = 24 px/s impulse
-            } else {
-                0.4 * 30.0
+            let (impulse_f, cap_f) = match enemy.kind {
+                EnemyKind::Scorpion | EnemyKind::GoldScorpion => (2.0, 4.0),
+                EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit => (0.8, 3.0),
+                EnemyKind::Maggot => (0.6, 2.0),
+                EnemyKind::Rat | EnemyKind::Ratking => (0.8, 4.0),
+                EnemyKind::Gator | EnemyKind::BuffGator | EnemyKind::Jock | EnemyKind::Molefish | EnemyKind::Molesarge | EnemyKind::BoneFish => (0.8, 3.0),
+                EnemyKind::Raven => (0.8, 3.5),
+                EnemyKind::Salamander => (2.0, 2.5),
+                EnemyKind::Freak | EnemyKind::ExploFreak => (0.55, 4.0),
+                EnemyKind::RhinoFreak => (0.8, 1.0),
+                EnemyKind::Crab => (1.5, 4.5),
+                EnemyKind::Turtle => (1.0, 5.0),
+                EnemyKind::FireBaller => (0.6, 2.0),
+                EnemyKind::SuperFireBaller => (0.6, 1.5),
+                EnemyKind::SnowTank | EnemyKind::GoldSnowtank => (0.6, 1.5),
+                EnemyKind::DogGuardian => (0.4, 2.0),
+                EnemyKind::JungleFly => (0.8, 3.5),
+                EnemyKind::Spider | EnemyKind::InvSpider => (2.0, 4.0),
+                EnemyKind::Sniper => (0.8, 1.5),
+                _ => (0.4, 4.0),
             };
-            // direction already set by Alarm logic; add impulse
-            let walk_dir = if vel.0.length_squared() > 0.001 {
+            let walk_dir = if vel.0.length_squared() > 0.0001 {
                 vel.0.normalize_or_zero()
             } else {
                 dir
             };
-            vel.0 += walk_dir * walk_speed * dt * 30.0 * 0.5;
+            vel.0 += walk_dir * (impulse_f * 30.0) * dt;
             brain.walk -= dt * 30.0;
             if brain.walk < 0.0 {
                 brain.walk = 0.0;
             }
-            // GML caps: Scorpion speed>3, generic enemy speed>4
-            let cap = if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
-                90.0 // 3*30
-            } else {
-                120.0 // 4*30
-            };
+            let cap = cap_f * 30.0;
             if vel.0.length() > cap {
                 vel.0 = vel.0.normalize() * cap;
+            }
+        }
+        // Subtractive friction exact GML (same as player). Apply after walk before move.
+        {
+            let friction_ps = 0.4 * 30.0;
+            let sp = vel.0.length();
+            if sp > 0.0 {
+                let nsp = (sp - friction_ps * dt * crate::app::NT_SIM_HZ as f32).max(0.0);
+                if nsp == 0.0 {
+                    vel.0 = Vec2::ZERO;
+                } else {
+                    vel.0 *= nsp / sp;
+                }
             }
         }
 
@@ -350,11 +376,11 @@ pub fn enemy_ai(
                                 TimerMode::Once,
                             );
                         } else {
-                            // Walk random direction around target
+                            // Walk random direction around target GML speed 0.4 -> 12 px/s
                             let ang =
                                 dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
                             let wdir = Vec2::new(ang.cos(), ang.sin());
-                            vel.0 = wdir * 40.0;
+                            vel.0 = wdir * (0.4 * 30.0);
                             brain.walk = 10.0 + rng.random_range(0.0..10.0);
                             brain.gunangle = dir.y.atan2(dir.x);
                             brain.attack = Timer::from_seconds(
@@ -363,12 +389,12 @@ pub fn enemy_ai(
                             );
                         }
                     } else {
-                        // Too close: flee away
+                        // Too close: flee away GML speed 0.4
                         let away = -dir;
                         let ang =
                             away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
                         let wdir = Vec2::new(ang.cos(), ang.sin());
-                        vel.0 = wdir * 50.0;
+                        vel.0 = wdir * (0.4 * 30.0);
                         brain.walk = 40.0 + rng.random_range(0.0..10.0);
                         brain.gunangle = dir.y.atan2(dir.x);
                         brain.attack = Timer::from_seconds(
@@ -380,7 +406,7 @@ pub fn enemy_ai(
                 } else if rng.random::<f32>() < 0.25 {
                     let ang = rng.random_range(0.0..std::f32::consts::TAU);
                     let wdir = Vec2::new(ang.cos(), ang.sin());
-                    vel.0 = wdir * 40.0;
+                    vel.0 = wdir * (0.4 * 30.0);
                     brain.walk = 20.0 + rng.random_range(0.0..10.0);
                     brain.attack = Timer::from_seconds(
                         (brain.walk + 10.0 + rng.random_range(0.0..30.0)) / 30.0,
@@ -399,25 +425,15 @@ pub fn enemy_ai(
                 let ang = rng.random_range(0.0..std::f32::consts::TAU);
                 vel.0 += Vec2::new(ang.cos(), ang.sin()) * 30.0 * dt;
             }
-            // Apply friction & move, then skip generic ranged logic
-            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
-            // Fall through to common collision handling but skip generic firing below
-            // Use a flag to bypass generic firing: set def.bullets_per_shot=0 virtual
-            // We'll handle sprite + movement tail below and continue
-            // Light separation + collisions handled after this block via goto
-            // Instead, jump to shared tail: we need to still do resolve_prop etc.
-            // So just set a marker and skip generic strafe/dash
+            // Friction already applied above via subtractive block; just move and separate
             {
-                // Scorpion-specific walk already handled, now apply common tail
-                // Duplicate tail code inline to avoid generic path
-                if vel.0.length() > def.speed.max(40.0) {
-                    vel.0 = vel.0.normalize() * def.speed.max(40.0);
+                if vel.0.length() > 90.0 {
+                    vel.0 = vel.0.normalize() * 90.0;
                 }
                 tf.translation += (vel.0 * dt).extend(0.0);
                 resolve_prop_collision(&mut tf.translation, def.radius, &props);
                 mask.resolve_circle(&mut tf.translation, def.radius);
                 clamp_to_arena(&mut tf.translation, def.radius);
-                // separation
                 for other in &positions {
                     let d = pos.distance(*other);
                     if d < def.radius + 14.0 && d > 0.001 {
@@ -477,12 +493,12 @@ pub fn enemy_ai(
             } else if brain.attack.just_finished() {
                 // Alarm_1 logic
                 let target_dir = dir.y.atan2(dir.x);
-                // scrWalk(_target_direction+orandom60+180, 0,10,20) approximation
+                // scrWalk(_target_direction+orandom60+180,0,10,20) GML speed 0.4
                 let walk_ang = target_dir
                     + rng.random_range(-60_f32..60.0).to_radians()
                     + std::f32::consts::PI;
                 let wdir = Vec2::new(walk_ang.cos(), walk_ang.sin());
-                vel.0 = wdir * 30.0;
+                vel.0 = wdir * (0.4 * 30.0);
                 brain.walk = 10.0 + rng.random_range(0.0..10.0);
                 sprite.flip_x = vel.0.x < 0.0;
                 // visible check 210
@@ -507,19 +523,17 @@ pub fn enemy_ai(
                     let away = -dir;
                     let ang = away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
                     if dist > 32.0 {
-                        // add 180
                         let ang2 = ang + std::f32::consts::PI;
-                        vel.0 = Vec2::new(ang2.cos(), ang2.sin()) * 40.0;
+                        vel.0 = Vec2::new(ang2.cos(), ang2.sin()) * (0.4 * 30.0);
                     } else {
-                        vel.0 = Vec2::new(ang.cos(), ang.sin()) * 40.0;
+                        vel.0 = Vec2::new(ang.cos(), ang.sin()) * (0.4 * 30.0);
                     }
                     brain.walk = 40.0;
                 }
             }
-            // Apply movement + friction tail and skip generic firing
-            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
-            if vel.0.length() > 90.0 {
-                vel.0 = vel.0.normalize() * 90.0;
+            // Friction already applied at top; clamp is 4*30 =120 for scorpion GML cap
+            if vel.0.length() > 120.0 {
+                vel.0 = vel.0.normalize() * 120.0;
             }
             tf.translation += (vel.0 * dt).extend(0.0);
             resolve_prop_collision(&mut tf.translation, def.radius, &props);
@@ -653,7 +667,7 @@ pub fn enemy_ai(
             if vel.0.length() > speed {
                 vel.0 = vel.0.normalize() * speed;
             }
-            vel.0 *= 0.90_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
+            // Generic friction is already applied at top via subtractive block; do not re-apply
             tf.translation += (vel.0 * dt).extend(0.0);
         } else {
             vel.0 = Vec2::ZERO;

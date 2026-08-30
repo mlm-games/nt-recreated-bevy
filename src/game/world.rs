@@ -1193,15 +1193,14 @@ fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
     out
 }
 
-/// Upstream GameCont.hard approximation (NTT / NT mobile rewrite):
-/// roughly +1 per area step, + loop bonus. Floor 1 ≈ 1.
+/// Upstream GameCont.hard (GameCont/Create_0 hard=0, Other_5 hard+=1 per area clear, loops>=2 hardgot).
+/// NTT: hard 0→13 per loop (area clear +1). Bevy: floor-1 per area clear + 13*loops.
 pub fn game_hard(run: &Run) -> f32 {
-    let floor = run.floor.max(1) as f32;
-    // area-ish progress: desert1=1 … palace end≈15 per loop
-    let area_progress = floor; // 1:1 with route floors is closer than *0.55
+    let floors_cleared = run.floor.saturating_sub(1) as f32; // areas cleared before current floor
     let loops = run.loop_count as f32;
-    // NTT-ish: hard grows ~1 per area clear + strong loop bump
-    (area_progress + loops * 4.0).max(1.0)
+    // Exact GML: hard starts 0, +1 per GameCont/Other_5 (area clear) → floors_cleared
+    // plus 13 per completed loop cycle (13 areas per loop in rewrite)
+    (floors_cleared + loops * 13.0).max(1.0)
 }
 
 fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {

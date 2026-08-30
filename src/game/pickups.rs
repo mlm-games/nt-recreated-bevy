@@ -47,13 +47,15 @@ pub fn spawn_pickup(
                 anim.frame = rng.random_range(0..def.frames.max(1));
                 ec.insert(anim);
             }
+            // GML Rad Alarm 300 =10s ; Bevy 5s drifted – fix to 10s
             ec.insert(PickupLifetime {
-                timer: Timer::from_seconds(5.0 + rng.random_range(0.0..1.0), TimerMode::Once),
+                timer: Timer::from_seconds(10.0 + rng.random_range(0.0..1.0), TimerMode::Once),
             });
         }
         PickupKind::Medkit(_) | PickupKind::Ammo(..) => {
+            // GML HP Ammo Alarm 400 =13.3s
             ec.insert(PickupLifetime {
-                timer: Timer::from_seconds(6.67 + rng.random_range(0.0..1.0), TimerMode::Once),
+                timer: Timer::from_seconds(13.33 + rng.random_range(0.0..1.0), TimerMode::Once),
             });
         }
         PickupKind::Weapon(_) => {

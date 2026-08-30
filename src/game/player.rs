@@ -73,21 +73,9 @@ pub fn player_move(
         if vel.0.length() > max_speed {
             vel.0 = vel.0.normalize() * max_speed;
         }
-        // GML friction is subtractive: `friction = 0.45` px/frame (Player/Step_0)
-        // subtracted each tick. In Bevy units (px/s) that's friction*30 per
-        // fixed tick (~13.5 px/s at 30Hz). Scale by tick count (dt*NT_SIM_HZ)
-        // so variable dt still matches the GM per-frame feel and stops in
-        // ~9 frames from maxspeed instead of sliding.
-        let f = player.friction * 30.0 * dt * crate::app::NT_SIM_HZ as f32;
-        let sp = vel.0.length();
-        if sp > 0.0 {
-            let nsp = (sp - f).max(0.0);
-            if nsp == 0.0 {
-                vel.0 = Vec2::ZERO;
-            } else {
-                vel.0 *= nsp / sp;
-            }
-        }
+        // GML friction subtractive + floor-type override (Player/Step_0:587)
+        // ExtraFeet bypasses floor check. Use shared helper for lockstep.
+        crate::game::components::apply_gml_friction(&mut vel.0, player.friction, dt);
         tf.translation += (vel.0 * dt).extend(0.0);
     }
 

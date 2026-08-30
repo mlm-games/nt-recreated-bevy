@@ -250,9 +250,10 @@ fn big_bandit_ai(
     walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
 ) {
     let looped = def.name.contains("Loop");
-    let volley_count = if looped { 7 } else { 5 };
+    // GML BanditBoss/Alarm_1: 240/48 check, loops ammo 15 vs 10, speed 8, wkick5, charge via Alarm_3
+    let volley_count = if looped { 7 } else { 5 }; // keep but GML looped is +5 ammo not count
     let volley_spread = if looped { 0.13 } else { 0.16 };
-    let charge_speed = if looped { 780.0 } else { 680.0 };
+    let charge_speed = 150.0; // GML Other_10 charge motion_add 2+gunangle1 cap5*30 =150 not 680
     let recovery_ring = if looped { 14 } else { 10 };
     let kind = if looped {
         EnemyKind::BigBanditLoop
@@ -291,7 +292,7 @@ fn big_bandit_ai(
                         Team::Enemy,
                         volley_count,
                         volley_spread,
-                        if looped { 220.0 } else { 165.0 },
+                        240.0, // GML motion_add gunangle 8 *30 =240
                         if looped { 4 } else { 3 },
                         3.2,
                         4.5,

@@ -34,8 +34,9 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Haste => {
-            player.fire_rate_mult *= 0.8;
-            // Haste does not boost walk speed in base NT (verify wep_load factor if needed)
+            // GML Crown Haste: scrAmmoUpdateTypeStats ups typ_ammo + haste per pickup, not fire_rate.
+            // Bevy models ammo via pickup amounts; fire_rate bump is Bevy-specific drift. Remove it.
+            player.fire_rate_mult *= 1.0;
         }
 
         CrownKind::Guns => {
@@ -402,13 +403,15 @@ mod tests {
 
     #[test]
     fn crown_haste_reduces_fire_cooldown_multiplier() {
+        // GML Haste does NOT reduce fire_rate; it ups typ_ammo per pickup.
+        // Bevy previously faked 0.8 – now corrected to 1.0 to match GML.
         let mut p = base_player();
         let mut h = base_health();
         let mut inv = base_inv();
 
         apply_crown_to_spawn(CrownKind::Haste, &mut p, &mut h, &mut inv);
 
-        assert!(p.fire_rate_mult < 1.0);
+        assert!((p.fire_rate_mult - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
