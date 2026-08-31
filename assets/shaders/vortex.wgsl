@@ -59,7 +59,10 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let gui = vec2<f32>(mesh.uv.x * 320.0, (1.0 - mesh.uv.y) * 240.0);
     let tick_now = glob_a.x;
     let lightning_on = glob_a.y;
+    let bg_alpha = glob_b.y;
+    let thresh = glob_b.z;
     var acc = vec3<f32>(glob_a.z, glob_a.w, glob_b.x);
+    var out_alpha = bg_alpha;
 
     // Oldest-on-top
     let base = u32(tick_now);
@@ -70,7 +73,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         let age = tick_now - d.z;
         if (age < 0.0) { continue; }
         let s = wisp_scale(age);
-        if (s > 2.5) { continue; }
+        if (s > thresh) { continue; }
 
         let half_ext = 32.0 * s * 10.0;
         var rel = gui - d.xy;
@@ -101,6 +104,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
                     let btex = textureSampleLevel(bolt_tex, bolt_smp, vec2<f32>(bolt_uv_x, bolt_uv_y), 0.0);
                     // GML: white 1 then black 0.4 - s/2
                     acc = mix(acc, btex.rgb, btex.a);
+                    out_alpha = max(out_alpha, btex.a);
                     let bolt_black = clamp(0.4 - s * 0.5, 0.0, 1.0);
                     if (bolt_black > 0.001) {
                         acc = mix(acc, vec3<f32>(0.0), btex.a * bolt_black);
@@ -117,6 +121,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             let tex = textureSampleLevel(spiral_tex, spiral_smp, vec2<f32>(uv_x, uv_y), 0.0);
             // GML two-pass: white (c_white, alpha tex.a) then black 0.8 - s
             acc = mix(acc, tex.rgb, tex.a);
+            out_alpha = max(out_alpha, tex.a);
             let black_a = clamp(0.8 - s, 0.0, 1.0);
             if (black_a > 0.001) {
                 acc = mix(acc, vec3<f32>(0.0), tex.a * black_a);
@@ -144,11 +149,12 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             let tex = textureSampleLevel(debris_tex, debris_smp, vec2<f32>(uv_x, uv_y), 0.0);
             // scrDrawSpiral: white 1, then black (1 - xscale)
             acc = mix(acc, tex.rgb, tex.a);
+            out_alpha = max(out_alpha, tex.a);
             let black_a = clamp(1.0 - xs, 0.0, 1.0);
             if (black_a > 0.001) {
                 acc = mix(acc, vec3<f32>(0.0), tex.a * black_a);
             }
         }
     }
-    return vec4<f32>(acc, 1.0);
+    return vec4<f32>(acc, out_alpha);
 }

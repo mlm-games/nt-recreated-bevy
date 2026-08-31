@@ -65,6 +65,8 @@ pub struct SpiralCtl {
     /// x < -100 = empty slot.
     pub debris_ring: Vec<[f32; 4]>,
     dhead: usize,
+    pub alive: bool,
+    pub death_tick: Option<f32>,
 }
 
 impl SpiralCtl {
@@ -98,6 +100,8 @@ impl SpiralCtl {
                 .collect(),
             debris_ring: vec![[-1000.0; 4]; MAX_DEBRIS],
             dhead: 0,
+            alive: true,
+            death_tick: None,
         };
         for _ in 0..WARMUP_TICKS {
             ctl.tick_once();
@@ -110,14 +114,15 @@ impl SpiralCtl {
     /// field state is identical however the controller was armed.
     fn tick_once(&mut self) {
         self.ticks += 1.0;
-        // SpiralCont/Step_0: increment angle, then emit one wisp there.
-        self.angle += spiral_angle_inc(self.angle);
-        let (x, y) = orbit(self.angle);
-        self.ring[self.head] = [x, y, self.ticks, (self.angle + 45.0).to_radians()];
-        self.head = (self.head + 1) % MAX_WISPS;
+        if self.alive {
+            // SpiralCont/Step_0: increment angle, then emit one wisp there.
+            self.angle += spiral_angle_inc(self.angle);
+            let (x, y) = orbit(self.angle);
+            self.ring[self.head] = [x, y, self.ticks, (self.angle + 45.0).to_radians()];
+            self.head = (self.head + 1) % MAX_WISPS;
 
-        // Debris spawn: `random(16) < 1 && random(3) < 1` (Normal type, menus).
-        if rand::random::<f32>() * 16.0 < 1.0 && rand::random::<f32>() * 3.0 < 1.0 {
+            // Debris spawn: `random(16) < 1 && random(3) < 1` (Normal type, menus).
+            if rand::random::<f32>() * 16.0 < 1.0 && rand::random::<f32>() * 3.0 < 1.0 {
             let d = &mut self.debris[self.dhead];
             *d = Debris {
                 alive: true,
@@ -133,6 +138,7 @@ impl SpiralCtl {
                 frame: (rand::random::<f32>() * 4.0).floor().min(3.0),
             };
             self.dhead = (self.dhead + 1) % MAX_DEBRIS;
+            }
         }
 
         // SpiralDebris/Step_0 (exact order): position from current state,
@@ -171,7 +177,8 @@ impl SpiralCtl {
     }
 
     fn step(&mut self, dt_ticks: f32) {
-        self.acc += dt_ticks;
+        let speed = if self.alive { 1.25 } else { 1.75 };
+        self.acc += dt_ticks * speed;
         while self.acc >= 1.0 {
             self.acc -= 1.0;
             self.tick_once();
@@ -185,14 +192,13 @@ fn spiral_angle_inc(angle: f32) -> f32 {
 }
 
 /// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
-/// DEGREES; bevy takes radians, hence the conversions). Public rewrite
-/// `Step_0` uses `* 80 / * 50`; commercial binary `130/90` is intentionally
-/// not used (see module header).
+/// DEGREES; bevy takes radians, hence the conversions). Downloads
+/// `nuclear_throne` YYC uses `130/90` (pool `921,500,583,130,90`) which
+/// fills the 320×240 view - public `80/50` is too small and looks centred.
 fn orbit(angle: f32) -> (f32, f32) {
     (
-        // public rewrite Step_0: * 80 / * 50 (not commercial 130/90)
-        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 80.0,
-        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 50.0,
+        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 130.0,
+        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 90.0,
     )
 }
 
@@ -256,10 +262,8 @@ impl Material2d for VortexMaterial {
         "shaders/vortex.wgsl".into()
     }
 
-    // The shader composites everything onto an opaque background colour, so
-    // the quad itself is opaque (matches scrDrawSpiral's draw_clear).
     fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Opaque
+        AlphaMode2d::Blend
     }
 }
 
@@ -288,7 +292,7 @@ fn background_color(_state: &AppState) -> Color {
 /// independent of both render fps and the gameplay FixedUpdate cadence.
 fn vortex_tick(
     state: Res<State<AppState>>,
-    time: Res<Time<Virtual>>,
+    time: Res<Time<Real>>,
     mut ctl: Option<ResMut<SpiralCtl>>,
     mut materials: ResMut<Assets<VortexMaterial>>,
     q_mat: Query<&MeshMaterial2d<VortexMaterial>, With<VortexQuad>>,
@@ -296,10 +300,6 @@ fn vortex_tick(
     let Some(ctl) = ctl.as_mut() else {
         return;
     };
-    if !spiral_states(state.get()) {
-        return;
-    }
-
     ctl.step(time.delta_secs() * 30.0);
 
     let Ok(mat_handle) = q_mat.single().map(|m| m.0.clone()) else {
@@ -313,12 +313,14 @@ fn vortex_tick(
     mat.wisps = ring_to_uniform(&ctl.ring);
     mat.debris = debris_to_uniform(&ctl.debris_ring);
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
-    // Lightning is on whenever the swirl draws: scrDrawSpiral only disables it
-    // (`_is_menu`) for the char-select `Menu`, where SpiralCont no longer
-    // exists. Both of our swirl states (Splash logo, MainMenu buttons) are
-    // non-Menu callers.
+    let bg_alpha = if matches!(*state.get(), AppState::Title) {
+        0.0
+    } else {
+        1.0
+    };
+    let thresh = if ctl.alive { 2.5 } else { 3.0 };
     mat.glob_a = Vec4::new(ctl.ticks, 1.0, r, g);
-    mat.glob_b = Vec4::new(b, 0.0, 0.0, 0.0);
+    mat.glob_b = Vec4::new(b, bg_alpha, thresh, 0.0);
 }
 
 /// Spawn the vortex quad once; keeps `SpiralCtl` alive alongside it.
@@ -366,14 +368,21 @@ fn ensure_vortex_quad(
 
     let map = gui_map(win.width(), win.height(), o.scale);
     let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
-
-    let mesh = meshes.add(Rectangle::new(GUI_W, GUI_H));
+    // Full-window quad so expanding wisps cover letterbox and bg already loaded shows through on Title
+    let effective_w = (map.hw * 2.0) / map.s;
+    let effective_h = (map.hh * 2.0) / map.s;
+    let mesh = meshes.add(Rectangle::new(effective_w, effective_h));
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
+    let bg_alpha = if matches!(*state.get(), AppState::Title) {
+        0.0
+    } else {
+        1.0
+    };
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
         debris: debris_to_uniform(&ctl.debris_ring),
         glob_a: Vec4::new(ctl.ticks, 1.0, r, g),
-        glob_b: Vec4::new(b, 0.0, 0.0, 0.0),
+        glob_b: Vec4::new(b, bg_alpha, 2.5, 0.0),
         spiral_tex: asset_server.load("images/sprSpiral.png"),
         bolt_tex: asset_server.load("images/sprPortalLightning.png"),
         debris_tex: asset_server.load("images/sprDebris0.png"),
@@ -425,20 +434,77 @@ fn track_vortex_view(
 /// PlayButton/Other_10: entering the campfire char-select destroys
 /// SpiralCont (and its CleanUp stops sndPortalLoop). Runs on
 /// `OnEnter(AppState::Title)`; despawn_title_art stays as a safety net.
+/// GML Spiral instances linger and grow 1.5x until xscale>3, so we keep the
+/// vortex quad for a brief drain instead of popping.
 pub fn teardown_vortex(
+    mut commands: Commands,
+    q_quad: Query<Entity, With<VortexQuad>>,
+    mut ctl: Option<ResMut<SpiralCtl>>,
+    portal: Query<Entity, With<crate::game::ui_art::PortalLoop>>,
+) {
+    if let Some(mut c) = ctl {
+        if c.alive {
+            c.alive = false;
+            c.death_tick = Some(c.ticks);
+        }
+    }
+    for e in &portal {
+        commands.entity(e).try_despawn();
+    }
+    let _ = q_quad;
+}
+
+fn despawn_vortex_when_done(
     mut commands: Commands,
     q_quad: Query<Entity, With<VortexQuad>>,
     ctl: Option<Res<SpiralCtl>>,
     portal: Query<Entity, With<crate::game::ui_art::PortalLoop>>,
+    state: Res<State<AppState>>,
 ) {
+    let Some(ctl) = ctl else {
+        return;
+    };
+    if ctl.alive {
+        return;
+    }
+    // Title lingers over already-loaded campfire bg and must expand fully
+    // before vanishing - youngest wisp needs ~120 ticks to reach s>2.5.
+    // InGame (post-Loading) should not cover gameplay, so no linger.
+    let drain = if matches!(*state.get(), AppState::Title) {
+        130.0
+    } else if matches!(*state.get(), AppState::InGame) {
+        15.0
+    } else {
+        130.0
+    };
+    if let Some(death) = ctl.death_tick {
+        if ctl.ticks - death < drain {
+            return;
+        }
+    } else {
+        return;
+    }
+    if matches!(*state.get(), AppState::Loading) {
+        return;
+    }
+    if !matches!(*state.get(), AppState::Title | AppState::InGame) {
+        return;
+    }
     for e in &q_quad {
         commands.entity(e).try_despawn();
     }
     for e in &portal {
         commands.entity(e).try_despawn();
     }
-    if ctl.is_some() {
-        commands.remove_resource::<SpiralCtl>();
+    commands.remove_resource::<SpiralCtl>();
+}
+
+fn mark_vortex_dead(mut ctl: Option<ResMut<SpiralCtl>>) {
+    if let Some(mut c) = ctl {
+        if c.alive {
+            c.alive = false;
+            c.death_tick = Some(c.ticks);
+        }
     }
 }
 
@@ -465,6 +531,16 @@ pub struct VortexPlugin;
 impl Plugin for VortexPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(Material2dPlugin::<VortexMaterial>::default())
-            .add_systems(Update, (ensure_vortex_quad, track_vortex_view, vortex_tick));
+            .add_systems(OnEnter(AppState::InGame), mark_vortex_dead)
+            .add_systems(OnExit(AppState::Loading), mark_vortex_dead)
+            .add_systems(
+                Update,
+                (
+                    ensure_vortex_quad,
+                    track_vortex_view,
+                    vortex_tick,
+                    despawn_vortex_when_done,
+                ),
+            );
     }
 }

@@ -565,6 +565,7 @@ fn process_ui_actions(
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                 }
+                // Loading uses Loading state spiral (GenCont) - simple fade, vortex stays via Loading state
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
@@ -581,7 +582,7 @@ fn process_ui_actions(
                     ui.title_hover_race = -1;
                     ui.loadout_open = false;
                 }
-                // Cancel any in-flight fade and jump states instantly (OG parity).
+                // OG PlayButton/Other_10 is instant - SpiralCont wisps linger via grow*=1.5 drain
                 transition.active = false;
                 transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
                 transition.progress = 0.0;
@@ -625,6 +626,8 @@ fn process_ui_actions(
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;
+                // Keep quit-to-menu instant for now; vortex handled in MainMenuPlay.
+                // If a wipe is desired here, switch to begin_vortex_to(MainMenu).
                 transition.active = false;
                 transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
                 transition.progress = 0.0;
@@ -632,8 +635,6 @@ fn process_ui_actions(
                 transition.circle_progress = 0.0;
                 transition.block_input = false;
                 transition.pending_state = None;
-                // Upstream quit-to-menu lands on the main-menu buttons
-                // (SpiralCont immediate recreation, no fade).
                 next_state.set(AppState::MainMenu);
             }
             UiAction::QuitApp => {
