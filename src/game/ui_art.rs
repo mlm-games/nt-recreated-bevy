@@ -547,7 +547,7 @@ fn title_world_to_gui(wx: f32, wy: f32) -> (f32, f32) {
 }
 
 fn title_floor_owner_below(wx: i32, wy: i32) -> (i32, i32) {
-    (wx.div_euclid(2), (wy - 1).div_euclid(2))
+    (wx.div_euclid(2), (wy + 1).div_euclid(2))
 }
 
 fn title_wall_xy(wx: i32, wy: i32) -> (f32, f32) {
@@ -789,10 +789,22 @@ fn spawn_world_sprite(
     flip_x: bool,
 ) -> Entity {
     let m = meta_of(catalog, path);
-    let (frames, fw, fh, _fps, xorigin, yorigin) = (m[0].max(1.0), m[1].max(1.0), m[2].max(1.0), m[3], m[4], m[5]);
+    let (frames, fw, fh, _fps, xorigin, yorigin) = (
+        m[0].max(1.0),
+        m[1].max(1.0),
+        m[2].max(1.0),
+        m[3],
+        m[4],
+        m[5],
+    );
     let frame = frame % frames as usize;
     let mut sprite = sprite_exact(catalog, assets, path);
-    sprite.rect = Some(Rect::new(frame as f32 * fw, 0.0, (frame as f32 + 1.0) * fw, fh));
+    sprite.rect = Some(Rect::new(
+        frame as f32 * fw,
+        0.0,
+        (frame as f32 + 1.0) * fw,
+        fh,
+    ));
     sprite.custom_size = Some(Vec2::new(fw * s, fh * s));
     sprite.flip_x = flip_x;
     let left = nt_x - xorigin;
@@ -800,7 +812,12 @@ fn spawn_world_sprite(
     let cx = (left + fw * 0.5) * s;
     let cy = -(top + fh * 0.5) * s;
     commands
-        .spawn((TitleArt, TitleWorldArt, sprite, Transform::from_xyz(cx, cy, z)))
+        .spawn((
+            TitleArt,
+            TitleWorldArt,
+            sprite,
+            Transform::from_xyz(cx, cy, z),
+        ))
         .id()
 }
 
@@ -2270,8 +2287,14 @@ fn main_menu_hover(
 fn char_select_tick(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<(&Camera, &GlobalTransform, &Projection), With<Camera2d>>,
-    mut cam_tf: Query<(&mut Transform, Option<&mut CameraBase>), (With<Camera2d>, Without<CampCharArt>)>,
-    mut camp_chars: Query<(&mut CampCharArt, &mut Sprite, &mut Transform), (With<CampCharArt>, Without<Camera2d>)>,
+    mut cam_tf: Query<
+        (&mut Transform, Option<&mut CameraBase>),
+        (With<Camera2d>, Without<CampCharArt>),
+    >,
+    mut camp_chars: Query<
+        (&mut CampCharArt, &mut Sprite, &mut Transform),
+        (With<CampCharArt>, Without<Camera2d>),
+    >,
     mut art: ResMut<CharSelectArt>,
     bridge: Res<UiBridge>,
     save: Res<SaveData>,
@@ -2503,7 +2526,12 @@ fn char_select_tick(
             }
         }
         let f = (cc.anim.floor() as usize).min(frames - 1);
-        spr.rect = Some(Rect::new(f as f32 * cc.fw, 0.0, (f as f32 + 1.0) * cc.fw, cc.fh));
+        spr.rect = Some(Rect::new(
+            f as f32 * cc.fw,
+            0.0,
+            (f as f32 + 1.0) * cc.fw,
+            cc.fh,
+        ));
     }
 
     // Right-side loadout (scrMenuDrawLoadout): the splat shows while closed,

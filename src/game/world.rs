@@ -409,6 +409,32 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
             plan.wall_cells.insert((wx, wy));
         }
     }
+
+    const EXTRA_LAYERS: i32 = 60; // TODO: look at how original does it
+    for _ in 0..EXTRA_LAYERS {
+        let cur: Vec<(i32, i32)> = plan.wall_cells.iter().copied().collect();
+        let mut grown = Vec::new();
+        for (wx, wy) in cur {
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let nx = wx + dx;
+                let ny = wy + dy;
+                if plan.wall_cells.contains(&(nx, ny)) {
+                    continue;
+                }
+                let owner = (nx.div_euclid(2), ny.div_euclid(2));
+                if floor_set.contains(&owner) {
+                    continue;
+                }
+                grown.push((nx, ny));
+            }
+        }
+        if grown.is_empty() {
+            break;
+        }
+        for c in grown {
+            plan.wall_cells.insert(c);
+        }
+    }
 }
 
 // scrPopulate / scrPopProps / scrPopEnemies

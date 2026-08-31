@@ -567,6 +567,38 @@ fn process_ui_actions(
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
+                commands.queue(|world: &mut World| {
+                    // Despawn VortexQuad entities
+                    let vortex_entities: Vec<bevy::prelude::Entity> = world
+                        .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<crate::game::vortex::VortexQuad>>()
+                        .iter(world)
+                        .collect();
+                    for e in vortex_entities {
+                        if let Ok(mut ec) = world.get_entity_mut(e) {
+                            ec.despawn();
+                        }
+                    }
+                    let portal_entities: Vec<bevy::prelude::Entity> = world
+                        .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<crate::game::ui_art::PortalLoop>>()
+                        .iter(world)
+                        .collect();
+                    for e in portal_entities {
+                        if let Ok(mut ec) = world.get_entity_mut(e) {
+                            ec.despawn();
+                        }
+                    }
+                    if world.contains_resource::<crate::game::vortex::SpiralCtl>() {
+                        world.remove_resource::<crate::game::vortex::SpiralCtl>();
+                    }
+                });
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndMenuCharSelect",
+                    0.7,
+                );
                 // MainMenuButton/Other_10 case 0: enter the campfire char-select.
                 // Do NOT force the selected race to Random here; upstream keeps the
                 // player's current race and only hides the Go button.
@@ -705,8 +737,7 @@ fn process_ui_actions(
                     let start = crate::game::content::resolve_start_weapon(lo.start_weapon);
                     ui.start_weapon_id = start.0;
                     ui.stored_weapon_id = lo.stored_weapon.0;
-                    ui.start_weapon_name =
-                        crate::game::content::weapon_id_name(start).to_string();
+                    ui.start_weapon_name = crate::game::content::weapon_id_name(start).to_string();
                     ui.stored_weapon_name = if lo.stored_weapon.0 == 0 {
                         "NONE".to_string()
                     } else {
@@ -747,10 +778,7 @@ fn process_ui_actions(
                         crate::game::content::RaceId::Random => "MenuSelect",
                     }
                 );
-                if catalog
-                    .resolve_audio_path(&race_sfx)
-                    .is_some()
-                {
+                if catalog.resolve_audio_path(&race_sfx).is_some() {
                     play_ui_sfx(&mut commands, &asset_server, &catalog, &race_sfx, 1.0);
                 } else {
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuSelect", 1.0);
