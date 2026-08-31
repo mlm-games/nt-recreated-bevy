@@ -547,6 +547,7 @@ fn process_ui_actions(
     mut save: ResMut<SaveData>,
     mut exit: MessageWriter<AppExit>,
     mut transition: ResMut<Transition<AppState>>,
+    mut next_state: ResMut<NextState<AppState>>,
     manager: Res<SaveManager>,
     mut pending_unpause: ResMut<PendingUnpause>,
     mut locale: ResMut<LocaleResources>,
@@ -567,30 +568,6 @@ fn process_ui_actions(
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
-                commands.queue(|world: &mut World| {
-                    // Despawn VortexQuad entities
-                    let vortex_entities: Vec<bevy::prelude::Entity> = world
-                        .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<crate::game::vortex::VortexQuad>>()
-                        .iter(world)
-                        .collect();
-                    for e in vortex_entities {
-                        if let Ok(mut ec) = world.get_entity_mut(e) {
-                            ec.despawn();
-                        }
-                    }
-                    let portal_entities: Vec<bevy::prelude::Entity> = world
-                        .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<crate::game::ui_art::PortalLoop>>()
-                        .iter(world)
-                        .collect();
-                    for e in portal_entities {
-                        if let Ok(mut ec) = world.get_entity_mut(e) {
-                            ec.despawn();
-                        }
-                    }
-                    if world.contains_resource::<crate::game::vortex::SpiralCtl>() {
-                        world.remove_resource::<crate::game::vortex::SpiralCtl>();
-                    }
-                });
                 play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
                 play_ui_sfx(
                     &mut commands,
@@ -599,15 +576,20 @@ fn process_ui_actions(
                     "sndMenuCharSelect",
                     0.7,
                 );
-                // MainMenuButton/Other_10 case 0: enter the campfire char-select.
-                // Do NOT force the selected race to Random here; upstream keeps the
-                // player's current race and only hides the Go button.
                 if let Ok(mut ui) = bridge.shared.lock() {
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                     ui.loadout_open = false;
                 }
-                transition.begin_to_state(AppState::Title);
+                // Cancel any in-flight fade and jump states instantly (OG parity).
+                transition.active = false;
+                transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
+                transition.progress = 0.0;
+                transition.overlay_alpha = 0.0;
+                transition.circle_progress = 0.0;
+                transition.block_input = false;
+                transition.pending_state = None;
+                next_state.set(AppState::Title);
             }
             UiAction::OpenSettings => {
                 if let Ok(mut ui) = bridge.shared.lock() {
@@ -643,9 +625,16 @@ fn process_ui_actions(
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;
+                transition.active = false;
+                transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
+                transition.progress = 0.0;
+                transition.overlay_alpha = 0.0;
+                transition.circle_progress = 0.0;
+                transition.block_input = false;
+                transition.pending_state = None;
                 // Upstream quit-to-menu lands on the main-menu buttons
-                // (Vlambeer/Create_0 want_quit_to_menu path).
-                transition.begin_to_state(AppState::MainMenu);
+                // (SpiralCont immediate recreation, no fade).
+                next_state.set(AppState::MainMenu);
             }
             UiAction::QuitApp => {
                 exit.write(AppExit::Success);

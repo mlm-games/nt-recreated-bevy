@@ -400,6 +400,16 @@ struct SplashLoop;
 #[derive(Component)]
 pub(crate) struct PortalLoop;
 
+/// Campfire ambience loop started on Title enter (Menu/Create_0 MusCont amb0).
+#[derive(Component)]
+struct CampfireAmb;
+
+fn despawn_campfire_amb(mut commands: Commands, q: Query<Entity, With<CampfireAmb>>) {
+    for e in &q {
+        commands.entity(e).try_despawn();
+    }
+}
+
 fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>>) {
     for e in &q {
         commands.entity(e).try_despawn();
@@ -1408,7 +1418,7 @@ impl Plugin for UiArtPlugin {
             )
             .add_systems(
                 OnEnter(AppState::MainMenu),
-                (reset_camera_view, spawn_spiral_field),
+                (reset_camera_view, spawn_spiral_field).chain(),
             )
             .add_systems(
                 OnExit(AppState::Splash),
@@ -1419,15 +1429,21 @@ impl Plugin for UiArtPlugin {
                 (
                     reset_camera_view,
                     set_title_camera_clear,
-                    spawn_char_select,
-                    // PlayButton/Other_10: SpiralCont dies before the campfire
-                    // menu exists - no swirl (and no portal drone) on char select.
+                    // PlayButton/Other_10 order: SpiralCont dies, THEN MenuGen/Menu exist.
                     crate::game::vortex::teardown_vortex,
-                ),
+                    spawn_char_select,
+                )
+                    .chain(),
             )
             .add_systems(
                 OnExit(AppState::Title),
-                (despawn_title_art, despawn_hud_art, restore_camera_clear),
+                (
+                    despawn_title_art,
+                    despawn_hud_art,
+                    despawn_campfire_amb,
+                    restore_camera_clear,
+                )
+                    .chain(),
             )
             .add_systems(Update, main_menu_hover)
             .add_systems(Update, boot_intro)
@@ -1545,9 +1561,23 @@ fn spawn_char_select(
     asset_server: Res<AssetServer>,
     save: Res<SaveData>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
+    cam_proj_q: Query<(Entity, &Projection), With<Camera2d>>,
+    selected: Res<crate::game::SelectedCharacter>,
+    mut cam_tf_q: Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
 ) {
-    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+    let Some((cam, map)) = ({
+        let Ok(win) = windows.single() else {
+            return;
+        };
+        let Ok((cam_ent, proj)) = cam_proj_q.single() else {
+            return;
+        };
+        let scale = match proj {
+            Projection::Orthographic(o) => o.scale,
+            _ => 1.0,
+        };
+        Some((cam_ent, gui_map(win.width(), win.height(), scale)))
+    }) else {
         return;
     };
 
@@ -1856,6 +1886,7 @@ fn spawn_char_select(
 
         // collect existing offsets for simple distance rejection
         let mut placed_offsets: Vec<Vec2> = Vec::new();
+        let mut char_anchors: Vec<(usize, Vec2)> = Vec::new();
         for (race, dx, dy) in fixed.iter().copied() {
             if !save.race_unlocked(race) {
                 continue;
@@ -1892,6 +1923,7 @@ fn spawn_char_select(
             });
             art.chars.push(e);
             placed_offsets.push(Vec2::new(dx, dy));
+            char_anchors.push((race as usize, Vec2::new(dx, dy)));
         }
         for race in others {
             if !save.race_unlocked(race) {
@@ -1948,6 +1980,7 @@ fn spawn_char_select(
             });
             art.chars.push(e);
             placed_offsets.push(Vec2::new(dx, dy));
+            char_anchors.push((race as usize, Vec2::new(dx, dy)));
 
             // Chicken TV
             if race == RaceId::Chicken {
@@ -1974,6 +2007,47 @@ fn spawn_char_select(
                         false,
                     );
                 }
+            }
+        }
+        // Menu/Create_0: if char[race] exists, snap view onto it immediately.
+        {
+            let race_id = selected.0 as usize;
+            if race_id != 0 {
+                if let Some((_, off)) = char_anchors.iter().find(|(r, _)| *r == race_id) {
+                    art.view_x = off.x;
+                    art.view_y = off.y;
+                } else {
+                    art.view_x = 0.0;
+                    art.view_y = 0.0;
+                }
+            } else {
+                art.view_x = 0.0;
+                art.view_y = 0.0;
+            }
+            // Apply immediate snap to live camera (OnEnter runs before first tick).
+            let s = art.world_s.max(0.001);
+            for (mut tf, base) in cam_tf_q.iter_mut() {
+                tf.translation.x = art.view_x * s;
+                tf.translation.y = -art.view_y * s;
+                if let Some(mut b) = base {
+                    b.translation.x = art.view_x * s;
+                    b.translation.y = -art.view_y * s;
+                }
+            }
+        }
+        // Campfire ambience (Menu/Create_0 MusCont amb = amb0).
+        // Try common stems; resolve_audio_path handles stem substring fallback.
+        for stem in ["amb0", "sndCampfire", "ambCampfire", "sndCampfireLoop"] {
+            if catalog.resolve_audio_path(stem).is_some() {
+                play_loop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    stem,
+                    0.55,
+                    CampfireAmb,
+                );
+                break;
             }
         }
     }
