@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::app::AppState;
-use crate::game::components::{Health, Inventory, Player};
+use crate::game::components::{FloorTransition, Health, Inventory, Player};
 use crate::game::content::AmmoKind;
 use crate::game::content::{AssetCatalog, CHAR_SELECT_RACES, WeaponId, sprite_exact};
 use crate::menus::UiBridge;
@@ -1413,6 +1413,7 @@ impl Plugin for UiArtPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CharSelectArt>()
             .init_resource::<BootState>()
+            .init_resource::<GenContUi>()
             .add_systems(
                 OnEnter(AppState::Splash),
                 (
@@ -1463,7 +1464,8 @@ impl Plugin for UiArtPlugin {
             .add_systems(Update, hide_title_during_transition)
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
-            .add_systems(FixedUpdate, sync_hud_art);
+            .add_systems(FixedUpdate, sync_hud_art)
+            .add_systems(Update, sync_gencont_art);
     }
 }
 
@@ -3456,10 +3458,22 @@ fn sync_hud_art(
     mut sprites: Query<&mut Sprite, With<HudArt>>,
     mut transforms: Query<&mut Transform, With<HudArt>>,
     mut visibilities: Query<&mut Visibility, With<HudArt>>,
+    floor_trans: Option<Res<FloorTransition>>,
 ) {
     let Some(refs) = refs.as_mut() else {
         return;
     };
+    // Hide HUD entirely during GenCont loading (draw_clear black + spiral)
+    if floor_trans.is_some_and(|f| f.active) {
+        for mut vis in &mut visibilities {
+            *vis = Visibility::Hidden;
+        }
+        return;
+    } else {
+        for mut vis in &mut visibilities {
+            *vis = Visibility::Visible;
+        }
+    }
     let Ok((health, player, inv)) = player_q.single() else {
         return;
     };
@@ -3600,6 +3614,36 @@ fn despawn_hud_art(
     if refs.is_some() {
         commands.remove_resource::<HudArtRefs>();
     }
+}
+
+#[derive(Component)]
+struct GenContArt;
+
+#[derive(Resource, Default)]
+struct GenContUi {
+    text_gen: Option<Entity>,
+    text_tip: Option<Entity>,
+    bar_border: Option<Entity>,
+    bar_bg: Option<Entity>,
+    bar_fill: Option<Entity>,
+}
+
+fn sync_gencont_art(
+    mut commands: Commands,
+    ft: Res<FloorTransition>,
+    mut ui: ResMut<GenContUi>,
+    q: Query<Entity, With<GenContArt>>,
+) {
+    // World-space GenCont now handled by Repose (menus::gen_cont_overlay) for
+    // resolution-independent letterboxing. Despawn any leftover world entities
+    // to avoid double bar / drift on resize (ChildOf camera offset).
+    for e in &q {
+        commands.entity(e).try_despawn();
+    }
+    if ui.text_gen.is_some() || ui.bar_bg.is_some() {
+        *ui = GenContUi::default();
+    }
+    let _ = ft;
 }
 
 #[cfg(test)]

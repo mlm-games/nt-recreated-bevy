@@ -147,6 +147,57 @@ pub fn player_anim_switch(
     }
 }
 
+/// Enemy walk/idle strip swap – mirrors GML `if speed<=0 sprite=spr_idle else spr_walk`
+/// (`enemy/Step_0.gml:7-24`, `Bandit/Other_10.gml` etc). Bandits were sliding
+/// on idle strip because only `player_anim_switch` existed.
+pub fn enemy_anim_switch(
+    asset_server: Res<AssetServer>,
+    catalog: Res<AssetCatalog>,
+    mut q: Query<
+        (
+            &Velocity,
+            &EnemySprites,
+            &mut SpriteAnim,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
+        (With<crate::game::components::Enemy>, Without<HurtAnim>),
+    >,
+) {
+    for (vel, sprites, mut anim, mut sprite, mut anchor) in &mut q {
+        if anim.oneshot && !anim.finished {
+            continue;
+        }
+        // Don't interrupt hurt one-shot handled by `tick_hurt_anims`.
+        let moving = vel.0.length_squared() > 80.0;
+        let idle = sprites.idle;
+        let walk = sprites.walk.unwrap_or(idle);
+        let desired = if moving { walk } else { idle };
+        if anim.path == desired {
+            continue;
+        }
+        // Walk missing (Maggot/Scorpion) → keep idle regardless of speed.
+        if moving && sprites.walk.is_none() {
+            if anim.path != idle {
+                if let Some(def) = catalog.anim_def(idle) {
+                    anim.set_path(idle, def, false);
+                    sprite.image = asset_server.load(idle.to_string());
+                    sprite.rect = Some(anim.rect());
+                    *anchor = crate::game::content::sprite_anchor(&catalog, idle);
+                }
+            }
+            continue;
+        }
+        let Some(def) = catalog.anim_def(desired) else {
+            continue;
+        };
+        anim.set_path(desired, def, false);
+        sprite.image = asset_server.load(desired.to_string());
+        sprite.rect = Some(anim.rect());
+        *anchor = crate::game::content::sprite_anchor(&catalog, desired);
+    }
+}
+
 /// Begin hurt strip on an entity that has SpriteAnim + optional HurtAnim paths.
 pub fn play_hurt(
     commands: &mut Commands,

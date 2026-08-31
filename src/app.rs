@@ -162,6 +162,10 @@ pub struct SharedUi {
     pub viewport_width: f32,
     pub viewport_height: f32,
     pub hud_compact: bool,
+    /// GenCont loading (between floors) – mirrors Floors' GENERATING overlay.
+    pub gen_active: bool,
+    pub gen_progress: f32,
+    pub gen_tip: String,
 }
 
 impl Default for SharedUi {
@@ -227,6 +231,9 @@ impl Default for SharedUi {
             viewport_width: 1280.0,
             viewport_height: 720.0,
             hud_compact: false,
+            gen_active: false,
+            gen_progress: 0.0,
+            gen_tip: String::new(),
         }
     }
 }
@@ -410,6 +417,7 @@ fn sync_shared_ui(
     loading: Option<Res<AssetsLoading>>,
     asset_server: Res<AssetServer>,
     selected: Res<SelectedCharacter>,
+    floor_trans: Option<Res<crate::game::components::FloorTransition>>,
 ) {
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
@@ -455,6 +463,15 @@ fn sync_shared_ui(
         }
         _ => 1.0,
     };
+    if let Some(ft) = floor_trans {
+        ui.gen_active = ft.active;
+        ui.gen_progress = ft.progress;
+        ui.gen_tip = ft.tip.clone();
+    } else {
+        ui.gen_active = false;
+        ui.gen_progress = 0.0;
+        ui.gen_tip.clear();
+    }
     channels.master = save.settings.master_volume;
     channels.sfx = save.settings.sfx_volume;
     channels.music = save.settings.music_volume;

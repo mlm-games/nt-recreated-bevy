@@ -288,15 +288,18 @@ pub fn enemy_ai(
         brain.melee.tick(time.delta());
 
         // --- Exact GML walk (Other_10) + subtractive friction. FixedUpdate==30Hz ---
-        // Bandit: motion_add(dir,0.8) cap3 ; Scorpion/Gold 2 cap4 ; generic fallback 0.4/4
-        // friction 0.4 px/frame (enemy/Create_0) everywhere subtractive.
         if brain.walk > 0.0 {
             let (impulse_f, cap_f) = match enemy.kind {
                 EnemyKind::Scorpion | EnemyKind::GoldScorpion => (2.0, 4.0),
                 EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit => (0.8, 3.0),
                 EnemyKind::Maggot => (0.6, 2.0),
                 EnemyKind::Rat | EnemyKind::Ratking => (0.8, 4.0),
-                EnemyKind::Gator | EnemyKind::BuffGator | EnemyKind::Jock | EnemyKind::Molefish | EnemyKind::Molesarge | EnemyKind::BoneFish => (0.8, 3.0),
+                EnemyKind::Gator
+                | EnemyKind::BuffGator
+                | EnemyKind::Jock
+                | EnemyKind::Molefish
+                | EnemyKind::Molesarge
+                | EnemyKind::BoneFish => (0.8, 3.0),
                 EnemyKind::Raven => (0.8, 3.5),
                 EnemyKind::Salamander => (2.0, 2.5),
                 EnemyKind::Freak | EnemyKind::ExploFreak => (0.55, 4.0),
@@ -312,34 +315,23 @@ pub fn enemy_ai(
                 EnemyKind::Sniper => (0.8, 1.5),
                 _ => (0.4, 4.0),
             };
-            let walk_dir = if vel.0.length_squared() > 0.0001 {
+            // GML uses `direction` while walking (set in Alarm_1). Preserve
+            // the direction chosen then: if vel already points elsewhere
+            // (e.g., flee `direction = target+180`), keep that bearing.
+            // Otherwise fall back to `dir` toward player.
+            let walk_dir = if vel.0.length_squared() > 1.0 {
                 vel.0.normalize_or_zero()
             } else {
                 dir
             };
-            vel.0 += walk_dir * (impulse_f * 30.0) * dt;
-            brain.walk -= dt * 30.0;
+            gml_motion_add_clamp(&mut vel.0, walk_dir, impulse_f, cap_f, dt);
+            brain.walk -= dt * 30.0; // GML walk is in frames
             if brain.walk < 0.0 {
                 brain.walk = 0.0;
             }
-            let cap = cap_f * 30.0;
-            if vel.0.length() > cap {
-                vel.0 = vel.0.normalize() * cap;
-            }
         }
-        // Subtractive friction exact GML (same as player). Apply after walk before move.
-        {
-            let friction_ps = 0.4 * 30.0;
-            let sp = vel.0.length();
-            if sp > 0.0 {
-                let nsp = (sp - friction_ps * dt * crate::app::NT_SIM_HZ as f32).max(0.0);
-                if nsp == 0.0 {
-                    vel.0 = Vec2::ZERO;
-                } else {
-                    vel.0 *= nsp / sp;
-                }
-            }
-        }
+        // friction 0.4 px/frame everywhere (enemy/Create_0)
+        apply_gml_friction(&mut vel.0, 0.4, dt);
 
         // --- Bandit GML Alarm_1 branch ( Bandit/Alarm_1.gml ) ---
         if matches!(
@@ -414,16 +406,8 @@ pub fn enemy_ai(
                     );
                     brain.gunangle = ang;
                     sprite.flip_x = vel.0.x < 0.0;
-                } else {
-                    // LOS blocked but no random walk: still nudge slightly so bandits don't freeze
-                    let ang = dir.y.atan2(dir.x) + rng.random_range(-45.0_f32..45.0).to_radians();
-                    let wdir = Vec2::new(ang.cos(), ang.sin());
-                    vel.0 += wdir * 20.0 * dt * crate::app::NT_SIM_HZ as f32;
                 }
-            } else if rng.random::<f32>() < 0.1 && brain.attack.remaining_secs() > 1.0 {
-                // Idle random walk when no target (mirrors else branch)
-                let ang = rng.random_range(0.0..std::f32::consts::TAU);
-                vel.0 += Vec2::new(ang.cos(), ang.sin()) * 30.0 * dt;
+                // else: GML does nothing - stay still, friction will stop slide
             }
             // Friction already applied above via subtractive block; just move and separate
             {
@@ -627,47 +611,112 @@ pub fn enemy_ai(
         }
 
         let dashing = brain.dash > 0.0;
-        let speed = if dashing { 600.0 } else { brain.speed };
-
-        let desired = if dashing {
-            dir
-        } else if enemy.kind == EnemyKind::IdpdShield {
-            // Shields advance frontally toward the player.
-            dir * 0.85
-        } else if brain.preferred_range > 0.0 && dist < brain.preferred_range {
-            -dir
-        } else {
-            dir
-        };
-
-        // Ranged enemies strafe perpendicular while in range.
-        let mut strafe = Vec2::ZERO;
-        brain.strafe_timer.tick(time.delta());
-        if brain.strafe_timer.just_finished() {
-            brain.strafe_dir *= -1.0;
-            brain.strafe_timer = Timer::from_seconds(rng.random_range(0.6..1.4), TimerMode::Once);
-        }
-        if !dashing && dist < brain.preferred_range + 60.0 {
-            let amount = if enemy.kind == EnemyKind::IdpdShield {
-                0.25
-            } else {
-                0.6
-            };
-            strafe = Vec2::new(-dir.y, dir.x) * brain.strafe_dir * amount;
-        }
-
-        let target = (desired + strafe).normalize_or_zero();
         // Emplacements never move but still fire below.
         if emplacement {
             vel.0 = Vec2::ZERO;
             sprite.flip_x = dir.x < 0.0;
+        } else if dashing {
+            // Dashes already set vel directly; just clamp/keep via friction block
+            // (friction applied at top block). Nothing to add here.
+            tf.translation += (vel.0 * dt).extend(0.0);
         } else if brain.speed > 0.0 {
-            vel.0 += target * brain.accel * dt;
-
-            if vel.0.length() > speed {
-                vel.0 = vel.0.normalize() * speed;
+            // GML-faithful: enemies do NOT constantly home. They move only in
+            // bursts when `walk>0` (Other_10: motion_add) and pick a new
+            // direction in Alarm[1]. The previous `vel += target*accel` made
+            // every grunt slide toward the player nonstop (bug report).
+            // Tick the Alarm[1] timer and choose a new walk when it fires.
+            // Bandit/Scorpion already continued above, so only generic here.
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &walls_los);
+                let base_ang = dir.y.atan2(dir.x);
+                // Per-kind walk params sourced from objects/*/{Alarm_1.gml,Other_10.gml}
+                // GML walk uses px/frame impulse (`speed`/`motion_add`) and walk frames.
+                let (impulse, _cap, far_walk, close_walk, wander_walk) = match enemy.kind {
+                    EnemyKind::Maggot => (0.6, 2.0, 8.0..14.0, 12.0..18.0, 10.0..20.0),
+                    EnemyKind::Gator | EnemyKind::BuffGator => (0.8, 3.0, 10.0..14.0, 40.0..50.0, 20.0..30.0),
+                    EnemyKind::Freak | EnemyKind::ExploFreak => (0.55, 4.0, 18.0..22.0, 12.0..18.0, 10.0..16.0),
+                    EnemyKind::RhinoFreak => (0.8, 1.0, 18.0..22.0, 12.0..18.0, 10.0..16.0),
+                    EnemyKind::Spider | EnemyKind::InvSpider => (2.0, 5.0, 15.0..20.0, 10.0..14.0, 10.0..20.0),
+                    EnemyKind::Crab => (1.5, 4.5, 8.0..14.0, 50.0..60.0, 20.0..30.0),
+                    EnemyKind::Turtle => (1.0, 5.0, 40.0..60.0, 40.0..60.0, 40.0..60.0),
+                    EnemyKind::Salamander => (2.0, 2.5, 40.0..50.0, 20.0..30.0, 10.0..20.0),
+                    EnemyKind::Sniper => (0.8, 1.5, 10.0..14.0, 40.0..50.0, 20.0..30.0),
+                    EnemyKind::FireBaller | EnemyKind::SuperFireBaller => (0.6, 2.0, 8.0..12.0, 10.0..14.0, 10.0..16.0),
+                    EnemyKind::Jock => (0.8, 3.0, 10.0..14.0, 40.0..50.0, 20.0..30.0),
+                    EnemyKind::Molefish | EnemyKind::Molesarge => (0.8, 3.5, 10.0..14.0, 20.0..30.0, 20.0..30.0),
+                    EnemyKind::Raven => (0.8, 3.5, 20.0..30.0, 40.0..50.0, 20.0..30.0),
+                    EnemyKind::Rat | EnemyKind::Ratking | EnemyKind::FastRat | EnemyKind::BigRat => (0.8, 4.0, 10.0..16.0, 40.0..50.0, 10.0..25.0),
+                    EnemyKind::Wolf => (0.8, 4.0, 10.0..16.0, 20.0..30.0, 12.0..20.0),
+                    EnemyKind::Assassin | EnemyKind::MeleeBandit => (0.8, 4.0, 10.0..14.0, 20.0..28.0, 16.0..24.0),
+                    EnemyKind::Ballguy => (0.6, 3.0, 12.0..18.0, 12.0..18.0, 12.0..18.0),
+                    EnemyKind::LightningCrystal => (0.5, 1.5, 10.0..14.0, 10.0..14.0, 10.0..20.0),
+                    _ => (0.4, 4.0, 6.0..14.0, 18.0..28.0, 10.0..18.0),
+                };
+                // Continuous chasers (Maggot, FireBaller, Laser) in OG use
+                // unconditional motion_add in Other_10 with the last Alarm
+                // direction held for ~30 frames – still bursty, not per-frame homing.
+                // So still use walk bursts here.
+                if los {
+                    if dist > 80.0 {
+                        if rng.random::<f32>() < 0.35 {
+                            brain.walk = 0.0;
+                            vel.0 *= 0.5;
+                        } else {
+                            let ang = base_ang
+                                + rng.random_range(-45_f32..45.0).to_radians();
+                            let wdir = Vec2::new(ang.cos(), ang.sin());
+                            vel.0 = wdir * (impulse * 30.0);
+                            brain.walk = rng.random_range(far_walk);
+                            brain.gunangle = base_ang;
+                        }
+                    } else if dist < 44.0 {
+                        let away = -dir;
+                        let ang = away.y.atan2(away.x)
+                            + rng.random_range(-15_f32..15.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (impulse * 30.0);
+                        brain.walk = rng.random_range(close_walk);
+                        brain.gunangle = base_ang;
+                    } else {
+                        let ang = base_ang
+                            + rng.random_range(-90_f32..90.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (impulse * 30.0);
+                        brain.walk = rng.random_range(6.0..10.0);
+                    }
+                    brain.attack = Timer::from_seconds(
+                        rng.random_range(0.35..0.75),
+                        TimerMode::Once,
+                    );
+                    if player_pos.x < pos.x {
+                        sprite.flip_x = true;
+                    } else if player_pos.x > pos.x {
+                        sprite.flip_x = false;
+                    }
+                } else if rng.random::<f32>() < 0.4 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let wdir = Vec2::new(ang.cos(), ang.sin());
+                    vel.0 = wdir * (impulse * 30.0);
+                    brain.walk = rng.random_range(wander_walk);
+                    brain.attack = Timer::from_seconds(
+                        (brain.walk + 10.0 + rng.random_range(0.0..18.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                    sprite.flip_x = vel.0.x < 0.0;
+                } else {
+                    brain.attack = Timer::from_seconds(
+                        rng.random_range(0.3..0.6),
+                        TimerMode::Once,
+                    );
+                }
             }
-            // Generic friction is already applied at top via subtractive block; do not re-apply
+            // walk impulse is handled by the top `if brain.walk>0` block on
+            // the *next* fixed tick; this tick we just friction-slide.
+            // Apply already-ticked friction at top, then translate.
+            if vel.0.length() > brain.speed {
+                vel.0 = vel.0.normalize() * brain.speed;
+            }
             tf.translation += (vel.0 * dt).extend(0.0);
         } else {
             vel.0 = Vec2::ZERO;
@@ -676,7 +725,11 @@ pub fn enemy_ai(
         resolve_prop_collision(&mut tf.translation, def.radius, &props);
         mask.resolve_circle(&mut tf.translation, def.radius);
         clamp_to_arena(&mut tf.translation, def.radius);
-        sprite.flip_x = dir.x < 0.0;
+        // Keep alarm-chosen facing (wander uses vel dir, LOS uses target sign)
+        // instead of forcing player direction every frame like the old slide.
+        if brain.walk == 0.0 {
+            sprite.flip_x = dir.x < 0.0;
+        }
 
         // Cursed-cave veil: invisible variants fade in once the player gets
         // close (upstream InvSpider / InvLaserCrystal visibility flag).

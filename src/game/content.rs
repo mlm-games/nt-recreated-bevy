@@ -4060,6 +4060,41 @@ pub fn mutation_def(id: MutationId) -> MutationDef {
     }
 }
 
+/// GML mut_* index used as sprSkillIcon subimage (nt-rewrite scrSkills order).
+pub fn mutation_skill_index(id: MutationId) -> u8 {
+    match id {
+        MutationId::RhinoSkin => 1,
+        MutationId::PlutoniumHunger => 2,
+        MutationId::RabbitPaw => 3,
+        MutationId::Stress => 4,
+        MutationId::Bloodlust => 5,
+        MutationId::GammaGuts => 6,
+        MutationId::SecondStomach => 7,
+        MutationId::BackMuscle => 8,
+        MutationId::SharpTeeth => 9,
+        MutationId::TriggerFingers => 10,
+        MutationId::LongArms => 11,
+        MutationId::BoilingVeins => 12,
+        MutationId::ShotgunShoulders => 13,
+        MutationId::RecycleGland => 14,
+        MutationId::LaserBrain => 15,
+        MutationId::LastWish => 16,
+        MutationId::EagleEyes => 17,
+        MutationId::ImpactWrists => 18,
+        MutationId::BoltMarrow => 19,
+        MutationId::ThroneButt => 20,
+        MutationId::StrongSpirit => 21,
+        MutationId::ExtraFeet => 22,
+        MutationId::Hammerhead => 23,
+        MutationId::ScarierFace => 24,
+        MutationId::Euphoria => 25,
+        MutationId::Patience => 26,
+        MutationId::OpenMind => 27,
+        MutationId::HeavyHeart => 28,
+        MutationId::LuckyShot => 29,
+    }
+}
+
 #[cfg(test)]
 mod weapon_id_tests {
     use super::*;

@@ -120,7 +120,14 @@ pub fn compose_root(
         AppState::InGame => {
             // Original HUD: sprite art lives in game/ui_art.rs; this overlay
             // only carries the numeric texts drawn by scrDrawPlayerHUD.
-            let mut children: Vec<View> = vec![nt_hud_overlay(&st)];
+            // GenCont (between floors) hides HUD like original draw_clear(c_black)
+            // + scrDrawSpiral – only GENERATING + bar + tip visible.
+            let mut children: Vec<View> = Vec::new();
+            if st.gen_active {
+                children.push(gen_cont_overlay(&st));
+            } else {
+                children.push(nt_hud_overlay(&st));
+            }
             if st.game_over {
                 let panel = game_over_panel(&st, actions.clone());
                 children.push(AnimatedVisibility(
@@ -260,6 +267,106 @@ fn loading_ui(st: &SharedUi) -> View {
             )),
         ),
     ))
+}
+
+fn gen_cont_overlay(st: &SharedUi) -> View {
+    let v = nt_view(st);
+    let pct = st.gen_progress.clamp(0.0, 1.0);
+    let bar_x = 70.0;
+    let bar_y = 90.0;
+    let bar_w = 180.0;
+    let bar_h = 6.0;
+    let pct_text = format!("GENERATING... {}%", (pct * 100.0).round() as u32);
+    // Letterbox-exact like loading_ui: container at (ox,oy) size 320*s×240*s,
+    // children at GUI coords *s – stays centered on any aspect.
+    ZStack(Modifier::new().fill_max_size()).child(
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding_values(PaddingValues {
+                    left: v.ox,
+                    right: 0.0,
+                    top: v.oy,
+                    bottom: 0.0,
+                })
+                .align_items(AlignItems::FLEX_START),
+        )
+        .child(
+            ZStack(
+                Modifier::new()
+                    .width(320.0 * v.s)
+                    .height(240.0 * v.s),
+            )
+            .child((
+                // text at 160,66 centered
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .padding_values(PaddingValues {
+                            left: 0.0,
+                            right: 0.0,
+                            top: 66.0 * v.s,
+                            bottom: 0.0,
+                        })
+                        .align_items(AlignItems::CENTER),
+                )
+                .child(
+                    RText(pct_text)
+                        .size((7.0 * v.s).clamp(8.0, 96.0))
+                        .font_family("Silkscreen")
+                        .color(col(125, 131, 141))
+                        .single_line(),
+                ),
+                // bar below text
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .padding_values(PaddingValues {
+                            left: bar_x * v.s,
+                            right: 0.0,
+                            top: bar_y * v.s,
+                            bottom: 0.0,
+                        })
+                        .align_items(AlignItems::FLEX_START),
+                )
+                .child(
+                    Column(
+                        Modifier::new()
+                            .width(bar_w * v.s)
+                            .height(bar_h * v.s)
+                            .background(col(20, 20, 24))
+                            .border((1.0 * v.s).max(1.0), col(238, 239, 225), 0.0)
+                            .padding((1.0 * v.s).max(1.0)),
+                    )
+                    .child(Column(
+                        Modifier::new()
+                            .width(((bar_w - 2.0) * pct * v.s).max(1.0))
+                            .height((bar_h - 2.0) * v.s)
+                            .background(col(238, 239, 225)),
+                    )),
+                ),
+                // tip at 144
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .padding_values(PaddingValues {
+                            left: 0.0,
+                            right: 0.0,
+                            top: 144.0 * v.s,
+                            bottom: 0.0,
+                        })
+                        .align_items(AlignItems::CENTER),
+                )
+                .child(
+                    RText(format!("@s{}", st.gen_tip))
+                        .size((7.0 * v.s).clamp(8.0, 96.0))
+                        .font_family("Silkscreen")
+                        .color(col(125, 131, 141))
+                        .single_line(),
+                ),
+            )),
+        ),
+    )
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {

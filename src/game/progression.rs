@@ -345,8 +345,11 @@ fn roll_mutations(player: &mut Player) -> Vec<MutationId> {
     let mut rng = rand::rng();
     let mut out = Vec::new();
 
-    let want = if player.patience_bonus { 4 } else { 3 };
-    let want = pool.len().min(want);
+    let destiny = player.crown == CrownKind::Destiny;
+    let want_base = if destiny { 1 } else { 4 };
+    // Patience overrides to 4 as well, but destiny takes precedence per GML
+    let want_base = if player.patience_bonus && !destiny { 4 } else { want_base };
+    let want = pool.len().min(want_base);
 
     player.patience_bonus = false;
 
@@ -964,11 +967,42 @@ pub fn portal_check(
     }
 }
 
+pub fn portal_attract(
+    mut player_q: Query<(&Transform, &mut Velocity), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
+    portal_q: Query<&Transform, With<Portal>>,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    run: Res<Run>,
+) {
+    if run.game_over || !run.portal_open {
+        return;
+    }
+    let Ok(portal_tf) = portal_q.single() else {
+        return;
+    };
+    let Ok((player_tf, mut vel)) = player_q.single_mut() else {
+        return;
+    };
+    let ppos = player_tf.translation.truncate();
+    let tpos = portal_tf.translation.truncate();
+    let dist = ppos.distance(tpos);
+    if dist > 96.0 || dist <= 48.0 {
+        return;
+    }
+    // GML Portal/Create attract_objects: requires LOS clear
+    let los_blocked = crate::game::walls::segment_hits_wall(ppos, tpos, &walls);
+    if los_blocked {
+        return;
+    }
+    let speed = if dist > 48.0 { 60.0 } else { 150.0 }; // GML speed 2*30 and 5*30
+    let dir = (tpos - ppos).normalize_or_zero();
+    vel.0 = dir * speed;
+}
+
 pub fn portal_enter(
     mut commands: Commands,
     run: Res<Run>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
-    player_q: Query<(Entity, &Transform), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
+    player_q: Query<(Entity, &Transform, &mut Velocity), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
 ) {
     if run.game_over {
         return;
@@ -978,15 +1012,16 @@ pub fn portal_enter(
         return;
     };
 
-    let Ok((player_e, player_tf)) = player_q.single() else {
+    let Ok((player_e, player_tf, mut vel)) = player_q.single() else {
         return;
     };
 
     let ppos = player_tf.translation.truncate();
     let tpos = portal_tf.translation.truncate();
-    if ppos.distance(tpos) > 40.0 {
+    if ppos.distance(tpos) > 48.0 {
         return;
     }
+    let _ = &mut vel;
 
     // Begin suck-in (NT Portal/Collision pulls the player over ~16 frames
     // @30fps); tick_portal_suck finishes the floor transition.
@@ -1129,39 +1164,109 @@ pub fn tick_portal_suck(
         toast.show(&format!("LOOP {}", run.loop_count));
     }
 
-    health.hp = (health.hp + 1).min(health.max);
-    // Chicken passive: refresh headless each floor.
-    if character_def(race_state.race).passive == PassiveKind::Headless {
-        player.headless_ready = true;
-    }
-
-    let plan = world::generate_level(&run);
-    world::spawn_level(
-        &mut commands,
-        &catalog,
-        &asset_server,
-        &run,
-        &plan,
-        &mut mask,
-    );
-    floor_started.write(FloorStarted {
-        floor: run.floor,
-        area: run.area,
+    // Defer actual level spawn to FloorTransition (GenCont loading screen)
+    let tip = pick_loading_tip(&run);
+    commands.insert_resource(FloorTransition {
+        active: true,
+        stage: 1,
+        timer: Timer::from_seconds(0.05, TimerMode::Repeating),
+        progress: 0.0,
+        tip,
     });
-    // Spawn player on a floor cell near origin
-    if let Some(c) = mask.cells.iter().min_by_key(|c| {
-        let p = mask.cell_center(**c);
-        (p.length() * 1000.0) as i32
-    }) {
-        let p = mask.cell_center(*c);
-        player_tf.translation = Vec3::new(p.x, p.y, 20.0);
-    } else {
-        player_tf.translation = Vec3::new(0.0, 0.0, 20.0);
-    }
+    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
+    // Hide player until next floor spawns (GenCont hides player during load)
+    player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
+    // Keep portal_closed flag; will be cleared after transition spawns
+    let _ = (&catalog, &asset_server, &mut mask, &mut floor_started, &mut health, &race_state, &player);
+    let _ = (&mut chroma, &audio);
+}
 
-    ScreenEffects::add_trauma(&mut trauma, 0.55);
-    ScreenEffects::chromatic_pulse(&mut chroma, 0.65);
-    audio.play_portal(&mut commands);
+pub fn tick_floor_transition(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut run: ResMut<Run>,
+    mut mask: ResMut<FloorMask>,
+    mut ft: ResMut<FloorTransition>,
+    mut trauma: ResMut<Trauma>,
+    mut chroma: ResMut<ChromaticAberration>,
+    audio: Res<GameAudio>,
+    mut floor_started: MessageWriter<FloorStarted>,
+    mut player_q: Query<(&mut Transform, &mut Health, &mut Player, &RaceState), With<Player>>,
+    mut spiral: Option<ResMut<crate::game::vortex::SpiralCtl>>,
+) {
+    if !ft.active {
+        return;
+    }
+    match ft.stage {
+        1 => {
+            ft.progress = (ft.progress + time.delta_secs() * 1.2).min(1.0);
+            if ft.progress >= 1.0 {
+                ft.stage = 2;
+                ft.timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+            }
+        }
+        2 => {
+            ft.timer.tick(time.delta());
+            if !ft.timer.just_finished() {
+                return;
+            }
+            let Ok((mut tf, mut health, mut player, race)) = player_q.single_mut() else {
+                return;
+            };
+            let plan = world::generate_level(&run);
+            world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
+            floor_started.write(FloorStarted {
+                floor: run.floor,
+                area: run.area,
+            });
+            health.hp = (health.hp + 1).min(health.max);
+            if character_def(race.race).passive == PassiveKind::Headless {
+                player.headless_ready = true;
+            }
+            if let Some(c) = mask.cells.iter().min_by_key(|c| {
+                (mask.cell_center(**c).length() * 1000.0) as i32
+            }) {
+                let p = mask.cell_center(*c);
+                tf.translation = Vec3::new(p.x, p.y, 20.0);
+            } else {
+                tf.translation = Vec3::new(0.0, 0.0, 20.0);
+            }
+            tf.rotation = Quat::IDENTITY;
+            tf.scale = Vec3::ONE;
+            run.portal_open = false;
+            ft.active = false;
+            // Signal vortex to drain (it will despawn itself after InGame 15-tick linger)
+            if let Some(mut s) = spiral {
+                if s.alive {
+                    s.alive = false;
+                    s.death_tick = Some(s.ticks);
+                }
+            }
+            ScreenEffects::add_trauma(&mut trauma, 0.55);
+            ScreenEffects::chromatic_pulse(&mut chroma, 0.65);
+            audio.play_portal(&mut commands);
+        }
+        _ => {}
+    }
+}
+
+fn pick_loading_tip(_run: &Run) -> String {
+    const TIPS: &[&str] = &[
+        "KILL ENEMIES TO LEVEL UP",
+        "MUTATIONS STACK AFTER EACH LEVEL",
+        "PORTALS OPEN WHEN THE AREA IS CLEAR",
+        "WATCH YOUR AMMO — REVOLVER IS 3 DMG",
+        "HOLD SHIFT TO AIM SLOWLY",
+        "BOILING VEINS SAVES YOU AT LOW HP",
+        "RHINO SKIN GIVES +4 MAX HP",
+        "YOU CAN CARRY TWO WEAPONS",
+        "RAD CANISTERS DROP FROM STRONG ENEMIES",
+        "LOOP TO FIND NEW MUTATIONS",
+    ];
+    let mut rng = rand::rng();
+    TIPS[rng.random_range(0..TIPS.len())].to_string()
 }
 
 pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<Portal>>) {
@@ -1382,7 +1487,7 @@ mod mutation_progression_tests {
 
         let choices = roll_mutations(&mut player);
 
-        assert_eq!(choices.len(), 3);
+        assert_eq!(choices.len(), 4);
     }
 
     #[test]

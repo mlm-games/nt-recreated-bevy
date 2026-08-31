@@ -56,6 +56,7 @@ impl Plugin for GamePlugin {
             .init_resource::<SaveDirty>()
             .init_resource::<Run>()
             .init_resource::<FloorMask>()
+            .init_resource::<FloorTransition>()
             .init_resource::<SelectedCharacter>()
             .init_resource::<MutationChoice>()
             .init_resource::<Toast>()
@@ -135,10 +136,11 @@ impl Plugin for GamePlugin {
                             player_sys::ensure_weapon_visual,
                             player_sys::tick_weapon_visuals,
                             progress_sys::tick_portal_suck,
+                            progress_sys::tick_floor_transition,
                         )
                             .in_set(NtSimSet::Always),
                     ),
-                    anim::player_anim_switch.in_set(NtSimSet::Input),
+                    (anim::player_anim_switch, anim::enemy_anim_switch).in_set(NtSimSet::Input),
                     (
                         player_sys::tick_player_timers,
                         player_sys::player_aim,
@@ -199,6 +201,7 @@ impl Plugin for GamePlugin {
                         combat::resolve_deaths,
                         pickups::collect_pickups,
                         progress_sys::portal_check,
+                        progress_sys::portal_attract,
                         progress_sys::portal_enter,
                         progress_sys::animate_portal,
                     )
@@ -287,8 +290,14 @@ fn gameplay_active(
     paused: Res<Paused>,
     transition: Res<Transition<AppState>>,
     run: Res<Run>,
+    ft: Option<Res<FloorTransition>>,
 ) -> bool {
-    *state.get() == AppState::InGame && !paused.0 && !transition.block_input && !run.game_over
+    let loading = ft.map(|f| f.active).unwrap_or(false);
+    *state.get() == AppState::InGame
+        && !paused.0
+        && !transition.block_input
+        && !run.game_over
+        && !loading
 }
 
 fn scan_assets_and_audio(mut commands: Commands, asset_server: Res<AssetServer>) {

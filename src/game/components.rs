@@ -20,20 +20,31 @@ pub const PLAYER_ACCEL: f32 = 2700.0;
 pub const PLAYER_FRICTION: f32 = 0.45;
 pub const NT_CAM_SCALE: f32 = 0.45;
 
-/// GML subtractive friction (px/frame) -> px/s continuous, FixedUpdate-safe.
+/// GML subtractive friction (px/frame) -> px/s, FixedUpdate@30 lockstep-safe.
+/// One Fixed tick ≈ one GML step: subtract `friction_f * 30` from |v|.
 #[inline]
 pub fn apply_gml_friction(vel: &mut Vec2, friction_f: f32, dt: f32) {
-    let friction_ps = friction_f * 30.0;
+    // frames this tick (1.0 at exact 30Hz; >1 if catch-up)
+    let frames = dt * crate::app::NT_SIM_HZ as f32;
     let sp = vel.length();
     if sp > 0.0 {
-        let nsp = (sp - friction_ps * dt * crate::app::NT_SIM_HZ as f32).max(0.0);
-        *vel = if nsp == 0.0 { Vec2::ZERO } else { *vel * (nsp / sp) };
+        let nsp = (sp - friction_f * 30.0 * frames).max(0.0);
+        *vel = if nsp == 0.0 {
+            Vec2::ZERO
+        } else {
+            *vel * (nsp / sp)
+        };
     }
 }
-/// GML motion_add + speed clamp, FixedUpdate-safe.
+
+/// GML `motion_add(dir, impulse_f)` then `if speed > cap_f speed = cap_f`.
+/// GML speed is px/frame; Bevy Velocity is px/s ⇒ multiply by 30.
 #[inline]
 pub fn gml_motion_add_clamp(vel: &mut Vec2, dir: Vec2, impulse_f: f32, cap_f: f32, dt: f32) {
-    *vel += dir.normalize_or_zero() * (impulse_f * 30.0) * dt;
+    let frames = dt * crate::app::NT_SIM_HZ as f32;
+    // CRITICAL: was `(impulse_f * 30.0) * dt` → only +impulse_f px/s per tick (30× weak).
+    // Correct: +impulse_f px/frame * 30 = impulse_f*30 px/s per GML frame.
+    *vel += dir.normalize_or_zero() * (impulse_f * 30.0) * frames;
     let cap = cap_f * 30.0;
     if vel.length() > cap {
         *vel = vel.normalize() * cap;
@@ -1349,6 +1360,29 @@ pub struct Dying;
 /// Marks a wall lattice cell as a "screen end" (preferentially broken by bosses).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct ScreenEnd;
+
+/// Between-floor loading state mirroring GML GenCont (spiral + GENERATING + tip + roadmap).
+#[derive(Resource, Debug, Clone)]
+pub struct FloorTransition {
+    pub active: bool,
+    /// 0 = portal closing, 1 = generating overlay, 2 = spawn & fade in
+    pub stage: u8,
+    pub timer: Timer,
+    pub progress: f32, // 0..1 for GENERATING %
+    pub tip: String,
+}
+
+impl Default for FloorTransition {
+    fn default() -> Self {
+        Self {
+            active: false,
+            stage: 0,
+            timer: Timer::from_seconds(0.05, TimerMode::Repeating),
+            progress: 0.0,
+            tip: String::new(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod loop_boss_brain_tests {

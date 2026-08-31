@@ -274,8 +274,9 @@ pub struct VortexQuad;
 /// States where `SpiralCont` exists upstream: created with the Logo
 /// (Vlambeer/Alarm_0 mode >= 3), kept through the main-menu buttons, and
 /// destroyed right before the campfire char-select (PlayButton/Other_10).
+/// Also active during InGame FloorTransition (GenCont loading) spiral.
 fn spiral_states(state: &AppState) -> bool {
-    matches!(*state, AppState::Splash | AppState::MainMenu)
+    matches!(*state, AppState::Splash | AppState::MainMenu | AppState::InGame | AppState::Loading)
 }
 
 /// Background colour behind the swirl: scrDrawSpiral does `draw_clear(c_black)`
