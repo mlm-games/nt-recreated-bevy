@@ -405,7 +405,7 @@ fn ensure_vortex_quad(
         // ABOVE Floor(10)/Wall/Campfire(0) but BELOW Menu(-1001). On our z
         // scale the boot/menu cards sit at -802..-800.5, so the quad slots
         // below them while staying above the scene clear.
-        Transform::from_xyz(c.x, c.y, -862.5).with_scale(Vec3::new(map.s, map.s, 1.0)),
+        Transform::from_xyz(c.x, c.y, -840.0).with_scale(Vec3::new(map.s, map.s, 1.0)),
     ));
 }
 

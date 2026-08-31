@@ -28,6 +28,11 @@ pub struct TitleArt;
 #[derive(Component)]
 pub struct TitleWorldArt;
 
+/// Marker for screen-space title UI art (camera-anchored, GUI-mapped).
+/// Separates rebuildable title UI layer from the stable world/campfire scene.
+#[derive(Component)]
+struct TitleScreenUiArt;
+
 #[derive(Component)]
 struct CampCharArt {
     race: usize,
@@ -87,8 +92,10 @@ const SLOT_XSTART: f32 = 8.0;
 pub const CAM_SCALE: f32 = 0.45;
 
 /// scrDrawLetterbox `_margin`: solid-black side fill width, in GUI pixels.
-fn letterbox_margin(effective_w: f32) -> f32 {
-    (effective_w - GUI_W).max(0.0)
+/// Must use the actual letterbox sprite width, like the original GML does.
+fn letterbox_margin(catalog: &AssetCatalog, effective_w: f32) -> f32 {
+    let lb_w = meta_of(catalog, "images/sprLetterbox.png")[1].max(1.0);
+    (effective_w - lb_w).max(0.0)
 }
 
 /// scrMenuDrawLoadout crown grid slots, GM-exact. `_crown_x` starts at
@@ -1447,7 +1454,13 @@ impl Plugin for UiArtPlugin {
             )
             .add_systems(Update, main_menu_hover)
             .add_systems(Update, boot_intro)
-            .add_systems(Update, char_select_tick.run_if(in_state(AppState::Title)))
+            .add_systems(
+                Update,
+                (respawn_title_screen_ui_on_layout_change, char_select_tick)
+                    .chain()
+                    .run_if(in_state(AppState::Title)),
+            )
+            .add_systems(Update, hide_title_during_transition)
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
             .add_systems(FixedUpdate, sync_hud_art);
@@ -1547,6 +1560,22 @@ struct CharSelectArt {
     /// the column start depends on the selected race's skin count.
     skin_grid: Vec<(Entity, usize, bool)>,
     prev_go_visible: bool,
+    /// Layout basis used for the currently spawned screen-space title UI.
+    layout_w: f32,
+    layout_h: f32,
+    layout_scale: f32,
+}
+
+fn title_layout_changed(art: &CharSelectArt, window: &Window, scale: f32) -> bool {
+    (art.layout_w - window.width()).abs() > f32::EPSILON
+        || (art.layout_h - window.height()).abs() > f32::EPSILON
+        || (art.layout_scale - scale).abs() > f32::EPSILON
+}
+
+fn remember_title_layout(art: &mut CharSelectArt, window: &Window, scale: f32) {
+    art.layout_w = window.width();
+    art.layout_h = window.height();
+    art.layout_scale = scale;
 }
 
 const GO_W: f32 = 31.0;
@@ -1555,70 +1584,16 @@ const GO_H: f32 = 19.0;
 const GO_YORIGIN: f32 = -2.0;
 
 #[allow(clippy::type_complexity)]
-fn spawn_char_select(
-    mut commands: Commands,
-    catalog: Res<AssetCatalog>,
-    asset_server: Res<AssetServer>,
-    save: Res<SaveData>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cam_proj_q: Query<(Entity, &Projection), With<Camera2d>>,
-    selected: Res<crate::game::SelectedCharacter>,
-    mut cam_tf_q: Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
+fn spawn_char_select_world(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    save: &SaveData,
+    map: &GuiMap,
+    art: &mut CharSelectArt,
+    selected: &crate::game::SelectedCharacter,
+    cam_tf_q: &mut Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
 ) {
-    let Some((cam, map)) = ({
-        let Ok(win) = windows.single() else {
-            return;
-        };
-        let Ok((cam_ent, proj)) = cam_proj_q.single() else {
-            return;
-        };
-        let scale = match proj {
-            Projection::Orthographic(o) => o.scale,
-            _ => 1.0,
-        };
-        Some((cam_ent, gui_map(win.width(), win.height(), scale)))
-    }) else {
-        return;
-    };
-
-    let count = CHAR_SELECT_RACES.len();
-    let step = slot_step(count);
-    let ystart = slot_ystart();
-    let mut art = CharSelectArt::default();
-
-    for (i, race) in CHAR_SELECT_RACES.iter().enumerate() {
-        let race_id = *race as usize;
-        let x = slot_x(i, step);
-
-        let unlocked = save.race_unlocked(*race);
-        let sprite_path = if unlocked {
-            "images/sprCharSelect.png"
-        } else {
-            "images/sprCharSelectLocked.png"
-        };
-
-        // CharSelect/Draw_0:
-        // draw_sprite_ext(can ? sprite_index : sprCharSelectLocked,
-        //                 race, x, y, 1, 1, 0, color, 1)
-        let (pod_spr, pod_tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
-            sprite_path,
-            race_id,
-            x,
-            ystart,
-            1.0,
-            1.0,
-            C_GRAY,
-            -860.0,
-        );
-        let pod = commands
-            .spawn((TitleArt, ChildOf(cam), pod_spr, pod_tf))
-            .id();
-        art.pods.push((pod, race_id, x));
-    }
-
     // World-space campfire level (MenuGen): floors/walls/decals are WORLD objects
     // (not ChildOf(cam)) so camera focus pans. Background is camera clear #6a7aaf.
     {
@@ -1632,11 +1607,11 @@ fn spawn_char_select(
             let nt_x = cx as f32 * 32.0 - 64.0;
             let nt_y = cy as f32 * 32.0 - 64.0;
             spawn_world_sprite(
-                &mut commands,
-                &catalog,
-                &asset_server,
+                commands,
+                catalog,
+                asset_server,
                 "images/sprFloor0.png",
-                campfire_floor_frame(&catalog),
+                campfire_floor_frame(catalog),
                 nt_x,
                 nt_y,
                 s,
@@ -1659,9 +1634,9 @@ fn spawn_char_select(
                 };
                 if catalog.has(cactus_path) {
                     spawn_world_sprite(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
+                        commands,
+                        catalog,
+                        asset_server,
                         cactus_path,
                         0,
                         nt_x,
@@ -1673,12 +1648,12 @@ fn spawn_char_select(
                 }
             } else if catalog.has("images/sprNightDesertTopDecal.png") {
                 let frame = rand::rng().random_range(
-                    0..sprite_frame_count(&catalog, "images/sprNightDesertTopDecal.png"),
+                    0..sprite_frame_count(catalog, "images/sprNightDesertTopDecal.png"),
                 );
                 spawn_world_sprite(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
+                    commands,
+                    catalog,
+                    asset_server,
                     "images/sprNightDesertTopDecal.png",
                     frame,
                     nt_x,
@@ -1718,11 +1693,11 @@ fn spawn_char_select(
                 let floor_below = title_floor.contains(&title_floor_owner_below(wx, wy));
                 if catalog.has("images/sprWall0Out.png") {
                     spawn_world_sprite(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
+                        commands,
+                        catalog,
+                        asset_server,
                         "images/sprWall0Out.png",
-                        campfire_wall_out_frame(&catalog),
+                        campfire_wall_out_frame(catalog),
                         nt_x,
                         nt_y,
                         s,
@@ -1732,11 +1707,11 @@ fn spawn_char_select(
                 }
                 if floor_below && catalog.has("images/sprWall0Bot.png") {
                     spawn_world_sprite(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
+                        commands,
+                        catalog,
+                        asset_server,
                         "images/sprWall0Bot.png",
-                        campfire_wall_body_frame(&catalog),
+                        campfire_wall_body_frame(catalog),
                         nt_x,
                         nt_y,
                         s,
@@ -1747,11 +1722,11 @@ fn spawn_char_select(
                 if catalog.has("images/sprWall0Top.png") {
                     // Top piece is 8px up (gy - 8).
                     spawn_world_sprite(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
+                        commands,
+                        catalog,
+                        asset_server,
                         "images/sprWall0Top.png",
-                        campfire_wall_top_frame(&catalog),
+                        campfire_wall_top_frame(catalog),
                         nt_x,
                         nt_y - 8.0,
                         s,
@@ -1763,80 +1738,13 @@ fn spawn_char_select(
         }
     }
 
-    {
-        const LB_STRIP_Z: f32 = -861.0;
-        const LB_RECT_Z: f32 = -862.0;
-        const LB_FRAME: usize = 3;
-        let yscale = LETTERBOX_SIZE / (44.0 - 9.0);
-        let bh = 44.0 * yscale;
-        let effective_w = (map.hw * 2.0) / map.s;
-        let margin = letterbox_margin(effective_w);
-
-        // Top strip: draw point _right - _width = 0, spans [0, 320].
-        let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
-            "images/sprLetterbox.png",
-            LB_FRAME,
-            0.0,
-            -1.0,
-            1.0,
-            yscale,
-            Color::WHITE,
-            LB_STRIP_Z,
-        );
-        art.letterbox
-            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
-
-        let (mut spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
-            "images/sprLetterbox.png",
-            LB_FRAME,
-            margin,
-            GUI_H + 2.0 - bh,
-            1.0,
-            yscale,
-            Color::WHITE,
-            LB_STRIP_Z,
-        );
-        spr.flip_x = true;
-        spr.flip_y = true;
-        art.letterbox
-            .push(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
-
-        // Side margins (scrDrawLetterbox black rectangles):
-        //   bottom-left: [0, margin] x [_bottom-_size, _bottom]
-        //   top-right:   [gui_w-margin, gui_w] x [_top, _top+_size]
-        if margin > 0.5 {
-            for (cx, cy) in [
-                (margin * 0.5, GUI_H - LETTERBOX_SIZE * 0.5), // bottom-left [_bottom-_size,_bottom]
-                (GUI_W + margin * 0.5, -1.0 + LETTERBOX_SIZE * 0.5), // top-right [_top,_top+_size]
-            ] {
-                let c = map.to_world(cx, cy);
-                commands.spawn((
-                    TitleArt,
-                    ChildOf(cam),
-                    Sprite {
-                        color: Color::BLACK,
-                        custom_size: Some(Vec2::new(margin * map.s, LETTERBOX_SIZE * map.s)),
-                        ..default()
-                    },
-                    Transform::from_xyz(c.x, c.y, LB_RECT_Z),
-                ));
-            }
-        }
-    }
-
     // Campfire scene (scrCampfireMenuCreate): WORLD objects at NT offsets from fire (0,0).
     {
         let s = art.world_s.max(0.001);
         let camp = spawn_world_sprite(
-            &mut commands,
-            &catalog,
-            &asset_server,
+            commands,
+            catalog,
+            asset_server,
             "images/sprCampfire.png",
             0,
             0.0,
@@ -1849,9 +1757,9 @@ fn spawn_char_select(
         art.campfire_entity = Some(camp);
 
         let log = spawn_world_sprite(
-            &mut commands,
-            &catalog,
-            &asset_server,
+            commands,
+            catalog,
+            asset_server,
             "images/sprLogMenu.png",
             0,
             0.0,
@@ -1891,13 +1799,13 @@ fn spawn_char_select(
             if !save.race_unlocked(race) {
                 continue;
             }
-            let Some((slct, to, menu, from)) = camp_char_sprite_set(&catalog, race) else {
+            let Some((slct, to, menu, from)) = camp_char_sprite_set(catalog, race) else {
                 continue;
             };
             let e = spawn_world_sprite(
-                &mut commands,
-                &catalog,
-                &asset_server,
+                commands,
+                catalog,
+                asset_server,
                 slct,
                 0,
                 dx,
@@ -1906,7 +1814,7 @@ fn spawn_char_select(
                 -866.0,
                 rand::random::<bool>(),
             );
-            let m = meta_of(&catalog, slct);
+            let m = meta_of(catalog, slct);
             commands.entity(e).insert(CampCharArt {
                 race: race as usize,
                 offset: Vec2::new(dx, dy),
@@ -1929,7 +1837,7 @@ fn spawn_char_select(
             if !save.race_unlocked(race) {
                 continue;
             }
-            let Some((slct, to, menu, from)) = camp_char_sprite_set(&catalog, race) else {
+            let Some((slct, to, menu, from)) = camp_char_sprite_set(catalog, race) else {
                 continue;
             };
             // random distance like upstream: 32+rand*32 + rand*64*rand
@@ -1952,9 +1860,9 @@ fn spawn_char_select(
                 continue;
             }
             let e = spawn_world_sprite(
-                &mut commands,
-                &catalog,
-                &asset_server,
+                commands,
+                catalog,
+                asset_server,
                 slct,
                 0,
                 dx,
@@ -1963,7 +1871,7 @@ fn spawn_char_select(
                 -866.0,
                 rand::random::<bool>(),
             );
-            let m = meta_of(&catalog, slct);
+            let m = meta_of(catalog, slct);
             commands.entity(e).insert(CampCharArt {
                 race: race as usize,
                 offset: Vec2::new(dx, dy),
@@ -1995,9 +1903,9 @@ fn spawn_char_select(
                     let jx = (rand::random::<f32>() - 0.5) * 4.0;
                     let jy = (rand::random::<f32>() - 0.5) * 8.0 - 32.0;
                     spawn_world_sprite(
-                        &mut commands,
-                        &catalog,
-                        &asset_server,
+                        commands,
+                        catalog,
+                        asset_server,
                         tv_path,
                         0,
                         dx + jx,
@@ -2040,14 +1948,143 @@ fn spawn_char_select(
         for stem in ["amb0", "sndCampfire", "ambCampfire", "sndCampfireLoop"] {
             if catalog.resolve_audio_path(stem).is_some() {
                 play_loop(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
+                    commands,
+                    catalog,
+                    asset_server,
                     stem,
                     0.55,
                     CampfireAmb,
                 );
                 break;
+            }
+        }
+    }
+}
+
+fn spawn_char_select_screen_ui(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    save: &SaveData,
+    cam: Entity,
+    map: &GuiMap,
+    art: &mut CharSelectArt,
+) {
+    let count = CHAR_SELECT_RACES.len();
+    let step = slot_step(count);
+    let ystart = slot_ystart();
+
+    for (i, race) in CHAR_SELECT_RACES.iter().enumerate() {
+        let race_id = *race as usize;
+        let x = slot_x(i, step);
+
+        let unlocked = save.race_unlocked(*race);
+        let sprite_path = if unlocked {
+            "images/sprCharSelect.png"
+        } else {
+            "images/sprCharSelectLocked.png"
+        };
+
+        // CharSelect/Draw_0:
+        // draw_sprite_ext(can ? sprite_index : sprCharSelectLocked,
+        //                 race, x, y, 1, 1, 0, color, 1)
+        let (pod_spr, pod_tf) = gm_sprite(
+            catalog,
+            asset_server,
+            map,
+            sprite_path,
+            race_id,
+            x,
+            ystart,
+            1.0,
+            1.0,
+            C_GRAY,
+            -860.0,
+        );
+        let pod = commands
+            .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), pod_spr, pod_tf))
+            .id();
+        art.pods.push((pod, race_id, x));
+    }
+
+    {
+        const LB_STRIP_Z: f32 = -864.0;
+        const LB_RECT_Z: f32 = -865.0;
+        const LB_FRAME: usize = 3;
+        let lb_meta = meta_of(catalog, "images/sprLetterbox.png");
+        let lb_w = lb_meta[1].max(1.0);
+        let lb_h = lb_meta[2].max(1.0);
+        let yscale = LETTERBOX_SIZE / (lb_h - 9.0);
+        let bh = lb_h * yscale;
+        let effective_w = (map.hw * 2.0) / map.s;
+        let margin = letterbox_margin(catalog, effective_w);
+        // Viewport is centered within the window: GUI surface [0,GUI_W] sits at
+        // viewport offset half_extra = (effective_w - GUI_W)/2. GML's scrDrawLetterbox
+        // is left-aligned (viewport [0,effective_w]), so to reproduce its exact
+        // asymmetric placement in our centered GuiMap we subtract half_extra.
+        let half_extra = (effective_w - GUI_W) * 0.5;
+        let lb_half_extra = half_extra;
+        // Viewport -> GUI: gui_x = viewport_x - half_extra
+        let top_gui_x = -lb_half_extra;
+        let bottom_gui_x = margin - lb_half_extra;
+        let bottom_left_cx = margin * 0.5 - lb_half_extra; // = (GUI_W - lb_w)/2
+        let top_right_cx = effective_w - margin * 0.5 - lb_half_extra; // = (GUI_W + lb_w)/2
+
+        // Top strip: viewport [_right - _width] = 0 -> gui -half_extra, spans lb_w
+        let (spr, tf) = gm_sprite(
+            catalog,
+            asset_server,
+            map,
+            "images/sprLetterbox.png",
+            LB_FRAME,
+            top_gui_x,
+            -1.0,
+            1.0,
+            yscale,
+            Color::WHITE,
+            LB_STRIP_Z,
+        );
+        art.letterbox
+            .push(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+
+        let (mut spr, tf) = gm_sprite(
+            catalog,
+            asset_server,
+            map,
+            "images/sprLetterbox.png",
+            LB_FRAME,
+            bottom_gui_x,
+            GUI_H + 2.0 - bh,
+            1.0,
+            yscale,
+            Color::WHITE,
+            LB_STRIP_Z,
+        );
+        spr.flip_x = true;
+        spr.flip_y = true;
+        art.letterbox
+            .push(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+
+        // Side margins (scrDrawLetterbox black rectangles):
+        //   bottom-left: [0, margin] viewport -> gui [ -half_extra, margin - half_extra ]
+        //   top-right:   [effective_w-margin, effective_w] viewport -> gui [effective_w - margin - half_extra, effective_w - half_extra]
+        if margin > 0.5 {
+            for (cx, cy) in [
+                (bottom_left_cx, GUI_H - LETTERBOX_SIZE * 0.5), // bottom-left
+                (top_right_cx, -1.0 + LETTERBOX_SIZE * 0.5), // top-right
+            ] {
+                let c = map.to_world(cx, cy);
+                commands.spawn((
+                    TitleArt,
+                    TitleScreenUiArt,
+                    ChildOf(cam),
+                    Sprite {
+                        color: Color::BLACK,
+                        custom_size: Some(Vec2::new(margin * map.s, LETTERBOX_SIZE * map.s)),
+                        ..default()
+                    },
+                    Transform::from_xyz(c.x, c.y, LB_RECT_Z),
+                ));
             }
         }
     }
@@ -2057,9 +2094,9 @@ fn spawn_char_select(
     // GameMaker never scales it.
     {
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprCharSplat.png",
             0,
             0.0,
@@ -2069,7 +2106,7 @@ fn spawn_char_select(
             Color::WHITE,
             -855.0,
         );
-        art.splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.splat = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
     }
 
     // Big portrait (sprCampfireMenuDrawRacePortrait, fa_left): draw point
@@ -2077,9 +2114,9 @@ fn spawn_char_select(
     // Hidden until a non-random pick.
     {
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprBigPortrait.png",
             1, // Fish default
             16.0,
@@ -2091,7 +2128,7 @@ fn spawn_char_select(
         );
         art.big_portrait = Some(
             commands
-                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
                 .id(),
         );
     }
@@ -2100,9 +2137,9 @@ fn spawn_char_select(
     // non-random pick.
     {
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprBigName.png",
             1, // Fish default
             0.0,
@@ -2114,7 +2151,7 @@ fn spawn_char_select(
         );
         art.big_name = Some(
             commands
-                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
                 .id(),
         );
     }
@@ -2123,9 +2160,9 @@ fn spawn_char_select(
     // to the right edge, arrow above it, current crown and both weapons.
     {
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprLoadoutSplat.png",
             0,
             GUI_W + 2.0,
@@ -2135,12 +2172,12 @@ fn spawn_char_select(
             Color::WHITE,
             -853.0,
         );
-        art.loadout_splat = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.loadout_splat = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
 
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprLoadoutArrow.png",
             0,
             GUI_W + 2.0 - 16.0,
@@ -2150,12 +2187,12 @@ fn spawn_char_select(
             C_UIGRAY,
             -847.0,
         );
-        art.arrow = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.arrow = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
 
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprLoadoutCrown.png",
             0,
             GUI_W + 2.0 - 60.0,
@@ -2165,15 +2202,15 @@ fn spawn_char_select(
             Color::WHITE,
             -852.0,
         );
-        art.crown_icon = Some(commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id());
+        art.crown_icon = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
 
         for slot in 0..2usize {
             let wx = GUI_W + 2.0 - 60.0 + if slot == 0 { -8.0 } else { 16.0 };
             let wy = GUI_H - LETTERBOX_SIZE + 2.0 - 15.0;
             let (spr, tf) = gm_loadout_weapon(
-                &catalog,
-                &asset_server,
-                &map,
+                catalog,
+                asset_server,
+                map,
                 WeaponId::REVOLVER,
                 wx,
                 wy,
@@ -2184,7 +2221,7 @@ fn spawn_char_select(
                 },
                 -846.0,
             );
-            let e = commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id();
+            let e = commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id();
             art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
         }
 
@@ -2194,9 +2231,9 @@ fn spawn_char_select(
         // Scale per upstream: _xscale = max(1, (_w - _skins_x)/200) - with
         // _skins_x = _w-136 this is always 1; _yscale = (_splat_y-36)/168+0.05.
         let (spr, tf) = gm_sprite(
-            &catalog,
-            &asset_server,
-            &map,
+            catalog,
+            asset_server,
+            map,
             "images/sprLoadoutOpen.png",
             0,
             GUI_W,
@@ -2208,7 +2245,7 @@ fn spawn_char_select(
         );
         art.open_panel = Some(
             commands
-                .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
                 .id(),
         );
 
@@ -2216,9 +2253,9 @@ fn spawn_char_select(
         // corrected on the first char_select_tick pass.
         for (crown_id, gx, gy) in crown_slot_positions() {
             let (spr, tf) = gm_sprite(
-                &catalog,
-                &asset_server,
-                &map,
+                catalog,
+                asset_server,
+                map,
                 "images/sprLoadoutCrown.png",
                 crown_id as usize,
                 gx,
@@ -2229,7 +2266,7 @@ fn spawn_char_select(
                 -848.0,
             );
             art.crown_grid.push((
-                commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id(),
                 crown_id,
                 gx,
                 gy,
@@ -2240,9 +2277,9 @@ fn spawn_char_select(
         // the live race count is applied every tick (scrMenuDrawLoadout).
         for (idx, _gx, _gy) in skin_slot_positions(4) {
             let (spr, tf) = gm_sprite(
-                &catalog,
-                &asset_server,
-                &map,
+                catalog,
+                asset_server,
+                map,
                 "images/sprLoadoutSkin.png",
                 0,
                 _gx,
@@ -2253,7 +2290,7 @@ fn spawn_char_select(
                 -848.0,
             );
             art.skin_grid.push((
-                commands.spawn((TitleArt, ChildOf(cam), spr, tf)).id(),
+                commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id(),
                 idx,
                 false,
             ));
@@ -2263,9 +2300,9 @@ fn spawn_char_select(
     // Menu/Create_0 spawns GoButton right of the last slot, hidden.
     let (gx, gy) = go_button_pos(step, count);
     let (go_spr, go_tf) = gm_sprite(
-        &catalog,
-        &asset_server,
-        &map,
+        catalog,
+        asset_server,
+        map,
         "images/sprGoButtonSymbolic.png",
         0,
         gx,
@@ -2276,12 +2313,189 @@ fn spawn_char_select(
         -856.0,
     );
     let go = commands
-        .spawn((TitleArt, ChildOf(cam), Visibility::Hidden, go_spr, go_tf))
+        .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, go_spr, go_tf))
         .id();
     art.go_button = Some((go, gx, gy));
     art.addy = 1.0;
+}
 
+#[allow(clippy::type_complexity)]
+fn spawn_char_select(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    save: Res<SaveData>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_proj_q: Query<(Entity, &Projection), With<Camera2d>>,
+    selected: Res<crate::game::SelectedCharacter>,
+    mut cam_tf_q: Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
+) {
+    let Some((cam, map, window, scale)) = ({
+        let Ok(win) = windows.single() else {
+            return;
+        };
+        let Ok((cam_ent, proj)) = cam_proj_q.single() else {
+            return;
+        };
+        let scale = match proj {
+            Projection::Orthographic(o) => o.scale,
+            _ => 1.0,
+        };
+        Some((cam_ent, gui_map(win.width(), win.height(), scale), win, scale))
+    }) else {
+        return;
+    };
+
+    let mut art = CharSelectArt::default();
+    spawn_char_select_world(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        &save,
+        &map,
+        &mut art,
+        &selected,
+        &mut cam_tf_q,
+    );
+    spawn_char_select_screen_ui(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        &save,
+        cam,
+        &map,
+        &mut art,
+    );
+    remember_title_layout(&mut art, window, scale);
     commands.insert_resource(art);
+}
+
+
+#[allow(clippy::type_complexity)]
+fn respawn_title_screen_ui_on_layout_change(
+    mut commands: Commands,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
+    q_ui: Query<Entity, With<TitleScreenUiArt>>,
+    mut art: ResMut<CharSelectArt>,
+    save: Res<SaveData>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+        return;
+    };
+
+    let scale = match cam_q.single().ok().map(|(_, _, p)| p) {
+        Some(Projection::Orthographic(o)) => o.scale,
+        _ => return,
+    };
+
+    if !title_layout_changed(&art, window, scale) {
+        return;
+    }
+
+    for e in &q_ui {
+        commands.entity(e).try_despawn();
+    }
+
+    // Preserve runtime animation/state fields.
+    let addy = art.addy;
+    let go_anim = art.go_anim;
+    let splat_anim = art.splat_anim;
+    let loadout_anim = art.loadout_anim;
+    let last_selection_epoch = art.last_selection_epoch;
+
+    // Clear only screen-space handles; keep world/campfire state untouched.
+    art.pods.clear();
+    art.go_button = None;
+    art.letterbox.clear();
+    art.splat = None;
+    art.big_portrait = None;
+    art.big_name = None;
+    art.arrow = None;
+    art.loadout_splat = None;
+    art.crown_icon = None;
+    art.wep_icons = [None, None];
+    art.open_panel = None;
+    art.crown_grid.clear();
+    art.skin_grid.clear();
+
+    spawn_char_select_screen_ui(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        &save,
+        cam,
+        &map,
+        &mut art,
+    );
+
+    art.addy = addy;
+    art.go_anim = go_anim;
+    art.splat_anim = splat_anim;
+    art.loadout_anim = loadout_anim;
+    art.last_selection_epoch = last_selection_epoch;
+
+    remember_title_layout(&mut art, window, scale);
+}
+
+fn hide_title_during_transition(
+    transition: Res<Transition<AppState>>,
+    art: Option<Res<CharSelectArt>>,
+    mut vis_q: Query<&mut Visibility>,
+) {
+    let Some(art) = art else {
+        return;
+    };
+    // Hide fish/camp chars and the select-bar pods while any transition is
+    // covering/uncovering. Repose fade and vortex both drive
+    // `Transition.overlay_alpha` / `phase`; when active the title screen
+    // should be behind the transition, not over it.
+    let hide = transition.active || transition.phase != game_utils_bevy::transitions::TransitionPhase::Idle;
+    for (entity, _, _) in &art.pods {
+        if let Ok(mut vis) = vis_q.get_mut(*entity) {
+            *vis = if hide {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+        }
+    }
+    for entity in &art.chars {
+        if let Ok(mut vis) = vis_q.get_mut(*entity) {
+            *vis = if hide {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+        }
+    }
+    // Also hide campfire/log which are part of the world scene
+    for opt in [art.campfire, art.campfire_entity, art.log] {
+        if let Some(e) = opt {
+            if let Ok(mut vis) = vis_q.get_mut(e) {
+                *vis = if hide {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Visible
+                };
+            }
+        }
+    }
+    for e in &art.letterbox {
+        if let Ok(mut vis) = vis_q.get_mut(*e) {
+            *vis = if hide {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+        }
+    }
 }
 
 /// MainMenuButton/Step_0 hover: point-in-rect over the five labels; plays
@@ -3407,8 +3621,10 @@ mod campfire_ui_tests {
         let m = gui_map(1280.0, 720.0, CAM_SCALE);
         let effective_w = (m.hw * 2.0) / m.s;
         assert!((effective_w - 426.6667).abs() < 1e-3);
-        assert!((letterbox_margin(effective_w) - 106.6667).abs() < 1e-3);
-        assert_eq!(letterbox_margin(320.0), 0.0);
+        let mut catalog = AssetCatalog { anims: Default::default(), ..Default::default() };
+        catalog.anims.insert("images/sprLetterbox.png".to_string(), [1.0, 320.0, 44.0, 0.0, 0.0, 0.0]);
+        assert!((letterbox_margin(&catalog, effective_w) - 106.6667).abs() < 1e-3);
+        assert_eq!(letterbox_margin(&catalog, 320.0), 0.0);
     }
 
     /// Crown grid: RANDOM+NONE alone on row one at x 248/276, then the
