@@ -123,21 +123,21 @@ impl SpiralCtl {
 
             // Debris spawn: `random(16) < 1 && random(3) < 1` (Normal type, menus).
             if rand::random::<f32>() * 16.0 < 1.0 && rand::random::<f32>() * 3.0 < 1.0 {
-            let d = &mut self.debris[self.dhead];
-            *d = Debris {
-                alive: true,
-                xstart: x,
-                ystart: y,
-                dist: rand::random::<f32>() * 135.0 + 10.0,
-                angle: rand::random::<f32>() * 360.0,
-                turnspeed: rand::random::<f32>() * 8.0 - 4.0,
-                rotspeed: rand::random::<f32>() * 16.0 - 8.0,
-                xscale: 0.0,
-                grow: 0.0,
-                image_angle: rand::random::<f32>() * 360.0,
-                frame: (rand::random::<f32>() * 4.0).floor().min(3.0),
-            };
-            self.dhead = (self.dhead + 1) % MAX_DEBRIS;
+                let d = &mut self.debris[self.dhead];
+                *d = Debris {
+                    alive: true,
+                    xstart: x,
+                    ystart: y,
+                    dist: rand::random::<f32>() * 135.0 + 10.0,
+                    angle: rand::random::<f32>() * 360.0,
+                    turnspeed: rand::random::<f32>() * 8.0 - 4.0,
+                    rotspeed: rand::random::<f32>() * 16.0 - 8.0,
+                    xscale: 0.0,
+                    grow: 0.0,
+                    image_angle: rand::random::<f32>() * 360.0,
+                    frame: (rand::random::<f32>() * 4.0).floor().min(3.0),
+                };
+                self.dhead = (self.dhead + 1) % MAX_DEBRIS;
             }
         }
 
@@ -276,7 +276,10 @@ pub struct VortexQuad;
 /// destroyed right before the campfire char-select (PlayButton/Other_10).
 /// Also active during InGame FloorTransition (GenCont loading) spiral.
 fn spiral_states(state: &AppState) -> bool {
-    matches!(*state, AppState::Splash | AppState::MainMenu | AppState::InGame | AppState::Loading)
+    matches!(
+        *state,
+        AppState::Splash | AppState::MainMenu | AppState::InGame | AppState::Loading
+    )
 }
 
 /// Background colour behind the swirl: scrDrawSpiral does `draw_clear(c_black)`

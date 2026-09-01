@@ -10,9 +10,9 @@ use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
 use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
-use crate::game::projectile_art;
 use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
+use crate::game::projectile_art;
 use crate::game::secret_areas::SecretTriggers;
 use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
@@ -85,9 +85,7 @@ pub fn player_move(
     clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
 }
 
-pub fn face_aim(
-    mut q: Query<(&AimDir, &Velocity, &mut Sprite), With<Player>>,
-) {
+pub fn face_aim(mut q: Query<(&AimDir, &Velocity, &mut Sprite), With<Player>>) {
     let Ok((aim, vel, mut sprite)) = q.single_mut() else {
         return;
     };
@@ -1223,7 +1221,8 @@ fn spawn_pellets(
                 let shell_sprite = sprite_exact(catalog, asset_server, shell_path);
                 let anchor = crate::game::content::sprite_anchor(catalog, shell_path);
                 let right = if aim.0.x >= 0.0 { 1.0 } else { -1.0 };
-                let shell_angle = aim.0.y.atan2(aim.0.x) + right * 100_f32.to_radians()
+                let shell_angle = aim.0.y.atan2(aim.0.x)
+                    + right * 100_f32.to_radians()
                     + rng2.random_range(-25_f32..25.0).to_radians();
                 let shell_dir = Vec2::new(shell_angle.cos(), shell_angle.sin());
                 let shell_speed = rng2.random_range(50.0..90.0);
@@ -1466,7 +1465,8 @@ pub fn spawn_player_projectile_with_source(
     weapon: Option<WeaponId>,
 ) {
     let angle = dir.y.atan2(dir.x);
-    let (sprite, anchor) = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
+    let (sprite, anchor) = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon)
+    {
         let candidates = projectile_art::player_projectile_candidates(w);
         let path = projectile_art::first_existing(cat, &candidates);
         if cat.has(path) {
@@ -1601,10 +1601,7 @@ pub fn spawn_player_projectile_with_source(
     if archetype.hits_all_teams {
         ec.insert(HitsAllTeams);
         // Grace: ignore owner for ~2 frames so muzzle doesn't instant self-kill.
-        ec.insert(SpawnGrace(Timer::from_seconds(
-            2.0 / 30.0,
-            TimerMode::Once,
-        )));
+        ec.insert(SpawnGrace(Timer::from_seconds(2.0 / 30.0, TimerMode::Once)));
     }
 
     let e = ec.id();

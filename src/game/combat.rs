@@ -219,19 +219,11 @@ pub fn tick_sentry_turrets(
 
         let dir = (target - pos).normalize_or_zero();
         let angle = dir.y.atan2(dir.x);
-        let sentry_path = "images/sprAllyBullet.png";
-        let sentry_sprite = if catalog.has(sentry_path) {
-            let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, sentry_path);
-            s.custom_size = Some(Vec2::new(8.0, 3.0));
-            s.color = Color::WHITE;
-            s
-        } else {
-            Sprite {
-                color: Color::srgb(0.95, 0.9, 0.7),
-                custom_size: Some(Vec2::new(8.0, 3.0)),
-                ..default()
-            }
-        };
+        let sentry_sprite = crate::game::projectile_art::generic_player_bullet_sprite(
+            &asset_server,
+            &catalog,
+            None,
+        );
 
         commands.spawn((
             GameCleanup,
@@ -307,13 +299,12 @@ pub fn tick_projectile_friction(
     }
 }
 
-pub fn tick_shell_bonus(
-    time: Res<Time<Fixed>>,
-    mut q: Query<&mut ShellBonus>,
-) {
+pub fn tick_shell_bonus(time: Res<Time<Fixed>>, mut q: Query<&mut ShellBonus>) {
     for mut bonus in &mut q {
         bonus.timer.tick(time.delta());
-        if bonus.timer.is_finished() { bonus.bonus = 0; }
+        if bonus.timer.is_finished() {
+            bonus.bonus = 0;
+        }
     }
 }
 
@@ -492,12 +483,19 @@ pub fn move_projectiles(
                 && bounce.0 > 0
             {
                 bounce.0 -= 1;
-                let mut bounced = crate::game::projectile_math::bounce_velocity(vel.0, normal) * 0.8;
+                let mut bounced =
+                    crate::game::projectile_math::bounce_velocity(vel.0, normal) * 0.8;
                 if let Some(mut wb) = shell_bounce {
                     let add = wb.0;
                     let sp = bounced.length();
-                    let new_sp = if sp + add * 30.0 > 16.0 * 30.0 { 16.0 * 30.0 } else { sp + add * 30.0 };
-                    if sp > 0.001 { bounced = bounced.normalize() * new_sp; }
+                    let new_sp = if sp + add * 30.0 > 16.0 * 30.0 {
+                        16.0 * 30.0
+                    } else {
+                        sp + add * 30.0
+                    };
+                    if sp > 0.001 {
+                        bounced = bounced.normalize() * new_sp;
+                    }
                     wb.0 *= 0.95;
                 }
                 vel.0 = bounced;
@@ -689,9 +687,6 @@ fn spawn_split_projectiles(
         .map(|_| rng.random_range(-1.0f32..1.0))
         .collect();
 
-    // Prefer art if available, else colored fallback
-    let split_art = "images/sprBullet1.png";
-    let use_art = catalog.has(split_art);
     for dir in crate::game::projectile_math::split_directions(
         base_dir,
         split.pellets,
@@ -699,18 +694,8 @@ fn spawn_split_projectiles(
         &samples,
     ) {
         let angle = dir.y.atan2(dir.x);
-        let sprite = if use_art {
-            let mut s = crate::game::content::sprite_exact(catalog, asset_server, split_art);
-            s.custom_size = Some(split.size);
-            s.color = Color::WHITE;
-            s
-        } else {
-            Sprite {
-                color: split.color,
-                custom_size: Some(split.size),
-                ..default()
-            }
-        };
+        let sprite =
+            crate::game::projectile_art::generic_player_bullet_sprite(asset_server, catalog, None);
 
         commands.spawn((
             GameCleanup,
@@ -749,24 +734,12 @@ fn spawn_plasma_children(
         0.0
     };
 
-    let plasma_art = "images/sprPlasmaBall.png";
-    let use_plasma_art = catalog.has(plasma_art);
     for i in 0..plasma.pellets.max(1) {
         let t = i as f32 / plasma.pellets.max(1) as f32;
         let angle = base_angle + t * std::f32::consts::TAU;
         let dir = Vec2::new(angle.cos(), angle.sin());
-        let sprite = if use_plasma_art {
-            let mut s = crate::game::content::sprite_exact(catalog, asset_server, plasma_art);
-            s.custom_size = Some(plasma.size);
-            s.color = Color::WHITE;
-            s
-        } else {
-            Sprite {
-                color: plasma.color,
-                custom_size: Some(plasma.size),
-                ..default()
-            }
-        };
+        let sprite =
+            crate::game::projectile_art::plasma_child_sprite(asset_server, catalog, plasma.size);
 
         commands.spawn((
             GameCleanup,
@@ -1269,7 +1242,9 @@ pub fn projectile_hits(
 
             let mut dmg = proj.damage;
             if let Ok(bonus) = shell_bonus_q.get(proj_e) {
-                if !bonus.timer.is_finished() { dmg += bonus.bonus; }
+                if !bonus.timer.is_finished() {
+                    dmg += bonus.bonus;
+                }
             }
             health.hp -= dmg;
             damaged = true;
@@ -2109,28 +2084,14 @@ pub fn resolve_deaths(
         );
         return;
     }
-    // Player death (Strong Spirit / Last Wish / Melting→Skeleton).
+    // Player death (Strong Spirit / Melting→Skeleton). NO free Last Wish revive.
     if phealth.hp <= 0 && !run.game_over {
+        // Strong Spirit: survive at 1 HP, once, until recharged next area + full HP.
         if player.strong_spirit_ready {
             player.strong_spirit_ready = false;
-            phealth.hp = phealth.max;
-            phealth.invuln = Timer::from_seconds(1.0, TimerMode::Once);
-            HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
-            audio.play_pickup(&mut commands);
-            return;
-        }
-        if !player.last_wish_used {
-            player.last_wish_used = true;
-            phealth.hp = phealth.max;
-            for kind in [
-                AmmoKind::Bullets,
-                AmmoKind::Shells,
-                AmmoKind::Bolts,
-                AmmoKind::Explosives,
-                AmmoKind::Energy,
-            ] {
-                *pinv.ammo_mut(kind) = player.ammo_cap(kind);
-            }
+            player.strong_spirit_spent = true;
+            phealth.hp = 1;
+            phealth.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
             audio.play_pickup(&mut commands);
             return;

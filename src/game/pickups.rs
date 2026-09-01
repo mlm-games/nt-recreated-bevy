@@ -343,6 +343,7 @@ pub fn collect_pickups(
             PickupKind::Medkit(amount) => {
                 let heal = (amount as f32 * player.medkit_mult).round() as i32;
                 health.hp = (health.hp + heal).min(health.max);
+                progression::try_recharge_strong_spirit(&mut player, &health);
                 VfxSpawner::spawn_damage_number(
                     &mut commands,
                     heal,
@@ -378,6 +379,7 @@ pub fn collect_pickups(
                         _ => 1,
                     };
                     health.hp = (health.hp + heal).min(health.max);
+                    progression::try_recharge_strong_spirit(&mut player, &health);
                     VfxSpawner::spawn_damage_number(
                         &mut commands,
                         heal,

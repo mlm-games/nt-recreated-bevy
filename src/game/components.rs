@@ -333,7 +333,11 @@ pub struct Player {
     pub stress: bool,
     pub sharp_teeth: bool,
     pub strong_spirit_ready: bool,
+    pub strong_spirit_spent: bool,
+    pub strong_spirit_area_cleared: bool,
     pub last_wish_used: bool,
+    pub mutation_picks_owed: u32,
+    pub ultra_pick_owed: bool,
     pub chain_explosions: bool,
     pub shield_on_hit: bool,
     pub ability: AbilityKind,
@@ -388,7 +392,11 @@ impl Default for Player {
             stress: false,
             sharp_teeth: false,
             strong_spirit_ready: false,
+            strong_spirit_spent: false,
+            strong_spirit_area_cleared: false,
             last_wish_used: false,
+            mutation_picks_owed: 0,
+            ultra_pick_owed: false,
             chain_explosions: false,
             shield_on_hit: false,
             ability: AbilityKind::Flip,
@@ -417,6 +425,29 @@ impl Player {
     /// Ammo capacity for `kind`, including Back Muscle stacks.
     pub fn ammo_cap(&self, kind: AmmoKind) -> i32 {
         ammo_cap_with(self.back_muscle, kind)
+    }
+
+    pub fn try_recharge_strong_spirit(&mut self, health: &Health) {
+        if self.strong_spirit_ready {
+            return;
+        }
+        let has_ss = self.mutations.contains(&MutationId::StrongSpirit)
+            || matches!(
+                self.ultra,
+                Some(UltraMutationId::MeltingDetachment | UltraMutationId::BigDogGuardian)
+            );
+        if !has_ss {
+            return;
+        }
+        if self.strong_spirit_spent
+            && self.strong_spirit_area_cleared
+            && health.hp >= health.max
+            && health.max > 1
+        {
+            self.strong_spirit_ready = true;
+            self.strong_spirit_spent = false;
+            self.strong_spirit_area_cleared = false;
+        }
     }
 }
 

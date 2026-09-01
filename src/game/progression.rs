@@ -18,6 +18,35 @@ use game_utils_bevy::save::SaveManager;
 use game_utils_bevy::screen_effects::{ChromaticAberration, ScreenEffects, Trauma};
 use game_utils_bevy::vfx::{DamageNumber, TrailGhost, VfxSpawner};
 
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct MutationFlagSet<'w> {
+    scarier: ResMut<'w, ScarierFace>,
+    euphoria: ResMut<'w, Euphoria>,
+    open_mind: ResMut<'w, OpenMind>,
+    heavy_heart: ResMut<'w, HeavyHeart>,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct FxSet<'w> {
+    trauma: ResMut<'w, Trauma>,
+    chroma: ResMut<'w, ChromaticAberration>,
+    slow_mo: ResMut<'w, SlowMotion>,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct PortalSuckCtx<'w> {
+    trauma: ResMut<'w, Trauma>,
+    chroma: ResMut<'w, ChromaticAberration>,
+    toast: ResMut<'w, Toast>,
+    triggers: ResMut<'w, SecretTriggers>,
+    loop_transition: ResMut<'w, LoopTransition>,
+    paused: ResMut<'w, Paused>,
+    deferred: ResMut<'w, DeferredFloorGen>,
+}
+
+#[derive(Resource, Default)]
+pub struct DeferredFloorGen(pub bool);
+
 pub fn setup_run(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -53,6 +82,7 @@ pub fn setup_run(
 
     commands.remove_resource::<PendingMutation>();
     commands.remove_resource::<PendingUltra>();
+    commands.insert_resource(DeferredFloorGen(false));
     commands.insert_resource(LoopTransition::default());
     commands.insert_resource(crate::game::ambience::AreaAudioState::default());
     commands.insert_resource(MutationChoice(None));
@@ -271,48 +301,89 @@ pub fn check_level_up(
     pos: Vec2,
     race: RaceId,
 ) {
+    let _ = inv;
+    let mut leveled = false;
+
     while player.rads >= player.next_level_rads && player.level < 10 {
         player.rads -= player.next_level_rads;
         player.level += 1;
         player.next_level_rads = player.level.max(1) * 60;
+        leveled = true;
 
         if player.level >= 10 && player.ultra.is_none() {
-            let choices = ultra_choices_for(race).to_vec();
-            let _ = race;
-            commands.insert_resource(PendingUltra { choices });
-            toast.show("LEVEL ULTRA! Choose an ultra mutation (1/2)");
-            level_up_feedback(
-                commands,
-                trauma,
-                flash,
-                audio,
-                pos,
-                Color::srgb(1.0, 0.35, 1.0),
-            );
-            let _ = inv;
-            return;
+            // Ultra is chosen after portal, same as normal mutations.
+            player.ultra_pick_owed = true;
+        } else if player.level < 10 {
+            player.mutation_picks_owed = player.mutation_picks_owed.saturating_add(1);
         }
+    }
 
-        let choices = roll_mutations(player);
-        if choices.is_empty() {
-            // No mutations left: full heal instead.
-            health.hp = health.max;
-            continue;
-        }
-
-        commands.insert_resource(PendingMutation { choices });
-        toast.show("LEVEL UP! Choose a mutation (1/2/3)");
+    if leveled {
+        // Feedback only — do NOT open mutation UI mid-combat.
+        toast.show(if player.ultra_pick_owed && player.level >= 10 {
+            "LEVEL ULTRA!"
+        } else {
+            "LEVEL UP!"
+        });
         level_up_feedback(
             commands,
             trauma,
             flash,
             audio,
             pos,
-            Color::srgb(0.25, 1.0, 0.25),
+            if player.level >= 10 {
+                Color::srgb(1.0, 0.35, 1.0)
+            } else {
+                Color::srgb(0.25, 1.0, 0.25)
+            },
         );
-        let _ = inv;
+    }
+
+    let _ = health;
+    let _ = race;
+}
+
+pub fn try_recharge_strong_spirit(player: &mut Player, health: &Health) {
+    player.try_recharge_strong_spirit(health);
+}
+
+fn begin_between_floor_skill_picks(
+    commands: &mut Commands,
+    player: &mut Player,
+    race: RaceId,
+    paused: &mut Paused,
+) {
+    paused.0 = true;
+
+    if player.ultra_pick_owed && player.ultra.is_none() && player.level >= 10 {
+        let choices = ultra_choices_for(race).to_vec();
+        commands.insert_resource(PendingUltra { choices });
+        // Keep ultra_pick_owed true until chosen.
         return;
     }
+
+    if player.mutation_picks_owed > 0 {
+        let choices = roll_mutations(player);
+        if choices.is_empty() {
+            // No mutations left: full heal and consume one owed pick.
+            player.mutation_picks_owed = player.mutation_picks_owed.saturating_sub(1);
+            // Caller should re-enter begin_... if more picks remain.
+            return;
+        }
+        commands.insert_resource(PendingMutation { choices });
+    }
+}
+
+fn try_start_pending_floor_gen(commands: &mut Commands, run: &Run) {
+    let tip = pick_loading_tip(run);
+    commands.insert_resource(FloorTransition {
+        active: true,
+        stage: 1,
+        timer: Timer::from_seconds(0.05, TimerMode::Repeating),
+        progress: 0.0,
+        tip,
+    });
+    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
 }
 
 fn level_up_feedback(
@@ -348,7 +419,11 @@ fn roll_mutations(player: &mut Player) -> Vec<MutationId> {
     let destiny = player.crown == CrownKind::Destiny;
     let want_base = if destiny { 1 } else { 4 };
     // Patience overrides to 4 as well, but destiny takes precedence per GML
-    let want_base = if player.patience_bonus && !destiny { 4 } else { want_base };
+    let want_base = if player.patience_bonus && !destiny {
+        4
+    } else {
+        want_base
+    };
     let want = pool.len().min(want_base);
 
     player.patience_bonus = false;
@@ -368,15 +443,12 @@ pub fn handle_mutation_choice(
     pending: Option<ResMut<PendingMutation>>,
     mut choice: ResMut<MutationChoice>,
     mut paused: ResMut<Paused>,
-    mut scarier: ResMut<ScarierFace>,
-    mut euphoria: ResMut<Euphoria>,
-    mut open_mind: ResMut<OpenMind>,
-    mut heavy_heart: ResMut<HeavyHeart>,
+    mut deferred: ResMut<DeferredFloorGen>,
+    mut flags: MutationFlagSet,
     mut player_q: Query<(&mut Player, &mut Health, &mut Inventory, &RaceState), With<Player>>,
-    mut trauma: ResMut<Trauma>,
-    mut chroma: ResMut<ChromaticAberration>,
-    mut slow_mo: ResMut<SlowMotion>,
+    mut fx: FxSet,
     mut toast: ResMut<Toast>,
+    run: Res<Run>,
     audio: Res<GameAudio>,
 ) {
     if ultra.is_none() && pending.is_none() {
@@ -420,9 +492,9 @@ pub fn handle_mutation_choice(
         apply_ultra_mutation(
             &mut commands,
             &mut player_q,
-            &mut trauma,
-            &mut chroma,
-            &mut slow_mo,
+            &mut fx.trauma,
+            &mut fx.chroma,
+            &mut fx.slow_mo,
             &mut toast,
             &audio,
             id,
@@ -437,7 +509,39 @@ pub fn handle_mutation_choice(
 
         ultra.choices.clear();
         commands.remove_resource::<PendingUltra>();
-        paused.0 = false;
+
+        if let Ok((mut player, mut health, _, race_state)) = player_q.single_mut() {
+            player.ultra_pick_owed = false;
+            // If normal picks still owed, open next screen instead of unpausing.
+            if player.mutation_picks_owed > 0 {
+                let choices = roll_mutations(&mut player);
+                if choices.is_empty() {
+                    health.hp = health.max;
+                    try_recharge_strong_spirit(&mut player, &health);
+                    player.mutation_picks_owed = 0;
+                    paused.0 = false;
+                    if deferred.0 {
+                        try_start_pending_floor_gen(&mut commands, &run);
+                        deferred.0 = false;
+                    }
+                } else {
+                    commands.insert_resource(PendingMutation { choices });
+                    paused.0 = true;
+                }
+            } else {
+                paused.0 = false;
+                if deferred.0 {
+                    try_start_pending_floor_gen(&mut commands, &run);
+                    deferred.0 = false;
+                }
+            }
+        } else {
+            paused.0 = false;
+            if deferred.0 {
+                try_start_pending_floor_gen(&mut commands, &run);
+                deferred.0 = false;
+            }
+        }
         return;
     }
 
@@ -452,13 +556,13 @@ pub fn handle_mutation_choice(
     apply_mutation(
         &mut commands,
         &mut player_q,
-        &mut scarier,
-        &mut euphoria,
-        &mut open_mind,
-        &mut heavy_heart,
-        &mut trauma,
-        &mut chroma,
-        &mut slow_mo,
+        &mut flags.scarier,
+        &mut flags.euphoria,
+        &mut flags.open_mind,
+        &mut flags.heavy_heart,
+        &mut fx.trauma,
+        &mut fx.chroma,
+        &mut fx.slow_mo,
         &mut toast,
         &audio,
         id,
@@ -473,7 +577,41 @@ pub fn handle_mutation_choice(
 
     pending.choices.clear();
     commands.remove_resource::<PendingMutation>();
+
+    if let Ok((mut player, mut health, _, race_state)) = player_q.single_mut() {
+        player.mutation_picks_owed = player.mutation_picks_owed.saturating_sub(1);
+
+        if player.ultra_pick_owed && player.ultra.is_none() && player.level >= 10 {
+            let choices = ultra_choices_for(race_state.race).to_vec();
+            commands.insert_resource(PendingUltra { choices });
+            paused.0 = true;
+            return;
+        }
+
+        if player.mutation_picks_owed > 0 {
+            let choices = roll_mutations(&mut player);
+            if choices.is_empty() {
+                health.hp = health.max;
+                try_recharge_strong_spirit(&mut player, &health);
+                player.mutation_picks_owed = 0;
+                paused.0 = false;
+                if deferred.0 {
+                    try_start_pending_floor_gen(&mut commands, &run);
+                    deferred.0 = false;
+                }
+            } else {
+                commands.insert_resource(PendingMutation { choices });
+                paused.0 = true;
+            }
+            return;
+        }
+    }
+
     paused.0 = false;
+    if deferred.0 {
+        try_start_pending_floor_gen(&mut commands, &run);
+        deferred.0 = false;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -569,12 +707,27 @@ fn apply_mutation(
         }
         MutationId::StrongSpirit => {
             player.strong_spirit_ready = true;
+            player.strong_spirit_spent = false;
+            player.strong_spirit_area_cleared = false;
         }
         MutationId::SharpTeeth => {
             player.sharp_teeth = true;
         }
         MutationId::LastWish => {
-            player.last_wish_used = false;
+            // Instant one-shot: full heal + ammo grant (NOT a death save).
+            health.hp = health.max;
+            try_recharge_strong_spirit(&mut player, &health);
+            let add = |inv: &mut Inventory, player: &Player, kind: AmmoKind, amount: i32| {
+                let cap = player.ammo_cap(kind);
+                let slot = inv.ammo_mut(kind);
+                *slot = (*slot + amount).min(cap);
+            };
+            add(&mut inv, &player, AmmoKind::Bullets, 200);
+            add(&mut inv, &player, AmmoKind::Shells, 20);
+            add(&mut inv, &player, AmmoKind::Bolts, 20);
+            add(&mut inv, &player, AmmoKind::Explosives, 20);
+            add(&mut inv, &player, AmmoKind::Energy, 20);
+            player.last_wish_used = true;
         }
 
         MutationId::BoltMarrow => {
@@ -968,7 +1121,10 @@ pub fn portal_check(
 }
 
 pub fn portal_attract(
-    mut player_q: Query<(&Transform, &mut Velocity), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
+    mut player_q: Query<
+        (&Transform, &mut Velocity),
+        (With<Player>, Without<Portal>, Without<PortalSucking>),
+    >,
     portal_q: Query<&Transform, With<Portal>>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     run: Res<Run>,
@@ -1002,7 +1158,10 @@ pub fn portal_enter(
     mut commands: Commands,
     run: Res<Run>,
     portal_q: Query<(Entity, &Transform), With<Portal>>,
-    player_q: Query<(Entity, &Transform, &mut Velocity), (With<Player>, Without<Portal>, Without<PortalSucking>)>,
+    player_q: Query<
+        (Entity, &Transform, &mut Velocity),
+        (With<Player>, Without<Portal>, Without<PortalSucking>),
+    >,
 ) {
     if run.game_over {
         return;
@@ -1046,13 +1205,9 @@ pub fn tick_portal_suck(
     asset_server: Res<AssetServer>,
     mut run: ResMut<Run>,
     mut mask: ResMut<FloorMask>,
-    mut trauma: ResMut<Trauma>,
-    mut chroma: ResMut<ChromaticAberration>,
-    mut toast: ResMut<Toast>,
     audio: Res<GameAudio>,
-    mut triggers: ResMut<SecretTriggers>,
-    mut loop_transition: ResMut<LoopTransition>,
     mut floor_started: MessageWriter<FloorStarted>,
+    mut ctx: PortalSuckCtx,
     level_q: Query<Entity, With<LevelCleanup>>,
     mut player_q: Query<
         (
@@ -1099,7 +1254,7 @@ pub fn tick_portal_suck(
         sprite.color.set_alpha(1.0 - ease * 0.5);
     }
 
-    ScreenEffects::add_trauma(&mut trauma, 0.02);
+    ScreenEffects::add_trauma(&mut ctx.trauma, 0.02);
     if !suck.timer.just_finished() {
         return;
     }
@@ -1121,8 +1276,8 @@ pub fn tick_portal_suck(
     // Priority: completed-loop portal -> queued secret -> ordinary advance.
     let looped = crate::game::loop_transition::try_apply_loop_portal_transition(
         &mut run,
-        &mut loop_transition,
-        &mut trauma,
+        &mut ctx.loop_transition,
+        &mut ctx.trauma,
     );
 
     if looped {
@@ -1137,7 +1292,7 @@ pub fn tick_portal_suck(
     let entered_secret = if looped {
         None
     } else {
-        secret_areas::apply_secret_transition(&mut run, &mut triggers)
+        secret_areas::apply_secret_transition(&mut run, &mut ctx.triggers)
     };
 
     if let Some(secret) = entered_secret {
@@ -1147,7 +1302,7 @@ pub fn tick_portal_suck(
                 crate::game::reactive_audio::ReactiveCue::SecretFound,
             ),
         ));
-        toast.show(&format!("ENTERING {}", secret.name()));
+        ctx.toast.show(&format!("ENTERING {}", secret.name()));
     } else if !looped {
         commands.spawn((
             GameCleanup,
@@ -1155,16 +1310,45 @@ pub fn tick_portal_suck(
                 crate::game::reactive_audio::ReactiveCue::PortalEnter,
             ),
         ));
-        toast.show(&format!(
+        ctx.toast.show(&format!(
             "FLOOR {}-{}",
             run.world,
             world::floor_in_world(run.floor)
         ));
     } else {
-        toast.show(&format!("LOOP {}", run.loop_count));
+        ctx.toast.show(&format!("LOOP {}", run.loop_count));
     }
 
-    // Defer actual level spawn to FloorTransition (GenCont loading screen)
+    // Mark Strong Spirit eligible to recharge on the next full heal.
+    if player.strong_spirit_spent {
+        player.strong_spirit_area_cleared = true;
+    }
+
+    // NT: mutation/ultra selection happens after portal, before/around loading.
+    if player.ultra_pick_owed || player.mutation_picks_owed > 0 {
+        // Hold generation until skills are picked.
+        ctx.deferred.0 = true;
+        begin_between_floor_skill_picks(
+            &mut commands,
+            &mut player,
+            race_state.race,
+            &mut ctx.paused,
+        );
+        // If pool was empty, begin_between consumed one owed pick and did not insert resource.
+        // If still owed picks remain without an ultra pending, try to open next pick.
+        // For simplicity, if no PendingMutation/Ultra was inserted but owed still >0,
+        // the next tick's portal handling is already deferred; the mutation system
+        // will handle chaining after the first pick. If the first call found no
+        // choices (empty pool), we already healed and consumed one pick; if more
+        // owed remain they will be handled after the next pick or via fallback heal.
+        // Still hide player / clean floor as you already do.
+        player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
+        // Do NOT insert FloorTransition yet — wait until picks finish.
+        return;
+    }
+
+    // No picks owed → existing GenCont path:
+    ctx.deferred.0 = false;
     let tip = pick_loading_tip(&run);
     commands.insert_resource(FloorTransition {
         active: true,
@@ -1177,8 +1361,16 @@ pub fn tick_portal_suck(
     // Hide player until next floor spawns (GenCont hides player during load)
     player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
     // Keep portal_closed flag; will be cleared after transition spawns
-    let _ = (&catalog, &asset_server, &mut mask, &mut floor_started, &mut health, &race_state, &player);
-    let _ = (&mut chroma, &audio);
+    let _ = (
+        &catalog,
+        &asset_server,
+        &mut mask,
+        &mut floor_started,
+        &mut health,
+        &race_state,
+        &player,
+    );
+    let _ = (&mut ctx.chroma, &audio);
 }
 
 pub fn tick_floor_transition(
@@ -1216,18 +1408,28 @@ pub fn tick_floor_transition(
                 return;
             };
             let plan = world::generate_level(&run);
-            world::spawn_level(&mut commands, &catalog, &asset_server, &run, &plan, &mut mask);
+            world::spawn_level(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                &run,
+                &plan,
+                &mut mask,
+            );
             floor_started.write(FloorStarted {
                 floor: run.floor,
                 area: run.area,
             });
             health.hp = (health.hp + 1).min(health.max);
+            try_recharge_strong_spirit(&mut player, &health);
             if character_def(race.race).passive == PassiveKind::Headless {
                 player.headless_ready = true;
             }
-            if let Some(c) = mask.cells.iter().min_by_key(|c| {
-                (mask.cell_center(**c).length() * 1000.0) as i32
-            }) {
+            if let Some(c) = mask
+                .cells
+                .iter()
+                .min_by_key(|c| (mask.cell_center(**c).length() * 1000.0) as i32)
+            {
                 let p = mask.cell_center(*c);
                 tf.translation = Vec3::new(p.x, p.y, 20.0);
             } else {

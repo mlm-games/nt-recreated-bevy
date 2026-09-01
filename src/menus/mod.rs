@@ -118,47 +118,41 @@ pub fn compose_root(
             ),
         )),
         AppState::InGame => {
-            // Original HUD: sprite art lives in game/ui_art.rs; this overlay
-            // only carries the numeric texts drawn by scrDrawPlayerHUD.
-            // GenCont (between floors) hides HUD like original draw_clear(c_black)
-            // + scrDrawSpiral – only GENERATING + bar + tip visible.
-            let mut children: Vec<View> = Vec::new();
+            // GenCont / between-floor loading owns the screen completely.
+            // Do not draw HUD, pause, mutation, or death UI over it.
             if st.gen_active {
-                children.push(gen_cont_overlay(&st));
+                gen_cont_overlay(&st)
             } else {
+                let mut children: Vec<View> = Vec::new();
+
                 children.push(nt_hud_overlay(&st));
-            }
-            if st.game_over {
-                let panel = game_over_panel(&st, actions.clone());
+
+                if st.game_over {
+                    children.push(game_over_panel(&st, actions.clone()));
+                } else if !st.mutation_choices.is_empty() {
+                    children.push(mutation_panel(&st, actions.clone()));
+                }
+
                 children.push(AnimatedVisibility(
-                    true,
-                    panel,
-                    popup_anim_config("game_over_in"),
+                    st.overlay == OverlayMenu::Pause,
+                    pause_overlay(&st, actions.clone()),
+                    popup_anim_config("pause"),
                 ));
-            } else if !st.mutation_choices.is_empty() {
-                let panel = mutation_panel(&st, actions.clone());
+
                 children.push(AnimatedVisibility(
-                    true,
-                    panel,
-                    popup_anim_config("mutation_in"),
+                    st.overlay == OverlayMenu::Settings,
+                    settings_view.clone(),
+                    popup_anim_config("ingame_settings"),
                 ));
+
+                children.push(AnimatedVisibility(
+                    st.overlay == OverlayMenu::Credits,
+                    credits_ui(&st, actions.clone()),
+                    popup_anim_config("ingame_credits"),
+                ));
+
+                ZStack(Modifier::new().fill_max_size()).child(children)
             }
-            children.push(AnimatedVisibility(
-                st.overlay == OverlayMenu::Pause,
-                pause_overlay(&st, actions.clone()),
-                popup_anim_config("pause"),
-            ));
-            children.push(AnimatedVisibility(
-                st.overlay == OverlayMenu::Settings,
-                settings_view.clone(),
-                popup_anim_config("ingame_settings"),
-            ));
-            children.push(AnimatedVisibility(
-                st.overlay == OverlayMenu::Credits,
-                credits_ui(&st, actions.clone()),
-                popup_anim_config("ingame_credits"),
-            ));
-            ZStack(Modifier::new().fill_max_size()).child(children)
         }
     };
 
@@ -219,54 +213,12 @@ fn splash_ui(_st: &SharedUi) -> View {
 
 const GUI_H_F32: f32 = 240.0;
 
-/// Loading pass rendered on the NT surface: centred label plus a thin
-/// white progress bar (original NT shows nothing; kept minimal).
 fn loading_ui(st: &SharedUi) -> View {
-    let v = nt_view(st);
-    let pct = st.loading_progress.clamp(0.0, 1.0);
-
-    let bar_x = 70.0;
-    let bar_y = 132.0;
-    let bar_w = 180.0;
-    let bar_h = 6.0;
-
-    ZStack(Modifier::new().fill_max_size()).child((
-        nt_text_at(
-            "LOADING...".to_string(),
-            160.0,
-            108.0,
-            &v,
-            col(255, 255, 255),
-            true,
-        ),
-        Column(
-            Modifier::new()
-                .fill_max_size()
-                .padding_values(PaddingValues {
-                    left: v.ox + bar_x * v.s,
-                    right: 0.0,
-                    top: v.oy + bar_y * v.s,
-                    bottom: 0.0,
-                })
-                .align_items(AlignItems::FLEX_START),
-        )
-        .child(
-            Column(
-                Modifier::new()
-                    .width(bar_w * v.s)
-                    .height(bar_h * v.s)
-                    .background(col(20, 20, 24))
-                    .border((1.0 * v.s).max(1.0), col(238, 239, 225), 0.0)
-                    .padding((1.0 * v.s).max(1.0)),
-            )
-            .child(Column(
-                Modifier::new()
-                    .width(((bar_w - 2.0) * pct * v.s).max(1.0))
-                    .height((bar_h - 2.0) * v.s)
-                    .background(col(238, 239, 225)),
-            )),
-        ),
-    ))
+    let mut loading = st.clone();
+    loading.gen_active = true;
+    loading.gen_progress = st.loading_progress.clamp(0.0, 1.0);
+    loading.gen_tip.clear();
+    gen_cont_overlay(&loading)
 }
 
 fn gen_cont_overlay(st: &SharedUi) -> View {
@@ -292,12 +244,7 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                 .align_items(AlignItems::FLEX_START),
         )
         .child(
-            ZStack(
-                Modifier::new()
-                    .width(320.0 * v.s)
-                    .height(240.0 * v.s),
-            )
-            .child((
+            ZStack(Modifier::new().width(320.0 * v.s).height(240.0 * v.s)).child((
                 // text at 160,66 centered
                 Column(
                     Modifier::new()
@@ -818,44 +765,40 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .iter()
         .any(|choice| choice.trim().starts_with("ULTRA:"));
 
+    let title = if is_ultra {
+        "ULTRA MUTATION"
+    } else {
+        "LEVEL UP"
+    };
     let accent = if is_ultra {
         col(255, 221, 0)
     } else {
-        col(72, 202, 96)
+        col(98, 220, 88)
     };
 
-    // NT GUI is 320x240 - skill picks sit mid-screen as a horizontal row.
     let n = st.mutation_choices.len().max(1);
-    let card_w = if n >= 4 { 70.0 } else { 88.0 };
-    let gap = 6.0;
-    let total_w = n as f32 * card_w + (n.saturating_sub(1) as f32) * gap;
-    let start_x = (160.0 - total_w * 0.5).max(4.0);
+    let card_w = if n >= 4 { 66.0 } else { 82.0 };
+    let card_h = 96.0;
+    let gap = 5.0;
+    let total_w = n as f32 * card_w + n.saturating_sub(1) as f32 * gap;
+    let start_x = 160.0 - total_w * 0.5;
+    let y = 76.0;
 
     let mut layers: Vec<View> = Vec::new();
 
-    // Dim the whole GUI.
+    // Original-style: black screen-space dim, no rounded Material card.
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 160)),
+            .background(RColor::from_rgba(0, 0, 0, 210)),
     ));
 
+    layers.push(nt_text_at(title.to_string(), 160.0, 26.0, &v, accent, true));
+
     layers.push(nt_text_at(
-        if is_ultra {
-            "LEVEL ULTRA".into()
-        } else {
-            "LEVEL UP".into()
-        },
+        "CHOOSE A MUTATION".to_string(),
         160.0,
-        70.0,
-        &v,
-        accent,
-        true,
-    ));
-    layers.push(nt_text_at(
-        "CHOOSE A MUTATION".into(),
-        160.0,
-        84.0,
+        42.0,
         &v,
         col(238, 239, 225),
         true,
@@ -864,7 +807,6 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     for (i, choice) in st.mutation_choices.iter().enumerate() {
         let (ultra, name, desc) = mutation_choice_parts(choice);
         let x = start_x + i as f32 * (card_w + gap);
-        let y = 110.0;
         let a = actions.clone();
         let idx = i;
         let border = if ultra {
@@ -889,37 +831,41 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 Column(
                     Modifier::new()
                         .width(card_w * v.s)
-                        .height(96.0 * v.s)
-                        .padding(4.0 * v.s)
-                        .gap(3.0 * v.s)
-                        .background(RColor::from_rgba(12, 12, 16, 230))
+                        .height(card_h * v.s)
+                        .padding(3.0 * v.s)
+                        .gap(2.0 * v.s)
+                        .background(RColor::from_rgba(6, 8, 6, 235))
                         .border((1.0 * v.s).max(1.0), border, 0.0)
                         .clickable()
                         .on_click(move || push(&a, UiAction::PickMutation(idx))),
                 )
                 .child((
                     RText(format!("{}", i + 1))
-                        .size((10.0 * v.s).max(10.0))
-                        .color(accent),
+                        .size((8.0 * v.s).max(8.0))
+                        .font_family("Silkscreen")
+                        .color(accent)
+                        .single_line(),
                     RText(name.to_ascii_uppercase())
-                        .size((11.0 * v.s).max(11.0))
+                        .size((9.0 * v.s).max(9.0))
+                        .font_family("Silkscreen")
                         .color(col(238, 239, 225))
                         .single_line()
                         .overflow_ellipsize(),
                     RText(desc)
-                        .size((9.0 * v.s).max(9.0))
-                        .color(col(160, 160, 168)),
+                        .size((7.0 * v.s).max(7.0))
+                        .font_family("Silkscreen")
+                        .color(col(156, 160, 150)),
                 )),
             ),
         );
     }
 
     layers.push(nt_text_at(
-        "1  2  3  4".into(),
+        "1 / 2 / 3 / 4".to_string(),
         160.0,
-        220.0,
+        218.0,
         &v,
-        col(128, 128, 128),
+        col(125, 131, 141),
         true,
     ));
 
@@ -927,51 +873,86 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 }
 
 fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let a1 = actions.clone();
-    let a2 = actions.clone();
-    let tr = &st.translations;
-    let panel = Column(
-        Modifier::new()
-            .width(420.0)
-            .padding(28.0)
-            .background(col(22, 16, 16))
-            .clip_rounded(14.0)
-            .align_items(AlignItems::CENTER),
-    )
-    .child(vec![
-        RText("GAME OVER").size(44.0).color(col(230, 70, 70)),
-        spacer(8.0),
-        RText(format!("{}: {}", t(tr, "score", "Score"), st.score))
-            .size(22.0)
-            .color(RColor::WHITE),
-        RText(format!("{}: {}", t(tr, "best", "Best"), st.high_score))
-            .size(16.0)
-            .color(col(200, 200, 200)),
-        RText(format!("FLOOR {}", st.best_floor))
-            .size(16.0)
-            .color(col(200, 200, 200)),
-        RText(format!("KILLS {}", st.total_kills))
-            .size(16.0)
-            .color(col(200, 200, 200)),
-        spacer(18.0),
-        mk_button(&t(tr, "retry", "Retry"), col(60, 140, 90), move || {
-            push(&a1, UiAction::StartGame)
-        }),
-        mk_button(
-            &t(tr, "quit-to-title", "Quit to Title"),
-            col(180, 60, 60),
-            move || push(&a2, UiAction::QuitToTitle),
-        ),
-    ]);
+    let v = nt_view(st);
+    let retry_actions = actions.clone();
+    let quit_actions = actions.clone();
 
-    Column(
+    let mut layers: Vec<View> = Vec::new();
+
+    layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 200)),
-    )
-    .child(nt_surface_wrap(st, panel))
+            .background(RColor::from_rgba(0, 0, 0, 225)),
+    ));
+
+    layers.push(nt_text_at(
+        "YOU DIED".to_string(),
+        160.0,
+        58.0,
+        &v,
+        col(230, 48, 42),
+        true,
+    ));
+
+    layers.push(nt_text_at(
+        format!("SCORE {}", st.score),
+        160.0,
+        88.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+
+    layers.push(nt_text_at(
+        format!("BEST {}", st.high_score),
+        160.0,
+        104.0,
+        &v,
+        col(125, 131, 141),
+        true,
+    ));
+
+    layers.push(nt_text_at(
+        format!("FLOOR {}", st.best_floor),
+        160.0,
+        124.0,
+        &v,
+        col(125, 131, 141),
+        true,
+    ));
+
+    layers.push(nt_text_at(
+        format!("KILLS {}", st.total_kills),
+        160.0,
+        140.0,
+        &v,
+        col(125, 131, 141),
+        true,
+    ));
+
+    layers.push(text_button_at(
+        "RETRY",
+        160.0,
+        176.0,
+        96.0,
+        18.0,
+        &v,
+        col(238, 239, 225),
+        move || push(&retry_actions, UiAction::StartGame),
+    ));
+
+    layers.push(text_button_at(
+        "QUIT",
+        160.0,
+        198.0,
+        96.0,
+        18.0,
+        &v,
+        col(125, 131, 141),
+        move || push(&quit_actions, UiAction::QuitToTitle),
+    ));
+
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
 fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {
@@ -1334,6 +1315,47 @@ fn nt_text_at_ex(
         Column(Modifier::new().width(box_w).align_items(align)).child(
             RText(text)
                 .size(font_px)
+                .font_family("Silkscreen")
+                .color(color)
+                .single_line(),
+        ),
+    )
+}
+
+fn text_button_at(
+    label: &'static str,
+    gx: f32,
+    gy: f32,
+    gw: f32,
+    gh: f32,
+    v: &NtView,
+    color: RColor,
+    on_click: impl Fn() + 'static,
+) -> View {
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding_values(PaddingValues {
+                left: v.ox + (gx - gw * 0.5) * v.s,
+                right: 0.0,
+                top: v.oy + (gy - gh * 0.5) * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .width(gw * v.s)
+                .height(gh * v.s)
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER)
+                .clickable()
+                .on_click(on_click),
+        )
+        .child(
+            RText(label)
+                .size((8.0 * v.s).max(8.0))
                 .font_family("Silkscreen")
                 .color(color)
                 .single_line(),

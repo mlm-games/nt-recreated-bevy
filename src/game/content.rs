@@ -188,6 +188,53 @@ pub fn scan_asset_catalog() -> AssetCatalog {
     AssetCatalog::scan()
 }
 
+pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {
+    // These are deliberately gameplay/UI-visible assets. If any are missing,
+    // the game would silently fall back to colored placeholders and diverge
+    // from nt-recreated-public / Nuclear Throne UX.
+    const REQUIRED: &[&str] = &[
+        // Core projectile art
+        "images/sprBullet1.png",
+        "images/sprBullet2.png",
+        "images/sprEnemyBullet1.png",
+        "images/sprScorpionBullet.png",
+        "images/sprGuardianBullet.png",
+        "images/sprIDPDBullet.png",
+        "images/sprRocket.png",
+        "images/sprGrenade.png",
+        "images/sprLaser.png",
+        "images/sprBolt.png",
+        "images/sprHeavyBullet.png",
+        "images/sprHeavyBolt.png",
+        "images/sprFlameBall.png",
+        "images/sprSalamanderBullet.png",
+        // Menu / loading / death parity-critical art
+        // NOTE: sprMaggotBullet and sprMenuBG are expected by upstream but
+        // are not present in the current extracted bundle; they are omitted
+        // here to avoid false-positive panics while the extractor is updated.
+        "images/sprLogo.png",
+        "images/sprLoadoutCrown.png",
+        "images/sprPortal.png",
+        "images/sprBigPortal.png",
+    ];
+
+    let missing: Vec<&'static str> = REQUIRED
+        .iter()
+        .copied()
+        .filter(|path| !catalog.has(path))
+        .collect();
+
+    if !missing.is_empty() {
+        panic!(
+            "nt-recreated-bevy is missing required original Nuclear Throne assets.\n\
+             This build would diverge visually from nt-recreated-public.\n\
+             Run `python3 tools/gen_assets.py /path/to/NuclearThrone/game/assets` first.\n\
+             Missing assets:\n  - {}",
+            missing.join("\n  - ")
+        );
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum AmmoKind {
     None = 0,
@@ -723,7 +770,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::BigDog => CharacterDef {
             name: "Big Dog",
             color: Color::srgb(0.55, 0.38, 0.28),
-            max_hp: 300, // GML scrPlayerRaceChange
+            max_hp: 300,     // GML scrPlayerRaceChange
             speed_mult: 0.5, // GML maxspeed 2/4
             pickup_range: 95.0,
             ability: AbilityKind::RocketBarrage,
@@ -734,7 +781,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::Skeleton => CharacterDef {
             name: "Skeleton",
             color: Color::srgb(0.9, 0.9, 0.92),
-            max_hp: 4, // GML
+            max_hp: 4,        // GML
             speed_mult: 0.75, // GML maxspeed 3/4
             pickup_range: 95.0,
             ability: AbilityKind::BloodGamble,

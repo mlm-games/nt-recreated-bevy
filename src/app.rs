@@ -338,6 +338,7 @@ impl Plugin for AppPlugin {
                     sync_shared_ui,
                     sync_ui_viewport,
                     sync_post_process_settings::<AppState>,
+                    force_death_overlay_state,
                     process_ui_actions,
                     handle_pause_input,
                     tick_pending_unpause,
@@ -885,9 +886,27 @@ fn process_ui_actions(
     }
 }
 
+fn force_death_overlay_state(
+    run: Option<Res<crate::game::components::Run>>,
+    mut paused: ResMut<Paused>,
+    mut overlay: ResMut<OverlayMenu>,
+    mut pending_unpause: ResMut<PendingUnpause>,
+) {
+    let Some(run) = run else {
+        return;
+    };
+
+    if run.game_over {
+        paused.0 = false;
+        *overlay = OverlayMenu::None;
+        pending_unpause.0 = None;
+    }
+}
+
 fn handle_pause_input(
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<AppState>>,
+    run: Option<Res<crate::game::components::Run>>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
     mut pending_unpause: ResMut<PendingUnpause>,
@@ -897,6 +916,9 @@ fn handle_pause_input(
         return;
     }
     if transition.block_input {
+        return;
+    }
+    if run.as_deref().is_some_and(|run| run.game_over) {
         return;
     }
     if !keys.just_pressed(KeyCode::Escape) {

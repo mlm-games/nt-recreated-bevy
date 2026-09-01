@@ -634,21 +634,36 @@ pub fn enemy_ai(
                 // GML walk uses px/frame impulse (`speed`/`motion_add`) and walk frames.
                 let (impulse, _cap, far_walk, close_walk, wander_walk) = match enemy.kind {
                     EnemyKind::Maggot => (0.6, 2.0, 8.0..14.0, 12.0..18.0, 10.0..20.0),
-                    EnemyKind::Gator | EnemyKind::BuffGator => (0.8, 3.0, 10.0..14.0, 40.0..50.0, 20.0..30.0),
-                    EnemyKind::Freak | EnemyKind::ExploFreak => (0.55, 4.0, 18.0..22.0, 12.0..18.0, 10.0..16.0),
+                    EnemyKind::Gator | EnemyKind::BuffGator => {
+                        (0.8, 3.0, 10.0..14.0, 40.0..50.0, 20.0..30.0)
+                    }
+                    EnemyKind::Freak | EnemyKind::ExploFreak => {
+                        (0.55, 4.0, 18.0..22.0, 12.0..18.0, 10.0..16.0)
+                    }
                     EnemyKind::RhinoFreak => (0.8, 1.0, 18.0..22.0, 12.0..18.0, 10.0..16.0),
-                    EnemyKind::Spider | EnemyKind::InvSpider => (2.0, 5.0, 15.0..20.0, 10.0..14.0, 10.0..20.0),
+                    EnemyKind::Spider | EnemyKind::InvSpider => {
+                        (2.0, 5.0, 15.0..20.0, 10.0..14.0, 10.0..20.0)
+                    }
                     EnemyKind::Crab => (1.5, 4.5, 8.0..14.0, 50.0..60.0, 20.0..30.0),
                     EnemyKind::Turtle => (1.0, 5.0, 40.0..60.0, 40.0..60.0, 40.0..60.0),
                     EnemyKind::Salamander => (2.0, 2.5, 40.0..50.0, 20.0..30.0, 10.0..20.0),
                     EnemyKind::Sniper => (0.8, 1.5, 10.0..14.0, 40.0..50.0, 20.0..30.0),
-                    EnemyKind::FireBaller | EnemyKind::SuperFireBaller => (0.6, 2.0, 8.0..12.0, 10.0..14.0, 10.0..16.0),
+                    EnemyKind::FireBaller | EnemyKind::SuperFireBaller => {
+                        (0.6, 2.0, 8.0..12.0, 10.0..14.0, 10.0..16.0)
+                    }
                     EnemyKind::Jock => (0.8, 3.0, 10.0..14.0, 40.0..50.0, 20.0..30.0),
-                    EnemyKind::Molefish | EnemyKind::Molesarge => (0.8, 3.5, 10.0..14.0, 20.0..30.0, 20.0..30.0),
+                    EnemyKind::Molefish | EnemyKind::Molesarge => {
+                        (0.8, 3.5, 10.0..14.0, 20.0..30.0, 20.0..30.0)
+                    }
                     EnemyKind::Raven => (0.8, 3.5, 20.0..30.0, 40.0..50.0, 20.0..30.0),
-                    EnemyKind::Rat | EnemyKind::Ratking | EnemyKind::FastRat | EnemyKind::BigRat => (0.8, 4.0, 10.0..16.0, 40.0..50.0, 10.0..25.0),
+                    EnemyKind::Rat
+                    | EnemyKind::Ratking
+                    | EnemyKind::FastRat
+                    | EnemyKind::BigRat => (0.8, 4.0, 10.0..16.0, 40.0..50.0, 10.0..25.0),
                     EnemyKind::Wolf => (0.8, 4.0, 10.0..16.0, 20.0..30.0, 12.0..20.0),
-                    EnemyKind::Assassin | EnemyKind::MeleeBandit => (0.8, 4.0, 10.0..14.0, 20.0..28.0, 16.0..24.0),
+                    EnemyKind::Assassin | EnemyKind::MeleeBandit => {
+                        (0.8, 4.0, 10.0..14.0, 20.0..28.0, 16.0..24.0)
+                    }
                     EnemyKind::Ballguy => (0.6, 3.0, 12.0..18.0, 12.0..18.0, 12.0..18.0),
                     EnemyKind::LightningCrystal => (0.5, 1.5, 10.0..14.0, 10.0..14.0, 10.0..20.0),
                     _ => (0.4, 4.0, 6.0..14.0, 18.0..28.0, 10.0..18.0),
@@ -663,8 +678,7 @@ pub fn enemy_ai(
                             brain.walk = 0.0;
                             vel.0 *= 0.5;
                         } else {
-                            let ang = base_ang
-                                + rng.random_range(-45_f32..45.0).to_radians();
+                            let ang = base_ang + rng.random_range(-45_f32..45.0).to_radians();
                             let wdir = Vec2::new(ang.cos(), ang.sin());
                             vel.0 = wdir * (impulse * 30.0);
                             brain.walk = rng.random_range(far_walk);
@@ -672,23 +686,20 @@ pub fn enemy_ai(
                         }
                     } else if dist < 44.0 {
                         let away = -dir;
-                        let ang = away.y.atan2(away.x)
-                            + rng.random_range(-15_f32..15.0).to_radians();
+                        let ang =
+                            away.y.atan2(away.x) + rng.random_range(-15_f32..15.0).to_radians();
                         let wdir = Vec2::new(ang.cos(), ang.sin());
                         vel.0 = wdir * (impulse * 30.0);
                         brain.walk = rng.random_range(close_walk);
                         brain.gunangle = base_ang;
                     } else {
-                        let ang = base_ang
-                            + rng.random_range(-90_f32..90.0).to_radians();
+                        let ang = base_ang + rng.random_range(-90_f32..90.0).to_radians();
                         let wdir = Vec2::new(ang.cos(), ang.sin());
                         vel.0 = wdir * (impulse * 30.0);
                         brain.walk = rng.random_range(6.0..10.0);
                     }
-                    brain.attack = Timer::from_seconds(
-                        rng.random_range(0.35..0.75),
-                        TimerMode::Once,
-                    );
+                    brain.attack =
+                        Timer::from_seconds(rng.random_range(0.35..0.75), TimerMode::Once);
                     if player_pos.x < pos.x {
                         sprite.flip_x = true;
                     } else if player_pos.x > pos.x {
@@ -705,10 +716,7 @@ pub fn enemy_ai(
                     );
                     sprite.flip_x = vel.0.x < 0.0;
                 } else {
-                    brain.attack = Timer::from_seconds(
-                        rng.random_range(0.3..0.6),
-                        TimerMode::Once,
-                    );
+                    brain.attack = Timer::from_seconds(rng.random_range(0.3..0.6), TimerMode::Once);
                 }
             }
             // walk impulse is handled by the top `if brain.walk>0` block on
@@ -879,8 +887,11 @@ fn enemy_bullet_sprite(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
     kind: EnemyKind,
-    def: EnemyDef,
+    _def: EnemyDef,
 ) -> (Sprite, bevy::sprite::Anchor) {
+    let sprite =
+        crate::game::projectile_art::enemy_projectile_sprite(asset_server, catalog, kind, None);
+    // Resolve anchor from the resolved path (first existing candidate).
     let primary = crate::game::projectile_art::enemy_projectile_path(kind);
     let candidates = [
         primary,
@@ -889,35 +900,9 @@ fn enemy_bullet_sprite(
         "images/sprBullet1.png",
         "images/sprBullet2.png",
     ];
-    for path in candidates {
-        if catalog.has(path) {
-            let mut s = crate::game::content::sprite_exact(catalog, asset_server, path);
-            // Scorpion bullets in GM (sprScorpionBullet) are bright green-yellow
-            // with an additive shine copy. Tint white is dim vs original.
-            if matches!(kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
-                s.color = Color::srgb(1.2, 1.35, 0.6);
-                // Slightly larger so the 2-frame strip reads like GM's glow
-                s.custom_size = Some(Vec2::splat((def.projectile_size * 1.6).max(7.0)));
-            } else {
-                s.color = Color::WHITE;
-                s.custom_size = Some(Vec2::splat(def.projectile_size.max(4.0)));
-            }
-            let anchor = crate::game::content::sprite_anchor(catalog, path);
-            return (s, anchor);
-        }
-    }
-    (
-        Sprite {
-            color: if matches!(kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
-                Color::srgb(1.0, 1.2, 0.45)
-            } else {
-                def.projectile_color
-            },
-            custom_size: Some(Vec2::splat(def.projectile_size * 1.4)),
-            ..default()
-        },
-        bevy::sprite::Anchor::CENTER,
-    )
+    let path = crate::game::projectile_art::first_existing(catalog, &candidates);
+    let anchor = crate::game::content::sprite_anchor(catalog, path);
+    (sprite, anchor)
 }
 
 fn fire_enemy_bullet(
@@ -1141,22 +1126,15 @@ pub fn tick_frog_eggs(
         let pos = tf.translation.truncate();
         commands.entity(e).despawn();
         // Upstream FrogEgg Alarm_1: repeat 8 → AcidStreak at 45° steps.
-        let acid_path = "images/sprAcidStreak.png";
-        let (acid_sprite, acid_anchor) = if catalog.has(acid_path) {
-            let mut s = crate::game::content::sprite_exact(&catalog, &asset_server, acid_path);
-            s.custom_size = Some(Vec2::splat(8.0));
-            s.color = Color::WHITE;
-            let a = crate::game::content::sprite_anchor(&catalog, acid_path);
+        let (acid_sprite, acid_anchor) = {
+            let s = crate::game::projectile_art::sprite_from_projectile_path(
+                &asset_server,
+                &catalog,
+                &["images/sprAcidStreak.png", "images/sprEnemyBullet1.png"],
+                None,
+            );
+            let a = crate::game::content::sprite_anchor(&catalog, "images/sprAcidStreak.png");
             (s, a)
-        } else {
-            (
-                Sprite {
-                    color: Color::srgb(0.55, 0.9, 0.25),
-                    custom_size: Some(Vec2::splat(8.0)),
-                    ..default()
-                },
-                bevy::sprite::Anchor::CENTER,
-            )
         };
         for i in 0..8 {
             let ang = (i as f32) * std::f32::consts::TAU / 8.0;
@@ -1198,7 +1176,7 @@ pub fn tick_boss_intro(
 #[cfg(test)]
 mod double_hp_check {
     use super::*;
-    use crate::game::content::{enemy_def, EnemyKind};
+    use crate::game::content::{EnemyKind, enemy_def};
     use crate::game::world::difficulty_multiplier;
     #[test]
     fn bandit_hp_is_4_not_8() {

@@ -21,6 +21,8 @@ use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 pub fn boss_ai(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     run: Res<Run>,
     mut trauma: ResMut<Trauma>,
     throne_room: Res<ThroneRoomState>,
@@ -80,6 +82,8 @@ pub fn boss_ai(
         match enemy.kind {
             EnemyKind::BigBandit | EnemyKind::BigBanditLoop => big_bandit_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -96,6 +100,8 @@ pub fn boss_ai(
             ),
             EnemyKind::BigDog | EnemyKind::BigDogLoop => big_dog_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -110,6 +116,8 @@ pub fn boss_ai(
             ),
             EnemyKind::LilHunter | EnemyKind::LilHunterLoop => lil_hunter_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -126,6 +134,8 @@ pub fn boss_ai(
             ),
             EnemyKind::Throne => throne_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 &throne_room,
                 entity,
@@ -140,6 +150,8 @@ pub fn boss_ai(
             ),
             EnemyKind::ThroneII => throne_ii_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -154,6 +166,8 @@ pub fn boss_ai(
             ),
             EnemyKind::Hyper => hyper_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -167,6 +181,8 @@ pub fn boss_ai(
             ),
             EnemyKind::Mom => mom_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -181,6 +197,8 @@ pub fn boss_ai(
             ),
             EnemyKind::FrogQueen => frog_queen_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 &children,
                 entity,
@@ -196,6 +214,8 @@ pub fn boss_ai(
             ),
             EnemyKind::Technomancer => technomancer_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -206,6 +226,8 @@ pub fn boss_ai(
             ),
             EnemyKind::Captain => captain_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -221,6 +243,8 @@ pub fn boss_ai(
             ),
             EnemyKind::OldGuardian => old_guardian_ai(
                 &mut commands,
+                &catalog,
+                &asset_server,
                 &mut trauma,
                 entity,
                 &mut boss,
@@ -243,6 +267,8 @@ pub fn boss_ai(
 #[allow(clippy::too_many_arguments)]
 fn big_bandit_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -307,7 +333,11 @@ fn big_bandit_ai(
                 let intro_done = boss.pattern_index > 0 || boss.phase == BossPhase::Cooldown;
                 // Use pattern_index as chargewait counter (like GML chargewait variable)
                 // and also as intro flag: after first cycle pattern_index becomes non-zero
-                let should_burst = los && dist > 48.0 && dist < 240.0 && intro_done && rand::rng().random::<f32>() < 2.0 / 3.0;
+                let should_burst = los
+                    && dist > 48.0
+                    && dist < 240.0
+                    && intro_done
+                    && rand::rng().random::<f32>() < 2.0 / 3.0;
                 if should_burst {
                     brain.ammo = if looped { 15 } else { 10 };
                     brain.burst_left = brain.ammo as usize;
@@ -336,7 +366,8 @@ fn big_bandit_ai(
                 }
                 // walk step (Alarm_1 always sets walk)
                 let away = -dir;
-                let ang = away.y.atan2(away.x) + rand::rng().random_range(-90f32..90.0).to_radians();
+                let ang =
+                    away.y.atan2(away.x) + rand::rng().random_range(-90f32..90.0).to_radians();
                 vel.0 = Vec2::new(ang.cos(), ang.sin()) * (0.4 * 30.0);
                 brain.walk = if dist > 64.0 {
                     40.0
@@ -357,6 +388,8 @@ fn big_bandit_ai(
                 // bullet speed 8 px/frame = 240 px/s
                 fire_projectile(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     pos + sdir * 20.0,
                     sdir,
@@ -380,7 +413,10 @@ fn big_bandit_ai(
                 brain.burst_timer = Timer::from_seconds(4.0 / 30.0, TimerMode::Once);
             }
             if brain.ammo == 0 {
-                boss.set_phase(BossPhase::Cooldown, (60.0 + rand::rng().random_range(0.0..10.0)) / 30.0);
+                boss.set_phase(
+                    BossPhase::Cooldown,
+                    (60.0 + rand::rng().random_range(0.0..10.0)) / 30.0,
+                );
                 boss.attack_timer = Timer::from_seconds(
                     (60.0 + rand::rng().random_range(0.0..10.0)) / 30.0,
                     TimerMode::Once,
@@ -413,7 +449,11 @@ fn big_bandit_ai(
             let before = tf.translation.truncate();
             tf.translation += (vel.0 * dt).extend(0.0);
             crate::game::walls::queue_wall_breaks_along_segment(
-                commands, walls, before, tf.translation.truncate(), def.radius * 0.9,
+                commands,
+                walls,
+                before,
+                tf.translation.truncate(),
+                def.radius * 0.9,
             );
             resolve_prop_collision(&mut tf.translation, def.radius, props);
             if boss.phase_timer.just_finished() {
@@ -437,6 +477,8 @@ fn big_bandit_ai(
 #[allow(clippy::too_many_arguments)]
 fn big_dog_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -476,6 +518,8 @@ fn big_dog_ai(
             let shot_dir = dir_from_angle(angle);
             fire_projectile(
                 commands,
+                catalog,
+                asset_server,
                 owner,
                 pos + shot_dir * 26.0,
                 shot_dir,
@@ -495,10 +539,21 @@ fn big_dog_ai(
     if boss.special_timer.just_finished() {
         boss.pattern_index += 1;
         if boss.pattern_index % 3 == 0 {
-            big_dog_stomp(commands, trauma, owner, pos, boss.enraged, looped);
+            big_dog_stomp(
+                commands,
+                catalog,
+                asset_server,
+                trauma,
+                owner,
+                pos,
+                boss.enraged,
+                looped,
+            );
         } else {
             big_dog_rotating_salvo(
                 commands,
+                catalog,
+                asset_server,
                 owner,
                 pos,
                 boss.pattern_index,
@@ -511,6 +566,8 @@ fn big_dog_ai(
 
 fn big_dog_rotating_salvo(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     pattern_index: usize,
@@ -535,6 +592,8 @@ fn big_dog_rotating_salvo(
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 34.0,
             dir,
@@ -553,6 +612,8 @@ fn big_dog_rotating_salvo(
 
 fn big_dog_stomp(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     pos: Vec2,
@@ -582,6 +643,8 @@ fn big_dog_stomp(
 
     fire_ring_with_kind(
         commands,
+        catalog,
+        asset_server,
         owner,
         pos,
         Team::Enemy,
@@ -606,6 +669,8 @@ fn big_dog_stomp(
 #[allow(clippy::too_many_arguments)]
 fn lil_hunter_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -648,6 +713,8 @@ fn lil_hunter_ai(
             if boss.attack_timer.just_finished() {
                 lil_hunter_burst(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     pos,
                     player_pos,
@@ -719,6 +786,8 @@ fn lil_hunter_ai(
 
                 fire_ring_with_kind(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     land_pos,
                     Team::Enemy,
@@ -743,6 +812,8 @@ fn lil_hunter_ai(
                 // Post-land double burst.
                 lil_hunter_burst(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     tf.translation.truncate(),
                     player_pos,
@@ -763,6 +834,8 @@ fn lil_hunter_ai(
 
 fn lil_hunter_burst(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     player_pos: Vec2,
@@ -789,6 +862,8 @@ fn lil_hunter_burst(
         };
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 20.0,
             dir,
@@ -814,6 +889,8 @@ fn lil_hunter_burst(
 #[allow(clippy::too_many_arguments)]
 fn throne_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     throne_room: &ThroneRoomState,
     owner: Entity,
@@ -842,15 +919,39 @@ fn throne_ai(
             throne_beam_lanes(commands, pos, dir, boss.enraged);
             ScreenEffects::add_trauma(trauma, if boss.enraged { 0.26 } else { 0.18 });
         } else if boss.pattern_index % 2 == 0 {
-            throne_cross_rings(commands, owner, pos, boss.pattern_index, boss.enraged);
+            throne_cross_rings(
+                commands,
+                catalog,
+                asset_server,
+                owner,
+                pos,
+                boss.pattern_index,
+                boss.enraged,
+            );
         } else {
-            throne_aimed_spread(commands, owner, pos, player_pos, boss.enraged);
+            throne_aimed_spread(
+                commands,
+                catalog,
+                asset_server,
+                owner,
+                pos,
+                player_pos,
+                boss.enraged,
+            );
         }
     }
 
     if boss.special_timer.just_finished() {
         boss.set_phase(BossPhase::Radial, 0.45);
-        throne_radial_burst(commands, owner, pos, boss.pattern_index, boss.enraged);
+        throne_radial_burst(
+            commands,
+            catalog,
+            asset_server,
+            owner,
+            pos,
+            boss.pattern_index,
+            boss.enraged,
+        );
         ScreenEffects::add_trauma(trauma, if boss.enraged { 0.34 } else { 0.22 });
     }
 
@@ -863,6 +964,8 @@ fn throne_ai(
 
 fn throne_aimed_spread(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     player_pos: Vec2,
@@ -874,6 +977,8 @@ fn throne_aimed_spread(
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 44.0,
             dir,
@@ -892,6 +997,8 @@ fn throne_aimed_spread(
 
 fn throne_cross_rings(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     index: usize,
@@ -904,6 +1011,8 @@ fn throne_cross_rings(
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 42.0,
             dir,
@@ -922,6 +1031,8 @@ fn throne_cross_rings(
 
 fn throne_radial_burst(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     index: usize,
@@ -934,6 +1045,8 @@ fn throne_radial_burst(
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 50.0,
             dir,
@@ -995,6 +1108,8 @@ fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, en
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -1038,6 +1153,8 @@ fn throne_ii_ai(
                     0 => {
                         throne_ii_split_orbs(
                             commands,
+                            catalog,
+                            asset_server,
                             owner,
                             pos,
                             player_pos,
@@ -1046,7 +1163,15 @@ fn throne_ii_ai(
                         );
                     }
                     1 => {
-                        throne_ii_laser_orbs(commands, owner, pos, loop_count, boss.enraged);
+                        throne_ii_laser_orbs(
+                            commands,
+                            catalog,
+                            asset_server,
+                            owner,
+                            pos,
+                            loop_count,
+                            boss.enraged,
+                        );
                     }
                     _ => {
                         boss.set_phase(BossPhase::Radial, if boss.enraged { 0.55 } else { 0.7 });
@@ -1056,7 +1181,16 @@ fn throne_ii_ai(
             }
 
             if boss.special_timer.just_finished() {
-                throne_ii_split_orbs(commands, owner, pos, player_pos, loop_count, true);
+                throne_ii_split_orbs(
+                    commands,
+                    catalog,
+                    asset_server,
+                    owner,
+                    pos,
+                    player_pos,
+                    loop_count,
+                    true,
+                );
                 ScreenEffects::add_trauma(trauma, 0.18);
             }
         }
@@ -1065,7 +1199,15 @@ fn throne_ii_ai(
             // Static star phase.
             vel.0 *= 0.85_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             if boss.phase_timer.just_finished() {
-                throne_ii_star_burst(commands, owner, pos, loop_count, boss.enraged);
+                throne_ii_star_burst(
+                    commands,
+                    catalog,
+                    asset_server,
+                    owner,
+                    pos,
+                    loop_count,
+                    boss.enraged,
+                );
                 ScreenEffects::add_trauma(trauma, 0.22);
                 boss.set_phase(BossPhase::Cooldown, 0.45);
             }
@@ -1078,6 +1220,8 @@ fn throne_ii_ai(
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_split_orbs(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     player_pos: Vec2,
@@ -1114,11 +1258,7 @@ fn throne_ii_split_orbs(
                 color: Color::srgb(0.35, 1.0, 0.5),
                 size: Vec2::splat(7.0),
             }),
-            Sprite {
-                color: Color::srgb(0.3, 1.0, 0.45),
-                custom_size: Some(Vec2::splat(16.0)),
-                ..default()
-            },
+            crate::game::projectile_art::generic_enemy_bullet_sprite(asset_server, catalog, None),
             Transform::from_translation((pos + dir * 28.0).extend(16.0)),
         ));
     }
@@ -1127,6 +1267,8 @@ fn throne_ii_split_orbs(
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_laser_orbs(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     loop_count: u32,
@@ -1150,11 +1292,7 @@ fn throne_ii_laser_orbs(
                 source: Some(DamageSource::enemy(owner, EnemyKind::ThroneII)),
             },
             Velocity(dir * 120.0),
-            Sprite {
-                color: Color::srgb(0.75, 1.0, 0.85),
-                custom_size: Some(Vec2::splat(14.0)),
-                ..default()
-            },
+            crate::game::projectile_art::generic_enemy_bullet_sprite(asset_server, catalog, None),
             Transform::from_translation((pos + dir * 24.0).extend(16.0)),
         ));
 
@@ -1175,6 +1313,8 @@ fn throne_ii_laser_orbs(
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_star_burst(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     loop_count: u32,
@@ -1185,6 +1325,8 @@ fn throne_ii_star_burst(
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 22.0,
             dir,
@@ -1206,6 +1348,8 @@ fn throne_ii_star_burst(
 #[allow(clippy::too_many_arguments)]
 fn hyper_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -1378,6 +1522,8 @@ pub fn tick_hyper_orbit_crystals(
 #[allow(clippy::too_many_arguments)]
 fn mom_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -1405,6 +1551,8 @@ fn mom_ai(
         // Toxic ring around Mom.
         fire_ring_with_kind(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos,
             Team::Enemy,
@@ -1446,6 +1594,8 @@ fn mom_ai(
 /// egg budget of 8 on screen (upstream Exploder + SuperFrog*2 < 8 check).
 fn frog_queen_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     children: &Query<
         (Entity, &'static Enemy, &'static Transform),
@@ -1483,6 +1633,8 @@ fn frog_queen_ai(
         );
         fire_fan_with_kind(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos,
             aim.normalize_or_zero(),
@@ -1523,6 +1675,8 @@ fn frog_queen_ai(
 
 fn technomancer_ai(
     commands: &mut Commands,
+    _catalog: &AssetCatalog,
+    _asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     _owner: Entity,
     boss: &mut BossBrain,
@@ -1571,6 +1725,8 @@ fn technomancer_ai(
 #[allow(clippy::too_many_arguments)]
 fn captain_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -1599,6 +1755,8 @@ fn captain_ai(
             if boss.attack_timer.just_finished() {
                 fire_fan_with_kind(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     pos,
                     dir,
@@ -1662,6 +1820,8 @@ fn captain_ai(
                 boss.set_phase(BossPhase::Cooldown, 0.45);
                 fire_ring_with_kind(
                     commands,
+                    catalog,
+                    asset_server,
                     owner,
                     tf.translation.truncate(),
                     Team::Enemy,
@@ -1690,6 +1850,8 @@ fn captain_ai(
 #[allow(clippy::too_many_arguments)]
 fn old_guardian_ai(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     trauma: &mut ResMut<Trauma>,
     owner: Entity,
     boss: &mut BossBrain,
@@ -1716,6 +1878,8 @@ fn old_guardian_ai(
     if boss.attack_timer.just_finished() {
         fire_fan_with_kind(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos,
             dir,
@@ -1735,6 +1899,8 @@ fn old_guardian_ai(
     if boss.special_timer.just_finished() {
         fire_ring_with_kind(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos,
             Team::Enemy,
@@ -1804,6 +1970,8 @@ fn short_ready_timer() -> Timer {
 #[allow(clippy::too_many_arguments)]
 fn fire_fan(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -1819,14 +1987,30 @@ fn fire_fan(
 ) {
     // Back-compat wrapper: defaults to Bandit when caller doesn't specify a kind.
     fire_fan_with_kind(
-        commands, owner, pos, dir, team, count, spread, speed, damage, lifetime, radius, color,
-        size, None,
+        commands,
+        catalog,
+        asset_server,
+        owner,
+        pos,
+        dir,
+        team,
+        count,
+        spread,
+        speed,
+        damage,
+        lifetime,
+        radius,
+        color,
+        size,
+        None,
     );
 }
 
 #[allow(clippy::too_many_arguments)]
 fn fire_fan_with_kind(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -1837,8 +2021,8 @@ fn fire_fan_with_kind(
     damage: i32,
     lifetime: f32,
     radius: f32,
-    color: Color,
-    size: f32,
+    _color: Color,
+    _size: f32,
     enemy_kind: Option<EnemyKind>,
 ) {
     let base = dir.to_angle();
@@ -1846,6 +2030,8 @@ fn fire_fan_with_kind(
         let shot_dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + shot_dir * 20.0,
             shot_dir,
@@ -1855,8 +2041,8 @@ fn fire_fan_with_kind(
             lifetime,
             radius,
             120.0,
-            color,
-            size,
+            _color,
+            _size,
             enemy_kind,
         );
     }
@@ -1865,6 +2051,8 @@ fn fire_fan_with_kind(
 #[allow(clippy::too_many_arguments)]
 fn fire_ring(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     team: Team,
@@ -1878,7 +2066,20 @@ fn fire_ring(
     size: f32,
 ) {
     fire_ring_with_kind(
-        commands, owner, pos, team, count, phase, speed, damage, lifetime, radius, color, size,
+        commands,
+        catalog,
+        asset_server,
+        owner,
+        pos,
+        team,
+        count,
+        phase,
+        speed,
+        damage,
+        lifetime,
+        radius,
+        color,
+        size,
         None,
     );
 }
@@ -1886,6 +2087,8 @@ fn fire_ring(
 #[allow(clippy::too_many_arguments)]
 fn fire_ring_with_kind(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     team: Team,
@@ -1895,14 +2098,16 @@ fn fire_ring_with_kind(
     damage: i32,
     lifetime: f32,
     radius: f32,
-    color: Color,
-    size: f32,
+    _color: Color,
+    _size: f32,
     enemy_kind: Option<EnemyKind>,
 ) {
     for angle in ring_angles(count, phase) {
         let dir = dir_from_angle(angle);
         fire_projectile(
             commands,
+            catalog,
+            asset_server,
             owner,
             pos + dir * 22.0,
             dir,
@@ -1912,8 +2117,8 @@ fn fire_ring_with_kind(
             lifetime,
             radius,
             100.0,
-            color,
-            size,
+            _color,
+            _size,
             enemy_kind,
         );
     }
@@ -1922,6 +2127,8 @@ fn fire_ring_with_kind(
 #[allow(clippy::too_many_arguments)]
 fn fire_projectile(
     commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -1931,8 +2138,8 @@ fn fire_projectile(
     lifetime: f32,
     radius: f32,
     knockback: f32,
-    color: Color,
-    size: f32,
+    _color: Color,
+    _size: f32,
     enemy_kind: Option<EnemyKind>,
 ) {
     let angle = dir.y.atan2(dir.x);
@@ -1965,10 +2172,64 @@ fn fire_projectile(
             source,
         },
         Velocity(dir * speed),
-        Sprite {
-            color,
-            custom_size: Some(Vec2::splat(size)),
-            ..default()
+        {
+            let sprite = if let Some(kind) = enemy_kind {
+                if matches!(
+                    kind,
+                    EnemyKind::BigDog
+                        | EnemyKind::BigDogLoop
+                        | EnemyKind::Jock
+                        | EnemyKind::SnowTank
+                        | EnemyKind::GoldSnowtank
+                ) {
+                    crate::game::projectile_art::sprite_from_projectile_path(
+                        asset_server,
+                        catalog,
+                        &[
+                            "images/sprBigDogMissile.png",
+                            "images/sprJockRocket.png",
+                            "images/sprRocket.png",
+                        ],
+                        None,
+                    )
+                } else if matches!(
+                    kind,
+                    EnemyKind::Guardian
+                        | EnemyKind::ExploGuardian
+                        | EnemyKind::DogGuardian
+                        | EnemyKind::Crystal
+                        | EnemyKind::LaserCrystal
+                        | EnemyKind::Turtle
+                        | EnemyKind::OldGuardian
+                        | EnemyKind::Throne
+                        | EnemyKind::ThroneII
+                ) {
+                    crate::game::projectile_art::sprite_from_projectile_path(
+                        asset_server,
+                        catalog,
+                        &[
+                            "images/sprGuardianBullet.png",
+                            "images/sprHorrorBullet.png",
+                            "images/sprEnemyBullet1.png",
+                        ],
+                        None,
+                    )
+                } else {
+                    crate::game::projectile_art::enemy_projectile_sprite(
+                        asset_server,
+                        catalog,
+                        kind,
+                        None,
+                    )
+                }
+            } else {
+                crate::game::projectile_art::generic_enemy_bullet_sprite(
+                    asset_server,
+                    catalog,
+                    None,
+                )
+            };
+            sprite
         },
         Transform::from_translation(pos.extend(15.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));

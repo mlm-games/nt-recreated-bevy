@@ -71,6 +71,7 @@ impl Plugin for GamePlugin {
             .init_resource::<LastDamageTaken>()
             .init_resource::<skin_unlocks::CrystalDamageTaken>()
             .init_resource::<ThroneRoomState>()
+            .init_resource::<progress_sys::DeferredFloorGen>()
             .init_resource::<ambience::AreaAudioState>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
             .add_message::<reactive_audio::UiBridgeAction>()
@@ -293,17 +294,22 @@ fn gameplay_active(
     transition: Res<Transition<AppState>>,
     run: Res<Run>,
     ft: Option<Res<FloorTransition>>,
+    pending_mut: Option<Res<PendingMutation>>,
+    pending_ultra: Option<Res<PendingUltra>>,
 ) -> bool {
     let loading = ft.map(|f| f.active).unwrap_or(false);
+    let picking = pending_mut.is_some() || pending_ultra.is_some();
     *state.get() == AppState::InGame
         && !paused.0
         && !transition.block_input
         && !run.game_over
         && !loading
+        && !picking
 }
 
 fn scan_assets_and_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     let catalog = content::scan_asset_catalog();
+    content::assert_nt_parity_assets(&catalog);
     let audio = GameAudio::load(&asset_server, &catalog);
     commands.insert_resource(catalog);
     commands.insert_resource(audio);

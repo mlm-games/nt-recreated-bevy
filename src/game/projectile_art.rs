@@ -1,4 +1,6 @@
-use crate::game::content::{EnemyKind, WeaponId, weapon_meta};
+use bevy::prelude::*;
+
+use crate::game::content::{AssetCatalog, EnemyKind, WeaponId, weapon_meta};
 use crate::game::weapons_data::AmmoType;
 
 /// Resolve the best projectile sprite for a player weapon.
@@ -294,15 +296,17 @@ pub fn enemy_projectile_path(kind: EnemyKind) -> &'static str {
         EnemyKind::Guardian => "images/sprGuardianBullet.png",
         EnemyKind::ExploGuardian => "images/sprHorrorBullet.png",
         EnemyKind::DogGuardian => "images/sprHeavyBullet.png",
-        EnemyKind::Crystal | EnemyKind::LaserCrystal | EnemyKind::InvLaserCrystal | EnemyKind::LightningCrystal => {
-            "images/sprGuardianBullet.png"
-        }
+        EnemyKind::Crystal
+        | EnemyKind::LaserCrystal
+        | EnemyKind::InvLaserCrystal
+        | EnemyKind::LightningCrystal => "images/sprGuardianBullet.png",
         EnemyKind::FireBaller | EnemyKind::SuperFireBaller => "images/sprFlameBall.png",
         EnemyKind::Turtle => "images/sprGuardianBullet.png",
         EnemyKind::Sniper => "images/sprBullet1.png",
-        EnemyKind::Bandit | EnemyKind::JungleBandit | EnemyKind::SnowBandit | EnemyKind::MeleeBandit => {
-            "images/sprEnemyBullet1.png"
-        }
+        EnemyKind::Bandit
+        | EnemyKind::JungleBandit
+        | EnemyKind::SnowBandit
+        | EnemyKind::MeleeBandit => "images/sprEnemyBullet1.png",
         EnemyKind::Rat | EnemyKind::BigRat | EnemyKind::FastRat | EnemyKind::Ratking => {
             "images/sprEnemyBullet1.png"
         }
@@ -313,22 +317,118 @@ pub fn enemy_projectile_path(kind: EnemyKind) -> &'static str {
         EnemyKind::Freak | EnemyKind::RhinoFreak | EnemyKind::ExploFreak | EnemyKind::PopoFreak => {
             "images/sprEnemyBullet1.png"
         }
-        EnemyKind::IdpdGrunt | EnemyKind::IdpdShield | EnemyKind::IdpdElite | EnemyKind::IdpdInspector => {
-            "images/sprIDPDBullet.png"
+        EnemyKind::IdpdGrunt
+        | EnemyKind::IdpdShield
+        | EnemyKind::IdpdElite
+        | EnemyKind::IdpdInspector => "images/sprIDPDBullet.png",
+        EnemyKind::Maggot | EnemyKind::BigMaggot | EnemyKind::MaggotSpawn => {
+            "images/sprMaggotBullet.png"
         }
-        EnemyKind::Maggot | EnemyKind::BigMaggot | EnemyKind::MaggotSpawn => "images/sprMaggotBullet.png",
         _ => "images/sprEnemyBullet1.png",
     }
 }
 
 /// Pick first path that exists in catalog, fallback to first.
-pub fn first_existing<'a>(catalog: &crate::game::content::AssetCatalog, paths: &[&'a str]) -> &'a str {
+pub fn first_existing<'a>(
+    catalog: &crate::game::content::AssetCatalog,
+    paths: &[&'a str],
+) -> &'a str {
     for p in paths {
         if catalog.has(p) {
             return p;
         }
     }
     paths.first().copied().unwrap_or("images/sprBullet1.png")
+}
+
+pub fn sprite_from_projectile_path(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    candidates: &[&'static str],
+    custom_size: Option<Vec2>,
+) -> Sprite {
+    let path = first_existing(catalog, candidates);
+
+    Sprite {
+        image: asset_server.load(path),
+        color: Color::WHITE,
+        custom_size,
+        ..default()
+    }
+}
+
+pub fn player_projectile_sprite(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    weapon: WeaponId,
+    custom_size: Option<Vec2>,
+) -> Sprite {
+    let candidates = player_projectile_candidates(weapon);
+    sprite_from_projectile_path(asset_server, catalog, &candidates, custom_size)
+}
+
+pub fn enemy_projectile_sprite(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    kind: EnemyKind,
+    custom_size: Option<Vec2>,
+) -> Sprite {
+    let primary = enemy_projectile_path(kind);
+    sprite_from_projectile_path(
+        asset_server,
+        catalog,
+        &[
+            primary,
+            "images/sprEnemyBullet1.png",
+            "images/sprBullet1.png",
+        ],
+        custom_size,
+    )
+}
+
+pub fn generic_enemy_bullet_sprite(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    custom_size: Option<Vec2>,
+) -> Sprite {
+    sprite_from_projectile_path(
+        asset_server,
+        catalog,
+        &["images/sprEnemyBullet1.png", "images/sprBullet1.png"],
+        custom_size,
+    )
+}
+
+pub fn generic_player_bullet_sprite(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    custom_size: Option<Vec2>,
+) -> Sprite {
+    sprite_from_projectile_path(
+        asset_server,
+        catalog,
+        &["images/sprBullet1.png"],
+        custom_size,
+    )
+}
+
+pub fn plasma_child_sprite(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    size: Vec2,
+) -> Sprite {
+    let path = if size.x >= 14.0 || size.y >= 14.0 {
+        "images/sprPlasmaBallBig.png"
+    } else {
+        "images/sprPlasmaBall.png"
+    };
+
+    sprite_from_projectile_path(
+        asset_server,
+        catalog,
+        &[path, "images/sprPlasmaBall.png", "images/sprBullet1.png"],
+        None,
+    )
 }
 
 /// Helper to resolve ordered candidates for a weapon.

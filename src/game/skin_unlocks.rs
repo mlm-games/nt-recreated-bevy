@@ -137,7 +137,8 @@ pub fn tick_global_skins(
         save.races
             .get(&r)
             .map(|lo| {
-                let name = crate::game::content::weapon_id_name(lo.stored_weapon).to_ascii_lowercase();
+                let name =
+                    crate::game::content::weapon_id_name(lo.stored_weapon).to_ascii_lowercase();
                 name.contains("golden")
             })
             .unwrap_or(false)

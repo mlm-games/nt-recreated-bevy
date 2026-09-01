@@ -17,10 +17,7 @@ impl Plugin for ScreensPlugin {
                      asset_server: Res<AssetServer>,
                      mut progress: ResMut<LoadingProgress>,
                      mut tip: ResMut<LoadingTip>| {
-                        c.insert_resource(LoadingTimer(Timer::from_seconds(
-                            0.5,
-                            TimerMode::Once,
-                        )));
+                        c.insert_resource(LoadingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
                         let handles =
                             vec![asset_server.load::<Font>("fonts/default.ttf").untyped()];
                         c.insert_resource(AssetsLoading(handles));

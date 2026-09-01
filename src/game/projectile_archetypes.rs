@@ -258,7 +258,11 @@ fn archetyped(name: &str) -> ProjectileArchetype {
             ..default()
         },
 
-        "CROSSBOW" | "HEAVY CROSSBOW" | "AUTO CROSSBOW" | "SUPER CROSSBOW" | "HEAVY AUTO CROSSBOW"
+        "CROSSBOW"
+        | "HEAVY CROSSBOW"
+        | "AUTO CROSSBOW"
+        | "SUPER CROSSBOW"
+        | "HEAVY AUTO CROSSBOW"
         | "ULTRA CROSSBOW" => ProjectileArchetype {
             sticky: Some(Sticky::default()),
             ..default()

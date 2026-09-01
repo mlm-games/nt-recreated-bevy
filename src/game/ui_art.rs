@@ -1949,14 +1949,7 @@ fn spawn_char_select_world(
         // Try common stems; resolve_audio_path handles stem substring fallback.
         for stem in ["amb0", "sndCampfire", "ambCampfire", "sndCampfireLoop"] {
             if catalog.resolve_audio_path(stem).is_some() {
-                play_loop(
-                    commands,
-                    catalog,
-                    asset_server,
-                    stem,
-                    0.55,
-                    CampfireAmb,
-                );
+                play_loop(commands, catalog, asset_server, stem, 0.55, CampfireAmb);
                 break;
             }
         }
@@ -2046,8 +2039,11 @@ fn spawn_char_select_screen_ui(
             Color::WHITE,
             LB_STRIP_Z,
         );
-        art.letterbox
-            .push(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.letterbox.push(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
 
         let (mut spr, tf) = gm_sprite(
             catalog,
@@ -2064,8 +2060,11 @@ fn spawn_char_select_screen_ui(
         );
         spr.flip_x = true;
         spr.flip_y = true;
-        art.letterbox
-            .push(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.letterbox.push(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
 
         // Side margins (scrDrawLetterbox black rectangles):
         //   bottom-left: [0, margin] viewport -> gui [ -half_extra, margin - half_extra ]
@@ -2073,7 +2072,7 @@ fn spawn_char_select_screen_ui(
         if margin > 0.5 {
             for (cx, cy) in [
                 (bottom_left_cx, GUI_H - LETTERBOX_SIZE * 0.5), // bottom-left
-                (top_right_cx, -1.0 + LETTERBOX_SIZE * 0.5), // top-right
+                (top_right_cx, -1.0 + LETTERBOX_SIZE * 0.5),    // top-right
             ] {
                 let c = map.to_world(cx, cy);
                 commands.spawn((
@@ -2108,7 +2107,11 @@ fn spawn_char_select_screen_ui(
             Color::WHITE,
             -855.0,
         );
-        art.splat = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.splat = Some(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
     }
 
     // Big portrait (sprCampfireMenuDrawRacePortrait, fa_left): draw point
@@ -2130,7 +2133,14 @@ fn spawn_char_select_screen_ui(
         );
         art.big_portrait = Some(
             commands
-                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((
+                    TitleArt,
+                    TitleScreenUiArt,
+                    ChildOf(cam),
+                    Visibility::Hidden,
+                    spr,
+                    tf,
+                ))
                 .id(),
         );
     }
@@ -2153,7 +2163,14 @@ fn spawn_char_select_screen_ui(
         );
         art.big_name = Some(
             commands
-                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((
+                    TitleArt,
+                    TitleScreenUiArt,
+                    ChildOf(cam),
+                    Visibility::Hidden,
+                    spr,
+                    tf,
+                ))
                 .id(),
         );
     }
@@ -2174,7 +2191,11 @@ fn spawn_char_select_screen_ui(
             Color::WHITE,
             -853.0,
         );
-        art.loadout_splat = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.loadout_splat = Some(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
 
         let (spr, tf) = gm_sprite(
             catalog,
@@ -2189,7 +2210,11 @@ fn spawn_char_select_screen_ui(
             C_UIGRAY,
             -847.0,
         );
-        art.arrow = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.arrow = Some(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
 
         let (spr, tf) = gm_sprite(
             catalog,
@@ -2204,7 +2229,11 @@ fn spawn_char_select_screen_ui(
             Color::WHITE,
             -852.0,
         );
-        art.crown_icon = Some(commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id());
+        art.crown_icon = Some(
+            commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id(),
+        );
 
         for slot in 0..2usize {
             let wx = GUI_W + 2.0 - 60.0 + if slot == 0 { -8.0 } else { 16.0 };
@@ -2223,7 +2252,9 @@ fn spawn_char_select_screen_ui(
                 },
                 -846.0,
             );
-            let e = commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id();
+            let e = commands
+                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                .id();
             art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
         }
 
@@ -2247,7 +2278,14 @@ fn spawn_char_select_screen_ui(
         );
         art.open_panel = Some(
             commands
-                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, spr, tf))
+                .spawn((
+                    TitleArt,
+                    TitleScreenUiArt,
+                    ChildOf(cam),
+                    Visibility::Hidden,
+                    spr,
+                    tf,
+                ))
                 .id(),
         );
 
@@ -2268,7 +2306,9 @@ fn spawn_char_select_screen_ui(
                 -848.0,
             );
             art.crown_grid.push((
-                commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id(),
+                commands
+                    .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                    .id(),
                 crown_id,
                 gx,
                 gy,
@@ -2292,7 +2332,9 @@ fn spawn_char_select_screen_ui(
                 -848.0,
             );
             art.skin_grid.push((
-                commands.spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf)).id(),
+                commands
+                    .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                    .id(),
                 idx,
                 false,
             ));
@@ -2315,7 +2357,14 @@ fn spawn_char_select_screen_ui(
         -856.0,
     );
     let go = commands
-        .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), Visibility::Hidden, go_spr, go_tf))
+        .spawn((
+            TitleArt,
+            TitleScreenUiArt,
+            ChildOf(cam),
+            Visibility::Hidden,
+            go_spr,
+            go_tf,
+        ))
         .id();
     art.go_button = Some((go, gx, gy));
     art.addy = 1.0;
@@ -2343,7 +2392,12 @@ fn spawn_char_select(
             Projection::Orthographic(o) => o.scale,
             _ => 1.0,
         };
-        Some((cam_ent, gui_map(win.width(), win.height(), scale), win, scale))
+        Some((
+            cam_ent,
+            gui_map(win.width(), win.height(), scale),
+            win,
+            scale,
+        ))
     }) else {
         return;
     };
@@ -2371,7 +2425,6 @@ fn spawn_char_select(
     remember_title_layout(&mut art, window, scale);
     commands.insert_resource(art);
 }
-
 
 #[allow(clippy::type_complexity)]
 fn respawn_title_screen_ui_on_layout_change(
@@ -2458,7 +2511,8 @@ fn hide_title_during_transition(
     // covering/uncovering. Repose fade and vortex both drive
     // `Transition.overlay_alpha` / `phase`; when active the title screen
     // should be behind the transition, not over it.
-    let hide = transition.active || transition.phase != game_utils_bevy::transitions::TransitionPhase::Idle;
+    let hide = transition.active
+        || transition.phase != game_utils_bevy::transitions::TransitionPhase::Idle;
     for (entity, _, _) in &art.pods {
         if let Ok(mut vis) = vis_q.get_mut(*entity) {
             *vis = if hide {
@@ -3665,8 +3719,14 @@ mod campfire_ui_tests {
         let m = gui_map(1280.0, 720.0, CAM_SCALE);
         let effective_w = (m.hw * 2.0) / m.s;
         assert!((effective_w - 426.6667).abs() < 1e-3);
-        let mut catalog = AssetCatalog { anims: Default::default(), ..Default::default() };
-        catalog.anims.insert("images/sprLetterbox.png".to_string(), [1.0, 320.0, 44.0, 0.0, 0.0, 0.0]);
+        let mut catalog = AssetCatalog {
+            anims: Default::default(),
+            ..Default::default()
+        };
+        catalog.anims.insert(
+            "images/sprLetterbox.png".to_string(),
+            [1.0, 320.0, 44.0, 0.0, 0.0, 0.0],
+        );
         assert!((letterbox_margin(&catalog, effective_w) - 106.6667).abs() < 1e-3);
         assert_eq!(letterbox_margin(&catalog, 320.0), 0.0);
     }
