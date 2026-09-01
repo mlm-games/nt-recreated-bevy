@@ -349,12 +349,18 @@ pub fn sprite_from_projectile_path(
 ) -> Sprite {
     let path = first_existing(catalog, candidates);
 
-    Sprite {
-        image: asset_server.load(path),
-        color: Color::WHITE,
-        custom_size,
-        ..default()
+    let mut sprite = crate::game::content::sprite_exact(catalog, asset_server, path);
+    sprite.color = Color::WHITE;
+    sprite.custom_size = custom_size;
+    if let Some(m) = catalog.anims.get(path) {
+        let frames = m[0] as usize;
+        if frames == 2 {
+            let w = m[1].max(1.0);
+            let h = m[2].max(1.0);
+            sprite.rect = Some(Rect::new(w, 0.0, w * 2.0, h));
+        }
     }
+    sprite
 }
 
 pub fn player_projectile_sprite(
