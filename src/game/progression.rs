@@ -353,9 +353,8 @@ fn begin_between_floor_skill_picks(
     race: RaceId,
     paused: &mut Paused,
 ) {
-    paused.0 = true;
-
     if player.ultra_pick_owed && player.ultra.is_none() && player.level >= 10 {
+        paused.0 = true;
         let choices = ultra_choices_for(race).to_vec();
         commands.insert_resource(PendingUltra { choices });
         // Keep ultra_pick_owed true until chosen.
@@ -366,10 +365,22 @@ fn begin_between_floor_skill_picks(
         let choices = roll_mutations(player);
         if choices.is_empty() {
             // No mutations left: full heal and consume one owed pick.
-            player.mutation_picks_owed = player.mutation_picks_owed.saturating_sub(1);
-            // Caller should re-enter begin_... if more picks remain.
+            // Do not pause — there is no UI to show. Drain all owed picks that
+            // would otherwise leave deferred+paused with no Pending resource.
+            while player.mutation_picks_owed > 0 {
+                let c = roll_mutations(player);
+                if c.is_empty() {
+                    player.mutation_picks_owed = player.mutation_picks_owed.saturating_sub(1);
+                } else {
+                    paused.0 = true;
+                    commands.insert_resource(PendingMutation { choices: c });
+                    return;
+                }
+            }
+            paused.0 = false;
             return;
         }
+        paused.0 = true;
         commands.insert_resource(PendingMutation { choices });
     }
 }
@@ -1334,17 +1345,18 @@ pub fn tick_portal_suck(
             race_state.race,
             &mut ctx.paused,
         );
-        // If pool was empty, begin_between consumed one owed pick and did not insert resource.
-        // If still owed picks remain without an ultra pending, try to open next pick.
-        // For simplicity, if no PendingMutation/Ultra was inserted but owed still >0,
-        // the next tick's portal handling is already deferred; the mutation system
-        // will handle chaining after the first pick. If the first call found no
-        // choices (empty pool), we already healed and consumed one pick; if more
-        // owed remain they will be handled after the next pick or via fallback heal.
-        // Still hide player / clean floor as you already do.
-        player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
-        // Do NOT insert FloorTransition yet — wait until picks finish.
-        return;
+        if player.mutation_picks_owed == 0 && !player.ultra_pick_owed {
+            if !ctx.paused.0 {
+                ctx.deferred.0 = false;
+                // Fall through to GenCont path below.
+            } else {
+                player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
+                return;
+            }
+        } else {
+            player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
+            return;
+        }
     }
 
     // No picks owed → existing GenCont path:

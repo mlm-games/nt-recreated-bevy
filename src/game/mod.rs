@@ -104,9 +104,7 @@ impl Plugin for GamePlugin {
                 (
                     (
                         (
-                            sync_hud,
                             anim::animate_sprites,
-                            progress_sys::handle_mutation_choice,
                             player_sys::face_aim,
                             pickups::tick_toast,
                             secret_areas::observe_oasis_floor_start,
@@ -276,6 +274,14 @@ impl Plugin for GamePlugin {
                     )
                         .chain(),
                     reactive_audio::update_combat_intensity_audio,
+                )
+                    .in_set(NtSimSet::Always),
+            )
+            .add_systems(
+                Update,
+                (
+                    progress_sys::handle_mutation_choice,
+                    hud::sync_hud,
                 )
                     .in_set(NtSimSet::Always),
             )
