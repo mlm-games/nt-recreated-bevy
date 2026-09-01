@@ -614,6 +614,18 @@ impl DamageSource {
     }
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ProjectileFriction(pub f32);
+
+#[derive(Component, Debug)]
+pub struct ShellBonus {
+    pub timer: Timer,
+    pub bonus: i32,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ShellWallBounce(pub f32);
+
 #[derive(Component)]
 pub struct Projectile {
     pub damage: i32,

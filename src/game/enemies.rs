@@ -1195,6 +1195,21 @@ pub fn tick_boss_intro(
     }
 }
 
+#[cfg(test)]
+mod double_hp_check {
+    use super::*;
+    use crate::game::content::{enemy_def, EnemyKind};
+    use crate::game::world::difficulty_multiplier;
+    #[test]
+    fn bandit_hp_is_4_not_8() {
+        let def = enemy_def(EnemyKind::Bandit);
+        let diff = difficulty_multiplier(1);
+        let hp = (def.hp as f32 * diff).round() as i32;
+        assert_eq!(hp, 4, "bandit hp should be 4, got {}", hp);
+        println!("bandit hp {} diff {}", hp, diff);
+    }
+}
+
 pub fn tick_corpses(
     time: Res<Time<Fixed>>,
     mut commands: Commands,

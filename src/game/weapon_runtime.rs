@@ -881,9 +881,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "CROSSBOW" => {
             set_ranged(
                 def,
-                12,
+                20,
                 1,
-                660.0,
+                720.0,
                 1.0,
                 0.025,
                 6.0,
@@ -961,9 +961,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "AUTO CROSSBOW" => {
             set_ranged(
                 def,
-                11,
+                20,
                 1,
-                640.0,
+                720.0,
                 1.0,
                 0.085,
                 4.0,
@@ -977,9 +977,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "SUPER CROSSBOW" => {
             set_ranged(
                 def,
-                12,
+                20,
                 5,
-                660.0,
+                720.0,
                 1.05,
                 0.17,
                 14.0,
@@ -1832,9 +1832,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "HEAVY CROSSBOW" => {
             set_ranged(
                 def,
-                20,
+                50,
                 1,
-                600.0,
+                480.0,
                 1.3,
                 0.015,
                 10.0,
@@ -1850,9 +1850,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "HEAVY AUTO CROSSBOW" => {
             set_ranged(
                 def,
-                10,
+                50,
                 1,
-                520.0,
+                480.0,
                 1.0,
                 0.12,
                 6.5,

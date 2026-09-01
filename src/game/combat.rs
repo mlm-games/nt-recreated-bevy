@@ -298,6 +298,25 @@ pub fn tick_lightning_arcs(
     }
 }
 
+pub fn tick_projectile_friction(
+    time: Res<Time<Fixed>>,
+    mut q: Query<(&mut Velocity, &ProjectileFriction)>,
+) {
+    for (mut vel, friction) in &mut q {
+        crate::game::components::apply_gml_friction(&mut vel.0, friction.0, time.delta_secs());
+    }
+}
+
+pub fn tick_shell_bonus(
+    time: Res<Time<Fixed>>,
+    mut q: Query<&mut ShellBonus>,
+) {
+    for mut bonus in &mut q {
+        bonus.timer.tick(time.delta());
+        if bonus.timer.is_finished() { bonus.bonus = 0; }
+    }
+}
+
 pub fn tick_hit_effects(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -341,6 +360,7 @@ pub fn move_projectiles(
             &mut Velocity,
             &mut Transform,
             Option<&mut BouncesLeft>,
+            Option<&mut ShellWallBounce>,
             Option<&mut Sticky>,
             Option<&SpawnHazardOnDeath>,
             Option<&SplitOnDeath>,
@@ -366,6 +386,7 @@ pub fn move_projectiles(
         mut vel,
         mut tf,
         bounces,
+        mut shell_bounce,
         mut sticky,
         hazard,
         split,
@@ -466,12 +487,20 @@ pub fn move_projectiles(
                 continue;
             }
 
-            // Bounce remaining?
+            // Bounce remaining? OG Bullet2: speed*=0.8 then +wallbounce 5*0.95
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
             {
                 bounce.0 -= 1;
-                vel.0 = crate::game::projectile_math::bounce_velocity(vel.0, normal);
+                let mut bounced = crate::game::projectile_math::bounce_velocity(vel.0, normal) * 0.8;
+                if let Some(mut wb) = shell_bounce {
+                    let add = wb.0;
+                    let sp = bounced.length();
+                    let new_sp = if sp + add * 30.0 > 16.0 * 30.0 { 16.0 * 30.0 } else { sp + add * 30.0 };
+                    if sp > 0.001 { bounced = bounced.normalize() * new_sp; }
+                    wb.0 *= 0.95;
+                }
+                vel.0 = bounced;
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
                 tf.translation += (normal * (p.radius * 0.6 + 0.5)).extend(0.0);
                 continue;
@@ -1124,6 +1153,7 @@ pub fn projectile_hits(
         ),
         Without<Hitbox>,
     >,
+    shell_bonus_q: Query<&ShellBonus>,
     hits_all_q: Query<Entity, With<HitsAllTeams>>,
     grace_q: Query<Entity, With<SpawnGrace>>,
     mut targets: Query<
@@ -1237,7 +1267,11 @@ pub fn projectile_hits(
                 break;
             }
 
-            health.hp -= proj.damage;
+            let mut dmg = proj.damage;
+            if let Ok(bonus) = shell_bonus_q.get(proj_e) {
+                if !bonus.timer.is_finished() { dmg += bonus.bonus; }
+            }
+            health.hp -= dmg;
             damaged = true;
 
             if *target_team == Team::Player {

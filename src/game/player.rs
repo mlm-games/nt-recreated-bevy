@@ -1050,7 +1050,7 @@ fn apply_weapon_mutation_mods(
     }
 
     if player.shotgun_shoulders && def.ammo == AmmoKind::Shells && def.melee.is_none() {
-        def.bounces = def.bounces.max(1);
+        def.bounces = def.bounces.max(5);
         def.lifetime *= 1.25;
     }
 
@@ -1175,6 +1175,11 @@ fn spawn_pellets(
         let base_angle = aim.0.y.atan2(aim.0.x);
         let angle = base_angle + rng.random_range(-spread..spread);
         let dir = Vec2::new(angle.cos(), angle.sin());
+        let speed = if def.ammo == AmmoKind::Shells {
+            rng.random_range(360.0..540.0)
+        } else {
+            def.speed
+        };
         spawn_player_projectile_with_source(
             commands,
             Some(catalog),
@@ -1527,6 +1532,20 @@ pub fn spawn_player_projectile_with_source(
 
     if bounces > 0 {
         ec.insert(BouncesLeft(bounces));
+        if let Some(w) = weapon {
+            if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+                ec.insert(ShellWallBounce(5.0));
+            }
+        }
+    }
+    if let Some(w) = weapon {
+        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+            ec.insert(ProjectileFriction(0.6));
+            ec.insert(ShellBonus {
+                timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                bonus: 1,
+            });
+        }
     }
     if pierce > 0 || archetype.chain_lightning.is_some() {
         ec.insert(PiercesLeft(pierce));
