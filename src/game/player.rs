@@ -1465,33 +1465,36 @@ pub fn spawn_player_projectile_with_source(
     weapon: Option<WeaponId>,
 ) {
     let angle = dir.y.atan2(dir.x);
-    let (sprite, anchor) = if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon)
-    {
-        let candidates = projectile_art::player_projectile_candidates(w);
-        let path = projectile_art::first_existing(cat, &candidates);
-        if cat.has(path) {
-            // Bullet sprites store the moving projectile on frame 1 (horizontal
-            // streak) while frame 0 is a circular blob. Use the correct static
-            // frame so the bevy bullet matches `Bullet1/Bullet2: image_index = 1`
-            // in the original `game.unx` (see `~/Downloads/nuclear_throne`).
-            let frame = match path {
-                "images/sprBullet1.png" | "images/sprBullet2.png" => 1,
-                _ => 0,
-            };
-            let mut s = if frame == 0 {
-                sprite_exact(cat, srv, path)
+    let (sprite, anchor, anim_opt) =
+        if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
+            let candidates = projectile_art::player_projectile_candidates(w);
+            let path = projectile_art::first_existing(cat, &candidates);
+            if cat.has(path) {
+                // GML `Other_7: image_index=1, image_speed=0` for every 2-frame bullet
+                // (Bullet1, Bullet2, HeavyBullet, Bolt, ...)
+                let frames = cat.anims.get(path).map(|m| m[0] as usize).unwrap_or(1);
+                let mut s = if frames == 2 {
+                    crate::game::content::sprite_exact_frame(cat, srv, path, 1)
+                } else {
+                    sprite_exact(cat, srv, path)
+                };
+                // Use native sprite size for projectiles
+                s.custom_size = None;
+                s.color = Color::WHITE;
+                let a = crate::game::content::sprite_anchor(cat, path);
+                let anim = crate::game::projectile_art::projectile_anim(cat, path);
+                (s, a, anim)
             } else {
-                crate::game::content::sprite_exact_frame(cat, srv, path, frame)
-            };
-            // Use native sprite size for projectiles; `def.size` is kept for
-            // gameplay tuning but the OG art is authored for its native
-            // `w×h` (e.g. Bullet1 16×6 streak). Scaling to `def.size` (10×3)
-            // squashes the art and makes NT bullets look like thin white
-            // rectangles.
-            s.custom_size = None;
-            s.color = Color::WHITE;
-            let a = crate::game::content::sprite_anchor(cat, path);
-            (s, a)
+                (
+                    Sprite {
+                        color,
+                        custom_size: Some(size),
+                        ..default()
+                    },
+                    bevy::sprite::Anchor::CENTER,
+                    None,
+                )
+            }
         } else {
             (
                 Sprite {
@@ -1500,18 +1503,9 @@ pub fn spawn_player_projectile_with_source(
                     ..default()
                 },
                 bevy::sprite::Anchor::CENTER,
+                None,
             )
-        }
-    } else {
-        (
-            Sprite {
-                color,
-                custom_size: Some(size),
-                ..default()
-            },
-            bevy::sprite::Anchor::CENTER,
-        )
-    };
+        };
     let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1529,6 +1523,9 @@ pub fn spawn_player_projectile_with_source(
         anchor,
         Transform::from_translation(pos.extend(16.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));
+    if let Some(anim) = anim_opt {
+        ec.insert(anim);
+    }
 
     if bounces > 0 {
         ec.insert(BouncesLeft(bounces));

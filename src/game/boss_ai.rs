@@ -2159,7 +2159,67 @@ fn fire_projectile(
             enemy_kind: None,
         })
     };
-    commands.spawn((
+    // Resolve sprite + optional anim + anchor exactly as GML spriteId/xorigin.
+    let (sprite, anim, path) = if let Some(kind) = enemy_kind {
+        if matches!(
+            kind,
+            EnemyKind::BigDog
+                | EnemyKind::BigDogLoop
+                | EnemyKind::Jock
+                | EnemyKind::SnowTank
+                | EnemyKind::GoldSnowtank
+        ) {
+            crate::game::projectile_art::sprite_and_anim_from_projectile_path(
+                asset_server,
+                catalog,
+                &[
+                    "images/sprBigDogMissile.png",
+                    "images/sprJockRocket.png",
+                    "images/sprRocket.png",
+                ],
+                None,
+            )
+        } else if matches!(
+            kind,
+            EnemyKind::Guardian
+                | EnemyKind::ExploGuardian
+                | EnemyKind::DogGuardian
+                | EnemyKind::Crystal
+                | EnemyKind::LaserCrystal
+                | EnemyKind::Turtle
+                | EnemyKind::OldGuardian
+                | EnemyKind::Throne
+                | EnemyKind::ThroneII
+        ) {
+            crate::game::projectile_art::sprite_and_anim_from_projectile_path(
+                asset_server,
+                catalog,
+                &[
+                    "images/sprGuardianBullet.png",
+                    "images/sprHorrorBullet.png",
+                    "images/sprEnemyBullet1.png",
+                ],
+                None,
+            )
+        } else {
+            let primary = crate::game::projectile_art::enemy_projectile_path(kind);
+            crate::game::projectile_art::sprite_and_anim_from_projectile_path(
+                asset_server,
+                catalog,
+                &[primary, "images/sprEnemyBullet1.png", "images/sprBullet1.png"],
+                None,
+            )
+        }
+    } else {
+        crate::game::projectile_art::sprite_and_anim_from_projectile_path(
+            asset_server,
+            catalog,
+            &["images/sprEnemyBullet1.png", "images/sprBullet1.png"],
+            None,
+        )
+    };
+    let anchor = crate::game::content::sprite_anchor(catalog, path);
+    let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
         team,
@@ -2172,67 +2232,13 @@ fn fire_projectile(
             source,
         },
         Velocity(dir * speed),
-        {
-            let sprite = if let Some(kind) = enemy_kind {
-                if matches!(
-                    kind,
-                    EnemyKind::BigDog
-                        | EnemyKind::BigDogLoop
-                        | EnemyKind::Jock
-                        | EnemyKind::SnowTank
-                        | EnemyKind::GoldSnowtank
-                ) {
-                    crate::game::projectile_art::sprite_from_projectile_path(
-                        asset_server,
-                        catalog,
-                        &[
-                            "images/sprBigDogMissile.png",
-                            "images/sprJockRocket.png",
-                            "images/sprRocket.png",
-                        ],
-                        None,
-                    )
-                } else if matches!(
-                    kind,
-                    EnemyKind::Guardian
-                        | EnemyKind::ExploGuardian
-                        | EnemyKind::DogGuardian
-                        | EnemyKind::Crystal
-                        | EnemyKind::LaserCrystal
-                        | EnemyKind::Turtle
-                        | EnemyKind::OldGuardian
-                        | EnemyKind::Throne
-                        | EnemyKind::ThroneII
-                ) {
-                    crate::game::projectile_art::sprite_from_projectile_path(
-                        asset_server,
-                        catalog,
-                        &[
-                            "images/sprGuardianBullet.png",
-                            "images/sprHorrorBullet.png",
-                            "images/sprEnemyBullet1.png",
-                        ],
-                        None,
-                    )
-                } else {
-                    crate::game::projectile_art::enemy_projectile_sprite(
-                        asset_server,
-                        catalog,
-                        kind,
-                        None,
-                    )
-                }
-            } else {
-                crate::game::projectile_art::generic_enemy_bullet_sprite(
-                    asset_server,
-                    catalog,
-                    None,
-                )
-            };
-            sprite
-        },
+        sprite,
+        anchor,
         Transform::from_translation(pos.extend(15.0)).with_rotation(Quat::from_rotation_z(angle)),
     ));
+    if let Some(a) = anim {
+        ec.insert(a);
+    }
 }
 
 fn limit_velocity(vel: &mut Velocity, max: f32) {

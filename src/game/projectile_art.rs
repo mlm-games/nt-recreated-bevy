@@ -352,6 +352,9 @@ pub fn sprite_from_projectile_path(
     let mut sprite = crate::game::content::sprite_exact(catalog, asset_server, path);
     sprite.color = Color::WHITE;
     sprite.custom_size = custom_size;
+    // 2-frame bullets freeze on frame 1 (GML Other_7: image_index=1, image_speed=0).
+    // `sprite_exact` defaults to frame 0, so override for the static 2-frame case.
+    // For >2 frames the caller may attach a SpriteAnim to animate from frame 0.
     if let Some(m) = catalog.anims.get(path) {
         let frames = m[0] as usize;
         if frames == 2 {
@@ -361,6 +364,37 @@ pub fn sprite_from_projectile_path(
         }
     }
     sprite
+}
+
+/// For multi-frame projectiles that should animate (e.g. GuardianBullet 4f,
+/// FlameBall 6f, AcidStreak 7f). 2-frame bullets are static on frame 1 and
+/// return None – they must not flicker.
+pub fn projectile_anim(
+    catalog: &AssetCatalog,
+    path: &'static str,
+) -> Option<crate::game::anim::SpriteAnim> {
+    let def = catalog.anim_def(path)?;
+    if def.frames <= 2 {
+        return None;
+    }
+    let mut anim = crate::game::anim::SpriteAnim::new(path, def);
+    if anim.def.fps <= 0.0 {
+        anim.def.fps = 12.0;
+        anim.timer = Timer::from_seconds(1.0 / 12.0, TimerMode::Repeating);
+    }
+    Some(anim)
+}
+
+pub fn sprite_and_anim_from_projectile_path(
+    asset_server: &AssetServer,
+    catalog: &AssetCatalog,
+    candidates: &[&'static str],
+    custom_size: Option<Vec2>,
+) -> (Sprite, Option<crate::game::anim::SpriteAnim>, &'static str) {
+    let path = first_existing(catalog, candidates);
+    let sprite = sprite_from_projectile_path(asset_server, catalog, candidates, custom_size);
+    let anim = projectile_anim(catalog, path);
+    (sprite, anim, path)
 }
 
 pub fn player_projectile_sprite(

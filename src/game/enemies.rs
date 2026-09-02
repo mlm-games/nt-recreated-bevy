@@ -442,9 +442,9 @@ pub fn enemy_ai(
                     let ang = base_ang + spread;
                     let sdir = Vec2::new(ang.cos(), ang.sin());
                     let speed = rng.random_range(90.0..120.0); // 3..4 *30
-                    let (sprite_b, anchor) =
+                    let (sprite_b, anchor, anim) =
                         enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
-                    commands.spawn((
+                    let mut ec = commands.spawn((
                         GameCleanup,
                         LevelCleanup,
                         Team::Enemy,
@@ -462,6 +462,9 @@ pub fn enemy_ai(
                         Transform::from_translation((pos + sdir * 20.0).extend(15.0))
                             .with_rotation(Quat::from_rotation_z(ang)),
                     ));
+                    if let Some(a) = anim {
+                        ec.insert(a);
+                    }
                     brain.ammo = brain.ammo.saturating_sub(1);
                     brain.burst_left -= 1;
                     if brain.ammo == 0 || brain.burst_left == 0 {
@@ -888,10 +891,7 @@ fn enemy_bullet_sprite(
     asset_server: &AssetServer,
     kind: EnemyKind,
     _def: EnemyDef,
-) -> (Sprite, bevy::sprite::Anchor) {
-    let sprite =
-        crate::game::projectile_art::enemy_projectile_sprite(asset_server, catalog, kind, None);
-    // Resolve anchor from the resolved path (first existing candidate).
+) -> (Sprite, bevy::sprite::Anchor, Option<crate::game::anim::SpriteAnim>) {
     let primary = crate::game::projectile_art::enemy_projectile_path(kind);
     let candidates = [
         primary,
@@ -901,8 +901,11 @@ fn enemy_bullet_sprite(
         "images/sprBullet2.png",
     ];
     let path = crate::game::projectile_art::first_existing(catalog, &candidates);
+    let sprite =
+        crate::game::projectile_art::enemy_projectile_sprite(asset_server, catalog, kind, None);
     let anchor = crate::game::content::sprite_anchor(catalog, path);
-    (sprite, anchor)
+    let anim = crate::game::projectile_art::projectile_anim(catalog, path);
+    (sprite, anchor, anim)
 }
 
 fn fire_enemy_bullet(
@@ -921,8 +924,8 @@ fn fire_enemy_bullet(
     let angle = base + rng.random_range(-def.projectile_spread..def.projectile_spread);
     let shot_dir = Vec2::new(angle.cos(), angle.sin());
     let speed = def.projectile_speed * if euphoria { 0.8 } else { 1.0 };
-    let (sprite, anchor) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
-    commands.spawn((
+    let (sprite, anchor, anim) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
+    let mut ec = commands.spawn((
         GameCleanup,
         LevelCleanup,
         Team::Enemy,
@@ -940,6 +943,9 @@ fn fire_enemy_bullet(
         Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
             .with_rotation(Quat::from_rotation_z(angle)),
     ));
+    if let Some(a) = anim {
+        ec.insert(a);
+    }
 }
 
 /// Kinds whose projectiles detonate on impact (tank rockets, explo orbs).
@@ -971,8 +977,8 @@ fn fire_enemy_shot(
         };
         let angle = base + offset + rng.random_range(-0.06..0.06);
         let shot_dir = Vec2::new(angle.cos(), angle.sin());
-        let (sprite, anchor) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
-        commands.spawn((
+        let (sprite, anchor, anim) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
+        let mut ec = commands.spawn((
             GameCleanup,
             LevelCleanup,
             Team::Enemy,
@@ -990,6 +996,9 @@ fn fire_enemy_shot(
             Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
         ));
+        if let Some(a) = anim {
+            ec.insert(a);
+        }
     }
 }
 /// Big Bandit bursts in once enough of the floor's trash is dead, charging
@@ -1126,20 +1135,19 @@ pub fn tick_frog_eggs(
         let pos = tf.translation.truncate();
         commands.entity(e).despawn();
         // Upstream FrogEgg Alarm_1: repeat 8 → AcidStreak at 45° steps.
-        let (acid_sprite, acid_anchor) = {
-            let s = crate::game::projectile_art::sprite_from_projectile_path(
-                &asset_server,
-                &catalog,
-                &["images/sprAcidStreak.png", "images/sprEnemyBullet1.png"],
-                None,
-            );
-            let a = crate::game::content::sprite_anchor(&catalog, "images/sprAcidStreak.png");
-            (s, a)
-        };
+        // AcidStreak 7f 32×16 animates at 12 fps; clone sprite per shard and attach anim.
         for i in 0..8 {
             let ang = (i as f32) * std::f32::consts::TAU / 8.0;
             let d = Vec2::new(ang.cos(), ang.sin());
-            commands.spawn((
+            let (acid_sprite, acid_anim, acid_path) =
+                crate::game::projectile_art::sprite_and_anim_from_projectile_path(
+                    &asset_server,
+                    &catalog,
+                    &["images/sprAcidStreak.png", "images/sprEnemyBullet1.png"],
+                    None,
+                );
+            let acid_anchor = crate::game::content::sprite_anchor(&catalog, acid_path);
+            let mut ec = commands.spawn((
                 GameCleanup,
                 LevelCleanup,
                 Team::Enemy,
@@ -1152,10 +1160,14 @@ pub fn tick_frog_eggs(
                     source: Some(DamageSource::enemy(e, enemy.kind)),
                 },
                 Velocity(d * 240.0),
-                acid_sprite.clone(),
+                acid_sprite,
                 acid_anchor,
-                Transform::from_translation(pos.extend(15.0)),
+                Transform::from_translation(pos.extend(15.0))
+                    .with_rotation(Quat::from_rotation_z(ang)),
             ));
+            if let Some(a) = acid_anim {
+                ec.insert(a);
+            }
         }
     }
 }
