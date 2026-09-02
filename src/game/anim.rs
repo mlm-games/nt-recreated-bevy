@@ -520,13 +520,13 @@ pub fn derive_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &
     if catalog.has(hurt) { hurt } else { idle }
 }
 
-/// Play the hurt strip on any enemy whose Health just dropped. Watches
-/// `Changed<Health>` so every damage source (projectiles, beams, melee,
-/// explosions, hazards) gets the one-shot for free.
+/// Play the hurt strip on any enemy whose Health just dropped.
 pub fn hurt_on_damage(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
+    mut last_enemy_hp: Local<std::collections::HashMap<Entity, i32>>,
+    mut last_player_hp: Local<std::collections::HashMap<Entity, i32>>,
     mut damaged: Query<
         (
             Entity,
@@ -537,7 +537,6 @@ pub fn hurt_on_damage(
             &mut bevy::sprite::Anchor,
         ),
         (
-            Changed<Health>,
             With<crate::game::components::Enemy>,
             Without<HurtAnim>,
             Without<crate::game::components::Player>,
@@ -553,7 +552,6 @@ pub fn hurt_on_damage(
             &mut bevy::sprite::Anchor,
         ),
         (
-            Changed<Health>,
             With<crate::game::components::Player>,
             Without<HurtAnim>,
             Without<crate::game::components::Enemy>,
@@ -561,11 +559,13 @@ pub fn hurt_on_damage(
     >,
 ) {
     for (e, health, sprites, mut anim, mut sprite, mut anchor) in &mut damaged {
-        // Spawning writes Health too; only react to actual damage, and let
-        // resolve_deaths own the lethal case.
-        if health.hp >= health.max || health.hp <= 0 {
+        let last = last_enemy_hp.get(&e).copied().unwrap_or(health.max);
+        // Only react to actual hp drop, and let resolve_deaths own lethal.
+        if health.hp >= health.max || health.hp <= 0 || health.hp == last {
+            last_enemy_hp.insert(e, health.hp);
             continue;
         }
+        last_enemy_hp.insert(e, health.hp);
         play_hurt(
             &mut commands,
             e,
@@ -585,9 +585,12 @@ pub fn hurt_on_damage(
         *anchor = crate::game::content::sprite_anchor(&catalog, hurt_path);
     }
     for (e, health, pa, mut anim, mut sprite, mut anchor) in &mut player_damaged {
-        if health.hp >= health.max || health.hp <= 0 {
+        let last = last_player_hp.get(&e).copied().unwrap_or(health.max);
+        if health.hp >= health.max || health.hp <= 0 || health.hp == last {
+            last_player_hp.insert(e, health.hp);
             continue;
         }
+        last_player_hp.insert(e, health.hp);
         play_hurt(
             &mut commands,
             e,
