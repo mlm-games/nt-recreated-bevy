@@ -131,6 +131,7 @@ impl Plugin for GamePlugin {
                             .in_set(NtSimSet::Always),
                         (
                             anim::tick_hurt_anims,
+                            anim::tick_player_dying,
                             anim::hurt_on_damage,
                             player_sys::ensure_weapon_visual,
                             player_sys::tick_weapon_visuals,

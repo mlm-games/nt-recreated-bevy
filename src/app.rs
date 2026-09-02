@@ -127,6 +127,8 @@ pub struct SharedUi {
     /// `sprSkillIcon` / `sprSkillIconHUD`).
     pub mutation_choice_ids: Vec<u8>,
     pub game_over: bool,
+    /// Acquired mutations (skill indices) for death screen – mirrors GML results.
+    pub death_mutation_ids: Vec<u8>,
     pub character: String,
     /// nt-rewrite `enum Race` id of the chosen mutant (Random=0..Cuz=16).
     pub selected_character: usize,
@@ -211,6 +213,7 @@ impl Default for SharedUi {
             mutation_choices: Vec::new(),
             mutation_choice_ids: Vec::new(),
             game_over: false,
+            death_mutation_ids: Vec::new(),
             character: "Fish".to_string(),
             selected_character: 1,
             title_go_visible: false,
@@ -345,6 +348,7 @@ impl Plugin for AppPlugin {
                     force_death_overlay_state,
                     process_ui_actions,
                     handle_pause_input,
+                    handle_death_restart,
                     tick_pending_unpause,
                     sync_virtual_time_with_pause,
                 )
@@ -947,6 +951,32 @@ fn handle_pause_input(
         }
         _ => {}
     }
+}
+
+fn handle_death_restart(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<State<AppState>>,
+    run: Option<Res<crate::game::components::Run>>,
+    mut transition: ResMut<Transition<AppState>>,
+    bridge: Res<UiBridge>,
+) {
+    if *state.get() != AppState::InGame {
+        return;
+    }
+    let Some(run) = run else {
+        return;
+    };
+    if !run.game_over {
+        return;
+    }
+    if !keys.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.title_go_visible = false;
+        ui.title_hover_race = -1;
+    }
+    transition.begin_to_state(AppState::Loading);
 }
 
 fn sync_virtual_time_with_pause(paused: Res<Paused>, mut ctrl: ResMut<TimeScaleControl>) {

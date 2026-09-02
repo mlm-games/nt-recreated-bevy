@@ -29,6 +29,7 @@ pub fn sync_hud(
         ui.game_over = false;
         ui.mutation_choices.clear();
         ui.mutation_choice_ids.clear();
+        ui.death_mutation_ids.clear();
         ui.boss_hp = 0;
         ui.boss_max = 0;
         ui.boss_name.clear();
@@ -131,6 +132,14 @@ pub fn sync_hud(
     };
     ui.mutation_choices = choices;
     ui.mutation_choice_ids = ids;
+    // Death screen mutations – capture once while Player still alive for 0.85s (PlayerDying)
+    if run.game_over {
+        if let Ok((player, _, _)) = player_q.single() {
+            ui.death_mutation_ids = player.mutations.iter().map(|m| mutation_skill_index(*m)).collect();
+        }
+    } else {
+        ui.death_mutation_ids.clear();
+    }
 }
 
 /// Reset the HUD when a new run begins (called from OnEnter(InGame) after the
@@ -140,6 +149,7 @@ pub fn reset_hud_flags(bridge: Res<UiBridge>) {
         ui.game_over = false;
         ui.mutation_choices.clear();
         ui.mutation_choice_ids.clear();
+        ui.death_mutation_ids.clear();
         ui.toast.clear();
         ui.toast_timer = 0.0;
         ui.boss_hp = 0;

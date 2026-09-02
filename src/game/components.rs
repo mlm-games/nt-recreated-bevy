@@ -1413,6 +1413,11 @@ pub struct Corpse {
 #[derive(Component, Debug, Default)]
 pub struct Dying;
 
+#[derive(Component, Debug)]
+pub struct PlayerDying {
+    pub timer: Timer,
+}
+
 /// Marks a wall lattice cell as a "screen end" (preferentially broken by bosses).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct ScreenEnd;

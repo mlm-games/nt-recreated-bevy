@@ -462,6 +462,129 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
     }
 }
 
+pub fn derive_dead_path(idle: &'static str) -> &'static str {
+    let base = if idle.contains("sprMutant") {
+        if idle.contains("sprMutant1BIdle") {
+            return "images/sprMutant1BDead.png";
+        }
+        if idle.contains("sprMutant1CIdle") {
+            return "images/sprMutant1CDead.png";
+        }
+        if idle.contains("sprMutant2BIdle") {
+            return "images/sprMutant2BDead.png";
+        }
+        if idle.contains("sprMutant2CIdle") {
+            return "images/sprMutant2CDead.png";
+        }
+        if idle.contains("sprMutant3BIdle") {
+            return "images/sprMutant3BDead.png";
+        }
+        if idle.contains("sprMutant3CIdle") {
+            return "images/sprMutant3CDead.png";
+        }
+        if idle.contains("sprMutant4BIdle") {
+            return "images/sprMutant4BDead.png";
+        }
+        if idle.contains("sprMutant4CIdle") {
+            return "images/sprMutant4CDead.png";
+        }
+        if idle.contains("sprMutant5BIdle") {
+            return "images/sprMutant5BDead.png";
+        }
+        if idle.contains("sprMutant5CIdle") {
+            return "images/sprMutant5CDead.png";
+        }
+        if idle.contains("sprMutant6BIdle") {
+            return "images/sprMutant6BDead.png";
+        }
+        if idle.contains("sprMutant6CIdle") {
+            return "images/sprMutant6CDead.png";
+        }
+        if idle.contains("sprMutant7BIdle") {
+            return "images/sprMutant7BDead.png";
+        }
+        if idle.contains("sprMutant7CIdle") {
+            return "images/sprMutant7CDead.png";
+        }
+        if idle.contains("sprMutant8BIdle") {
+            return "images/sprMutant8BDead.png";
+        }
+        if idle.contains("sprMutant8CIdle") {
+            return "images/sprMutant8CDead.png";
+        }
+        if idle.contains("sprMutant9BIdle") {
+            return "images/sprMutant9BDead.png";
+        }
+        if idle.contains("sprMutant9CIdle") {
+            return "images/sprMutant9CDead.png";
+        }
+        if idle.contains("sprMutant10BIdle") {
+            return "images/sprMutant10BDead.png";
+        }
+        if idle.contains("sprMutant10CIdle") {
+            return "images/sprMutant10CDead.png";
+        }
+        if idle.contains("sprMutant11BIdle") {
+            return "images/sprMutant11BDead.png";
+        }
+        if idle.contains("sprMutant11CIdle") {
+            return "images/sprMutant11CDead.png";
+        }
+        if idle.contains("sprMutant12BIdle") {
+            return "images/sprMutant12BDead.png";
+        }
+        if idle.contains("sprMutant12CIdle") {
+            return "images/sprMutant12CDead.png";
+        }
+        if idle.contains("sprMutant13BIdle") {
+            return "images/sprMutant13BDead.png";
+        }
+        if idle.contains("sprMutant13CIdle") {
+            return "images/sprMutant13CDead.png";
+        }
+        if idle.contains("sprMutant14BIdle") {
+            return "images/sprMutant14BDead.png";
+        }
+        if idle.contains("sprMutant14CIdle") {
+            return "images/sprMutant14CDead.png";
+        }
+        if idle.contains("sprMutant15BIdle") {
+            return "images/sprMutant15BDead.png";
+        }
+        if idle.contains("sprMutant15CIdle") {
+            return "images/sprMutant15CDead.png";
+        }
+        if idle.contains("sprMutant16BIdle") {
+            return "images/sprMutant16BDead.png";
+        }
+        if idle.contains("sprMutant16CIdle") {
+            return "images/sprMutant16CDead.png";
+        }
+        idle
+    } else {
+        idle
+    };
+    match base {
+        "images/sprMutant1Idle.png" => "images/sprMutant1Dead.png",
+        "images/sprMutant2Idle.png" => "images/sprMutant2Dead.png",
+        "images/sprMutant3Idle.png" => "images/sprMutant3Dead.png",
+        "images/sprMutant4Idle.png" => "images/sprMutant4Dead.png",
+        "images/sprMutant5Idle.png" => "images/sprMutant5Dead.png",
+        "images/sprMutant6Idle.png" => "images/sprMutant6Dead.png",
+        "images/sprMutant7Idle.png" => "images/sprMutant7Dead.png",
+        "images/sprMutant8Idle.png" => "images/sprMutant8Dead.png",
+        "images/sprMutant9Idle.png" => "images/sprMutant9Dead.png",
+        "images/sprMutant10Idle.png" => "images/sprMutant10Dead.png",
+        "images/sprMutant11Idle.png" => "images/sprMutant11Dead.png",
+        "images/sprMutant12Idle.png" => "images/sprMutant12Dead.png",
+        "images/sprMutant13Idle.png" => "images/sprMutant13Dead.png",
+        "images/sprMutant14Idle.png" => "images/sprMutant14Dead.png",
+        "images/sprMutant15Idle.png" => "images/sprMutant15Dead.png",
+        "images/sprMutant16Idle.png" => "images/sprMutant16Dead.png",
+        _ => idle,
+    }
+}
+
 pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditIdle.png" => Some("images/sprBanditWalk.png"),
@@ -603,5 +726,20 @@ pub fn hurt_on_damage(
             Some(pa.walk),
         );
         *anchor = crate::game::content::sprite_anchor(&catalog, pa.hurt);
+    }
+}
+
+/// Tick PlayerDying – keeps dead strip visible for 0.85s then despawns
+/// player entity, leaving the GroundPhysics corpse from resolve_deaths.
+pub fn tick_player_dying(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut crate::game::components::PlayerDying)>,
+) {
+    for (e, mut dying) in &mut q {
+        dying.timer.tick(time.delta());
+        if dying.timer.just_finished() {
+            commands.entity(e).try_despawn();
+        }
     }
 }

@@ -1824,6 +1824,9 @@ pub fn resolve_deaths(
             &mut Player,
             &mut RaceState,
             Option<&mut Sprite>,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut bevy::sprite::Anchor>,
+            Option<&crate::game::anim::PlayerAnim>,
         ),
         (With<Player>, Without<Enemy>),
     >,
@@ -1856,6 +1859,9 @@ pub fn resolve_deaths(
         mut player,
         mut race_state,
         mut player_sprite,
+        mut player_anim,
+        mut player_anchor,
+        player_anim_comp,
     )) = player_q.single_mut()
     else {
         return;
@@ -2264,7 +2270,24 @@ pub fn resolve_deaths(
         }
 
         run.game_over = true;
-        commands.entity(player_e).despawn();
+        // Keep player entity for dead strip (GML sprMutant*Dead) – don’t despawn immediately
+        if let (Some(anim), Some(sprite), Some(anchor), Some(pa)) = (
+            player_anim.as_deref_mut(),
+            player_sprite.as_deref_mut(),
+            player_anchor.as_deref_mut(),
+            player_anim_comp,
+        ) {
+            let dead = crate::game::anim::derive_dead_path(pa.idle);
+            if let Some(def) = catalog.anim_def(dead) {
+                anim.set_path(dead, def, true);
+                sprite.image = asset_server.load(dead.to_string());
+                sprite.rect = Some(anim.rect());
+                *anchor = crate::game::content::sprite_anchor(&catalog, dead);
+            }
+        }
+        commands.entity(player_e).insert(crate::game::components::PlayerDying {
+            timer: Timer::from_seconds(0.85, TimerMode::Once),
+        });
         commands.spawn((
             GameCleanup,
             crate::game::reactive_audio::QueuedReactiveCue(

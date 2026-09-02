@@ -245,6 +245,8 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
         )
         .child(
             ZStack(Modifier::new().width(320.0 * v.s).height(240.0 * v.s)).child((
+                // full-bleed black behind spiral (InGame vortex bg alpha may be 0)
+                Column(Modifier::new().fill_max_size().background(RColor::from_rgba(0, 0, 0, 255))),
                 // text at 160,66 centered
                 Column(
                     Modifier::new()
@@ -887,7 +889,6 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
 fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let v = nt_view(st);
-    let retry_actions = actions.clone();
     let quit_actions = actions.clone();
 
     let mut layers: Vec<View> = Vec::new();
@@ -895,74 +896,111 @@ fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 225)),
+            .background(RColor::from_rgba(0, 0, 0, 230)),
     ));
 
     layers.push(nt_text_at(
-        "YOU DIED".to_string(),
+        "DEAD".to_string(),
         160.0,
-        58.0,
+        36.0,
         &v,
         col(230, 48, 42),
         true,
     ));
 
+    if !st.toast.is_empty() {
+        layers.push(nt_text_at(
+            st.toast.clone(),
+            160.0,
+            54.0,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+    }
+
+    let stats_y0 = 78.0;
     layers.push(nt_text_at(
-        format!("SCORE {}", st.score),
+        format!("AREA {}-{}", st.world, st.floor_in_world),
         160.0,
-        88.0,
+        stats_y0,
         &v,
         col(238, 239, 225),
         true,
     ));
-
     layers.push(nt_text_at(
-        format!("BEST {}", st.high_score),
+        format!("LOOP {}", st.loop_count),
         160.0,
-        104.0,
+        stats_y0 + 14.0,
         &v,
         col(125, 131, 141),
         true,
     ));
-
-    layers.push(nt_text_at(
-        format!("FLOOR {}", st.best_floor),
-        160.0,
-        124.0,
-        &v,
-        col(125, 131, 141),
-        true,
-    ));
-
     layers.push(nt_text_at(
         format!("KILLS {}", st.total_kills),
         160.0,
-        140.0,
+        stats_y0 + 28.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    layers.push(nt_text_at(
+        format!("SCORE {}", st.score),
+        160.0,
+        stats_y0 + 42.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    layers.push(nt_text_at(
+        format!("BEST {}", st.high_score),
+        160.0,
+        stats_y0 + 56.0,
         &v,
         col(125, 131, 141),
         true,
     ));
 
-    layers.push(text_button_at(
-        "RETRY",
+    // Mutations row – text fallback; sprite icons drawn in ui_art via death_mutation_ids if available
+    if !st.death_mutation_ids.is_empty() {
+        // GML draws sprSkillIconHUD row; Bevy ui_art will handle icons if desired.
+        // Keep a subtle text fallback at 160,160 so Repose-only builds still show count.
+        layers.push(nt_text_at(
+            format!("MUTATIONS {}", st.death_mutation_ids.len()),
+            160.0,
+            160.0,
+            &v,
+            col(156, 160, 150),
+            true,
+        ));
+    }
+
+    layers.push(nt_text_at(
+        "R - RESTART".to_string(),
         160.0,
-        176.0,
-        96.0,
-        18.0,
+        200.0,
         &v,
         col(238, 239, 225),
-        move || push(&retry_actions, UiAction::StartGame),
+        true,
     ));
-
-    layers.push(text_button_at(
-        "QUIT",
+    layers.push(nt_text_at(
+        "CLICK - MENU".to_string(),
         160.0,
-        198.0,
-        96.0,
-        18.0,
+        214.0,
         &v,
         col(125, 131, 141),
-        move || push(&quit_actions, UiAction::QuitToTitle),
+        true,
+    ));
+
+    // Invisible full-screen click → QuitToTitle; keyboard R → StartGame handled in process_ui_actions
+    layers.push(Column(
+        Modifier::new()
+            .fill_max_size()
+            .clickable()
+            .on_click({
+                let a = quit_actions.clone();
+                move || push(&a, UiAction::QuitToTitle)
+            }),
     ));
 
     ZStack(Modifier::new().fill_max_size()).child(layers)
