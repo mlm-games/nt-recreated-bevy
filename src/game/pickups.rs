@@ -5,6 +5,7 @@ use crate::game::audio::GameAudio;
 use crate::game::combat::random_weapon;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::input::NtInput;
 use crate::game::progression;
 use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
@@ -157,6 +158,7 @@ pub fn collect_pickups(
     audio: Res<GameAudio>,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
+    mut input: ResMut<NtInput>,
     mut player_q: Query<
         (
             Entity,
@@ -191,6 +193,7 @@ pub fn collect_pickups(
 
     let player_pos = player_tf.translation.truncate();
     let dt = time.delta_secs();
+    let interact_pressed = input.take_interact_pressed();
 
     // Telekinesis massively extends the magnet range while active.
     let telek_active = telek.is_some_and(|t| !t.timer.is_finished());
@@ -204,6 +207,17 @@ pub fn collect_pickups(
     } else {
         player.pickup_range
     };
+
+    // Nearest weapon for press-to-pick (original: instance_nearest + press_pick)
+    let mut nearest_weapon: Option<(Entity, f32)> = None;
+    for (e, tf, pickup, _, _) in pickups.iter() {
+        if matches!(pickup.kind, PickupKind::Weapon(_)) {
+            let d = player_pos.distance(tf.translation.truncate());
+            if d < 28.0 && nearest_weapon.is_none_or(|(_, bd)| d < bd) {
+                nearest_weapon = Some((e, d));
+            }
+        }
+    }
 
     for (pickup_e, mut pickup_tf, pickup, ground, mut lifetime) in &mut pickups {
         let pickup_pos = pickup_tf.translation.truncate();
@@ -239,8 +253,15 @@ pub fn collect_pickups(
         }
 
         // Chests never fly to the player (upstream: open on contact).
+        // Weapons: only telekinesis pulls them (original WepPickup has no magnet).
         let is_chest = matches!(pickup.kind, PickupKind::Chest(_));
-        if !is_chest && dist < magnet {
+        let is_weapon = matches!(pickup.kind, PickupKind::Weapon(_));
+        if is_weapon {
+            if telek_active && dist < magnet {
+                let dir = (player_pos - pickup_pos).normalize_or_zero();
+                pickup_tf.translation += (dir * 900.0 * telek_mult * dt).extend(0.0);
+            }
+        } else if !is_chest && dist < magnet {
             let dir = (player_pos - pickup_pos).normalize_or_zero();
             let pull = if telek_active {
                 900.0 * telek_mult
@@ -250,7 +271,18 @@ pub fn collect_pickups(
             pickup_tf.translation += (dir * pull * dt).extend(0.0);
         }
 
-        if dist > 20.0 {
+        // Weapons require press-to-pick (original: press_pick + nearest check)
+        if is_weapon {
+            if dist > 28.0 {
+                continue;
+            }
+            if nearest_weapon.is_none_or(|(e, _)| e != pickup_e) {
+                continue;
+            }
+            if !interact_pressed {
+                continue;
+            }
+        } else if dist > 20.0 {
             continue;
         }
 

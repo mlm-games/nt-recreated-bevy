@@ -1380,6 +1380,10 @@ pub struct SnowmanAmbush;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct GoldBarrelDrop;
 
+/// Rad container (RadChest): destructible prop that drops 25 rads on break.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RadChestContainer;
+
 /// Red carpet volume in the Throne room (axis-aligned).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneCarpet {

@@ -1871,7 +1871,11 @@ pub fn spawn_level(
             ChestSpawn::Ammo(p) => (ChestKind::Ammo, p),
             ChestSpawn::Rad(p) => (ChestKind::Rad, p),
         };
-        crate::game::pickups::spawn_chest(commands, catalog, asset_server, kind, pos);
+        if kind == ChestKind::Rad {
+            spawn_rad_container(commands, catalog, asset_server, pos);
+        } else {
+            crate::game::pickups::spawn_chest(commands, catalog, asset_server, kind, pos);
+        }
     }
 
     // Enemies.
@@ -2486,6 +2490,39 @@ fn spawn_prop(
             guardian_count: (1 + run.loop_count).min(6) as u8,
         });
     }
+}
+
+fn spawn_rad_container(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+) {
+    // Upstream RadChest: prop with hp=4, size=2, raddrop=25, sprites sprRadChest
+    let sprite = sprite_from_candidates(
+        catalog,
+        asset_server,
+        &[
+            "images/sprRadChest.png",
+            "images/sprRadChestIdle.png",
+            "images/sprRadChestHurt.png",
+        ],
+        Color::srgb(0.85, 0.25, 0.85),
+        Vec2::new(32.0, 32.0),
+    );
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Prop {
+            size: Vec2::splat(26.0),
+            hp: 4,
+            destructible: true,
+            explosive: false,
+        },
+        RadChestContainer,
+        sprite,
+        Transform::from_translation(pos.extend(-8.0)),
+    ));
 }
 
 pub fn is_boss_floor(floor: u32) -> bool {

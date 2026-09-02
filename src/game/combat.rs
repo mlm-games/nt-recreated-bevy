@@ -46,6 +46,7 @@ pub struct PropDeathQueries<'w, 's> {
     entrances: Query<'w, 's, &'static SecretEntrance>,
     snowmen: Query<'w, 's, &'static SnowmanAmbush>,
     gold_barrels: Query<'w, 's, &'static GoldBarrelDrop>,
+    rad_chests: Query<'w, 's, &'static RadChestContainer>,
 }
 
 pub fn tick_homing_projectiles(
@@ -366,6 +367,7 @@ pub fn move_projectiles(
     entrances: Query<&SecretEntrance>,
     snowmen: Query<&SnowmanAmbush>,
     gold_barrels: Query<&GoldBarrelDrop>,
+    rad_chests: Query<&RadChestContainer>,
     mut secrets: ResMut<SecretTriggers>,
 ) {
     let dt = time.delta_secs();
@@ -514,7 +516,8 @@ pub fn move_projectiles(
                         if pe != prop_e {
                             continue;
                         }
-                        prop.hp -= 1;
+                        // Use projectile damage (original scr_hit: hp -= amount), not fixed 1
+                        prop.hp -= p.damage.max(1);
                         legacy_explosive = prop.explosive;
                         death_copy = de.copied();
                         if prop.hp <= 0 {
@@ -556,6 +559,20 @@ pub fn move_projectiles(
                                 PickupKind::Weapon(weapon),
                                 center + Vec2::new(0.0, -14.0),
                             );
+                        }
+                        if rad_chests.get(prop_e).is_ok() {
+                            // RadChest Destroy: 25 rad burst + ExploderExplo + smoke
+                            for _ in 0..25 {
+                                let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+                                let d = rand::rng().random_range(6.0..26.0);
+                                spawn_pickup(
+                                    &mut commands,
+                                    &catalog,
+                                    &asset_server,
+                                    PickupKind::Rad(1),
+                                    center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                                );
+                            }
                         }
                     }
                 }
@@ -1046,6 +1063,21 @@ pub fn apply_explosions(
                         PickupKind::Weapon(weapon),
                         center + Vec2::new(0.0, -14.0),
                     );
+                }
+
+                // Rad chests drop 25 rads on any destroy (bullet or explosion)
+                if death_ctx.rad_chests.get(prop_e).is_ok() {
+                    for _ in 0..25 {
+                        let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+                        let d = rand::rng().random_range(6.0..26.0);
+                        spawn_pickup(
+                            &mut commands,
+                            &ctx.catalog,
+                            &ctx.asset_server,
+                            PickupKind::Rad(1),
+                            center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                        );
+                    }
                 }
 
                 commands.entity(prop_e).despawn();

@@ -13,6 +13,7 @@ pub struct NtInput {
 
     fire_pressed: bool,
     ability_pressed: bool,
+    interact_pressed: bool,
     weapon_slot: Option<usize>,
     cycle_weapon: i8,
 }
@@ -25,6 +26,7 @@ impl Default for NtInput {
             fire_held: false,
             fire_pressed: false,
             ability_pressed: false,
+            interact_pressed: false,
             weapon_slot: None,
             cycle_weapon: 0,
         }
@@ -40,6 +42,14 @@ impl NtInput {
         std::mem::take(&mut self.ability_pressed)
     }
 
+    pub fn take_interact_pressed(&mut self) -> bool {
+        std::mem::take(&mut self.interact_pressed)
+    }
+
+    pub fn peek_interact_pressed(&self) -> bool {
+        self.interact_pressed
+    }
+
     pub fn take_weapon_slot(&mut self) -> Option<usize> {
         self.weapon_slot.take()
     }
@@ -52,6 +62,7 @@ impl NtInput {
     pub fn clear_transient(&mut self) {
         self.fire_pressed = false;
         self.ability_pressed = false;
+        self.interact_pressed = false;
         self.weapon_slot = None;
         self.cycle_weapon = 0;
     }
@@ -102,8 +113,13 @@ pub fn sample_input(
     let mut fire_held = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     let mut fire_pressed =
         mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space);
-    let mut ability_pressed =
-        keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::ShiftLeft);
+    let mut ability_pressed = keys.just_pressed(KeyCode::ShiftLeft);
+    // Weapon pickup (original `press_pick` – NT uses E): F / E / Q ; gamepad South (A) / East (B)
+    let mut interact_pressed = keys.just_pressed(KeyCode::KeyE)
+        || keys.just_pressed(KeyCode::KeyF)
+        || keys.just_pressed(KeyCode::KeyQ)
+        || keys.just_pressed(KeyCode::KeyG)
+        || keys.just_pressed(KeyCode::Tab);
 
     let mut weapon_slot = None;
     let mut cycle_weapon = 0_i8;
@@ -136,6 +152,8 @@ pub fn sample_input(
         fire_held |= gamepad.pressed(GamepadButton::RightTrigger2);
         fire_pressed |= gamepad.just_pressed(GamepadButton::RightTrigger2);
         ability_pressed |= gamepad.just_pressed(GamepadButton::LeftTrigger2);
+        interact_pressed |=
+            gamepad.just_pressed(GamepadButton::South) || gamepad.just_pressed(GamepadButton::East);
 
         if gamepad.just_pressed(GamepadButton::DPadLeft) {
             weapon_slot = Some(0);
@@ -198,6 +216,7 @@ pub fn sample_input(
     // Keep pulses queued until a FixedUpdate gameplay system consumes them.
     output.fire_pressed |= fire_pressed;
     output.ability_pressed |= ability_pressed;
+    output.interact_pressed |= interact_pressed;
 
     if weapon_slot.is_some() {
         output.weapon_slot = weapon_slot;
