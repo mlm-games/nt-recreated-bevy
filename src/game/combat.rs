@@ -369,6 +369,7 @@ pub fn move_projectiles(
     gold_barrels: Query<&GoldBarrelDrop>,
     rad_chests: Query<&RadChestContainer>,
     mut secrets: ResMut<SecretTriggers>,
+    audio: Res<GameAudio>,
 ) {
     let dt = time.delta_secs();
 
@@ -503,6 +504,18 @@ pub fn move_projectiles(
                 vel.0 = bounced;
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
                 tf.translation += (normal * (p.radius * 0.6 + 0.5)).extend(0.0);
+                // Original `Bullet2/Collision_Wall.gml:24` spawns Dust each bounce
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    1,
+                    Color::srgb(0.62, 0.60, 0.55),
+                    (12.0, 35.0),
+                );
+                // `sndShotgunHitWall` gated on speed>6 (Bevy 6*30=180)
+                if bounced.length() > 180.0 {
+                    audio.play_hit(&mut commands);
+                }
                 continue;
             }
 
@@ -579,48 +592,58 @@ pub fn move_projectiles(
             }
 
             if !p.explosive {
-                let (hit_color, hit_sprite) = match *team {
-                    Team::Player => (Color::srgb(1.0, 0.92, 0.35), "images/sprBulletHit.png"),
-                    Team::Enemy => (Color::srgb(1.0, 0.35, 0.08), "images/sprEnemyBulletHit.png"),
-                };
-                VfxSpawner::spawn_burst(&mut commands, pos, 3, hit_color, (30.0, 90.0));
-                if catalog.has(hit_sprite) {
-                    if let Some(def) = catalog.anim_def(hit_sprite) {
-                        let mut sprite =
-                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
-                        sprite.color = Color::WHITE;
-                        let mut anim = crate::game::anim::SpriteAnim::oneshot(hit_sprite, def);
-                        // Play at 2× speed so the 4-frame hit spark lasts ~0.15s like OG
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    1,
+                    Color::srgb(0.62, 0.60, 0.55),
+                    (20.0, 55.0),
+                );
+                // Dust-like quads: faint smoke; if catalog has sprDust use it as single puff
+                if catalog.has("images/sprDust.png") {
+                    if let Some(def) = catalog.anim_def("images/sprDust.png") {
+                        let sprite = crate::game::content::sprite_exact(
+                            &catalog,
+                            &asset_server,
+                            "images/sprDust.png",
+                        );
+                        let mut anim =
+                            crate::game::anim::SpriteAnim::oneshot("images/sprDust.png", def);
                         anim.timer = Timer::from_seconds(
-                            1.0 / (def.fps * 2.0).max(1.0),
+                            1.0 / (def.fps * 0.7).max(1.0),
                             TimerMode::Repeating,
                         );
                         commands.spawn((
                             GameCleanup,
                             LevelCleanup,
                             sprite,
-                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
-                            Transform::from_translation(pos.extend(15.0)),
+                            crate::game::content::sprite_anchor(&catalog, "images/sprDust.png"),
+                            Transform::from_translation(pos.extend(14.0)),
                             anim,
                             crate::game::components::PickupLifetime {
-                                timer: Timer::from_seconds(0.25, TimerMode::Once),
+                                timer: Timer::from_seconds(0.45, TimerMode::Once),
                             },
                         ));
                     } else {
-                        let sprite =
-                            crate::game::content::sprite_exact(&catalog, &asset_server, hit_sprite);
+                        let sprite = crate::game::content::sprite_exact(
+                            &catalog,
+                            &asset_server,
+                            "images/sprDust.png",
+                        );
                         commands.spawn((
                             GameCleanup,
                             LevelCleanup,
                             sprite,
-                            crate::game::content::sprite_anchor(&catalog, hit_sprite),
-                            Transform::from_translation(pos.extend(15.0)),
+                            crate::game::content::sprite_anchor(&catalog, "images/sprDust.png"),
+                            Transform::from_translation(pos.extend(14.0)),
                             crate::game::components::PickupLifetime {
-                                timer: Timer::from_seconds(0.2, TimerMode::Once),
+                                timer: Timer::from_seconds(0.4, TimerMode::Once),
                             },
                         ));
                     }
                 }
+                // Wall chip sound – `sndHitWall` (Shotgun variant gated on speed>6 is handled in bounce branch)
+                audio.play_hit(&mut commands);
             }
             on_projectile_removed(
                 &mut commands,
@@ -2200,19 +2223,75 @@ pub fn resolve_deaths(
         audio.play_death(&mut commands);
 
         let pos = player_tf.translation.truncate();
+        // Original `Player/Destroy_0.gml:69` `CorpseActive` with `motion_add(dir,speed); speed+=max(0,-hp/5)`
+        let mut rng2 = rand::rng();
+        let angle = rng2.random_range(0.0..std::f32::consts::TAU);
+        let dir = Vec2::new(angle.cos(), angle.sin());
+        let corpse_speed =
+            ((-phealth.hp as f32) * 0.2).clamp(1.0, 8.0) + rng2.random_range(1.0..3.0);
+        let corpse_sprite = if let Some(s) = player_sprite.as_ref() {
+            (**s).clone()
+        } else {
+            Sprite {
+                color: Color::srgb(0.85, 0.12, 0.12),
+                custom_size: Some(Vec2::splat(18.0)),
+                ..default()
+            }
+        };
+        commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            corpse_sprite,
+            crate::game::content::sprite_anchor(&catalog, "images/sprPlayerIdle.png"),
+            Transform::from_translation(pos.extend(4.0)),
+            crate::game::components::GroundPhysics {
+                vel: dir * corpse_speed * 30.0,
+                rotspeed: rng2.random_range(-3.0..3.0),
+            },
+            crate::game::components::PickupLifetime {
+                timer: Timer::from_seconds(12.0, TimerMode::Once),
+            },
+            crate::game::components::Corpse {
+                kind: EnemyKind::Bandit,
+                life: Timer::from_seconds(12.0, TimerMode::Once),
+                pos,
+            },
+        ));
+        // BloodStreak – original `repeat 12 BloodStreak` for chicken; generic death gets 8-12 small red puffs
+        for _ in 0..12 {
+            let a = rng2.random_range(0.0..std::f32::consts::TAU);
+            let d = Vec2::new(a.cos(), a.sin());
+            let s = rng2.random_range(50.0..160.0);
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                Sprite {
+                    color: Color::srgb(0.82, 0.08, 0.12),
+                    custom_size: Some(Vec2::new(6.0, 3.0)),
+                    ..default()
+                },
+                Transform::from_translation(pos.extend(12.0))
+                    .with_rotation(Quat::from_rotation_z(a)),
+                crate::game::components::GroundPhysics {
+                    vel: d * s
+                        + Vec2::new(
+                            rng2.random_range(-10.0..10.0),
+                            rng2.random_range(-10.0..10.0),
+                        ),
+                    rotspeed: rng2.random_range(-6.0..6.0),
+                },
+                crate::game::components::PickupLifetime {
+                    timer: Timer::from_seconds(0.9, TimerMode::Once),
+                },
+            ));
+        }
+        // Keep a modest burst for juice (was 60+40 green/gold – now reduced)
         VfxSpawner::spawn_burst(
             &mut commands,
             pos,
-            60,
-            Color::srgb(0.2, 1.0, 0.25),
-            (120.0, 460.0),
-        );
-        VfxSpawner::spawn_burst(
-            &mut commands,
-            pos,
-            40,
-            Color::srgb(1.0, 0.9, 0.4),
-            (100.0, 380.0),
+            10,
+            Color::srgb(0.82, 0.08, 0.12),
+            (40.0, 120.0),
         );
 
         if save.best_floor < run.floor {
