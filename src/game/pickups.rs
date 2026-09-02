@@ -608,3 +608,59 @@ pub fn tick_toast(time: Res<Time<Fixed>>, mut toast: ResMut<Toast>) {
         toast.text.clear();
     }
 }
+
+/// Rad chest walk-contact - upstream `RadChest/Collision_Player.gml`:
+///
+/// `if !scrChestOpened() { hp = 0 }` → `Destroy_0` drops 25 rads.
+/// Bullets also set `hp -= damage` via `hitme`. Bevy keeps both paths.
+pub fn tick_rad_container_contact(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    audio: Res<GameAudio>,
+    player_q: Query<&Transform, With<Player>>,
+    mut rad_q: Query<(Entity, &Transform, &Prop), With<RadChestContainer>>,
+) {
+    let Ok(player_tf) = player_q.single() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+    for (e, tf, prop) in &mut rad_q {
+        let center = tf.translation.truncate();
+        let half = prop.size * 0.5;
+        // AABB contact - mirrors `place_meeting(x,y,Player)` in GML (16x16 msk)
+        let closest = Vec2::new(
+            player_pos.x.clamp(center.x - half.x, center.x + half.x),
+            player_pos.y.clamp(center.y - half.y, center.y + half.y),
+        );
+        if player_pos.distance(closest) > crate::game::components::PLAYER_RADIUS + 2.0 {
+            // also allow simple radius check for center overlap
+            if player_pos.distance(center) > half.x + crate::game::components::PLAYER_RADIUS + 4.0 {
+                continue;
+            }
+        }
+        // Open on contact - same payload as bullet destroy
+        commands.entity(e).despawn();
+        for _ in 0..25 {
+            let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+            let d = rand::rng().random_range(6.0..26.0);
+            spawn_pickup(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                PickupKind::Rad(1),
+                center + Vec2::new(ang.cos() * d, ang.sin() * d),
+            );
+        }
+        // Upstream Destroy spawns 4 Smoke + ExploderExplo + sndEXPChest
+        audio.play_boom(&mut commands);
+        // small VFX burst to mirror Smoke
+        game_utils_bevy::vfx::VfxSpawner::spawn_burst(
+            &mut commands,
+            center,
+            8,
+            Color::srgb(0.55, 0.55, 0.60),
+            (40.0, 120.0),
+        );
+    }
+}

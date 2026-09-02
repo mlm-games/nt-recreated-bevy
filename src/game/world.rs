@@ -57,6 +57,29 @@ pub enum PropKind {
     /// Gold barrel (Y.V. Mansion): explodes and drops a gold weapon.
     GoldBarrel,
 
+    // Additional destructibles (parity with upstream `scrPopProps`)
+    BonePile,
+    NightBonePile,
+    NightCactus,
+    Crystal,
+    Hydrant,
+    StreetLight,
+    SodaMachine,
+    Tube,
+    MutantTube,
+    Pillar,
+    SmallGenerator,
+    Anchor,
+    WaterPlant,
+    OasisBarrel,
+    WaterMine,
+    MoneyPile,
+    YVStatue,
+    Bush,
+    BigFlower,
+    PizzaBox,
+    PlantPot,
+
     // Functional floor / hazard entities
     Cobweb,
     IcePatch,
@@ -508,87 +531,172 @@ fn populate(
         }
         let (px, py) = cell_center_i(cx, cy);
 
-        let kind = match area {
-            // Desert
-            1 => {
-                if rng.random::<f32>() * 60.0 < 1.0 {
-                    PropKind::BigSkull
-                } else if rng.random::<f32>() * 4.0 < 3.0 {
-                    PropKind::Cactus
-                } else {
-                    PropKind::GroundDecal
+        // Secret areas keep their own upstream prop families.
+        let is_secret = crate::game::secret_areas::is_secret_area(run.area);
+        let kind = if is_secret {
+            match run.area {
+                crate::game::areas::AreaId::Oasis => {
+                    let r: f32 = rng.random();
+                    if r < 0.025 {
+                        PropKind::Anchor
+                    } else if r < 0.35 {
+                        PropKind::WaterPlant
+                    } else if r < 0.50 {
+                        PropKind::OasisBarrel
+                    } else if r < 0.62 {
+                        PropKind::WaterMine
+                    } else {
+                        PropKind::GroundDecal
+                    }
                 }
-            }
-
-            // Sewers
-            2 => {
-                let roll = rng.random_range(0..12);
-                match roll {
-                    0 => PropKind::ToxicBarrel,
-                    1..=3 => PropKind::Barrel,
-                    4 => PropKind::GroundDecal,
-                    _ => PropKind::Pipe,
+                crate::game::areas::AreaId::PizzaSewers => {
+                    if rng.random::<f32>() < 0.7 {
+                        PropKind::PizzaBox
+                    } else {
+                        PropKind::GroundDecal
+                    }
                 }
-            }
-
-            // Scrapyards
-            3 => {
-                let roll = rng.random_range(0..20);
-                match roll {
-                    0 => PropKind::Car,
-                    1 => PropKind::Mine,
-                    2..=10 => PropKind::Tires,
-                    11 => PropKind::GroundDecal,
-                    _ => PropKind::Pipe,
+                crate::game::areas::AreaId::Jungle => {
+                    if rng.random::<f32>() * 30.0 < 1.0 {
+                        PropKind::BigFlower
+                    } else if rng.random::<f32>() < 0.55 {
+                        PropKind::Bush
+                    } else {
+                        PropKind::GroundDecal
+                    }
                 }
-            }
-
-            // Crystal Caves
-            4 => {
-                let roll = rng.random_range(0..10);
-                match roll {
-                    0..=4 => PropKind::Cobweb,
-                    5..=7 => PropKind::Cocoon,
-                    _ => PropKind::GroundDecal,
+                crate::game::areas::AreaId::CursedCaves => PropKind::GroundDecal,
+                crate::game::areas::AreaId::City => {
+                    // Y.V. Mansion
+                    let r = rng.random_range(0..10);
+                    match r {
+                        0..=3 => PropKind::MoneyPile,
+                        4 => PropKind::YVStatue,
+                        5 => PropKind::GoldBarrel,
+                        _ => PropKind::GroundDecal,
+                    }
                 }
-            }
-
-            // Frozen City
-            5 => {
-                let roll = rng.random_range(0..14);
-                match roll {
-                    0..=7 => PropKind::IcePatch,
-                    8..=10 => PropKind::Snowman,
-                    11 => PropKind::Car,
-                    _ => PropKind::GroundDecal,
+                crate::game::areas::AreaId::Vault | crate::game::areas::AreaId::CrownVault => {
+                    PropKind::Torch
                 }
-            }
-
-            // Labs
-            6 => {
-                let roll = rng.random_range(0..12);
-                match roll {
-                    0..=3 => PropKind::ToxicBarrel,
-                    4 => PropKind::FireTrap,
-                    5 => PropKind::Mine,
-                    6..=9 => PropKind::Pipe,
-                    _ => PropKind::GroundDecal,
+                crate::game::areas::AreaId::HQ => {
+                    if rng.random::<f32>() < 0.5 {
+                        PropKind::PlantPot
+                    } else {
+                        PropKind::GroundDecal
+                    }
                 }
+                _ => PropKind::GroundDecal,
             }
-
-            // Palace
-            7 => {
-                let roll = rng.random_range(0..12);
-                match roll {
-                    0 => PropKind::Mine,
-                    1..=2 => PropKind::FireTrap,
-                    3..=5 => PropKind::Torch,
-                    6 => PropKind::BigSkull,
-                    _ => PropKind::GroundDecal,
+        } else {
+            match area {
+                // Desert - scrPopProps: BigSkull 1/60, BonePile if styleb, else Cactus/TopDecal
+                1 => {
+                    if rng.random::<f32>() * 60.0 < 1.0 {
+                        PropKind::BigSkull
+                    } else if rng.random::<f32>() * 5.0 < 1.0 {
+                        PropKind::BonePile
+                    } else if rng.random::<f32>() * 4.0 < 3.0 {
+                        PropKind::Cactus
+                    } else {
+                        PropKind::GroundDecal
+                    }
                 }
-            }
 
-            _ => PropKind::GroundDecal,
+                // Sewers - scrPopProps: Pipe/ToxicBarrel/TopDecal
+                2 => {
+                    let roll = rng.random_range(0..7);
+                    match roll {
+                        0..=3 => PropKind::Pipe,
+                        4..=5 => PropKind::ToxicBarrel,
+                        _ => PropKind::GroundDecal,
+                    }
+                }
+
+                // Scrapyards - scrPopProps: Tires/Car/TopDecal
+                3 => {
+                    let roll = rng.random_range(0..7);
+                    match roll {
+                        0..=2 => PropKind::Tires,
+                        3..=4 => PropKind::Car,
+                        _ => PropKind::GroundDecal,
+                    }
+                }
+
+                // Crystal Caves - scrPopProps: Crystal/Cocoon/BonePile
+                4 => {
+                    let r: f32 = rng.random();
+                    if r < 0.25 {
+                        PropKind::Crystal
+                    } else if r < 0.45 {
+                        PropKind::Cocoon
+                    } else if r < 0.55 {
+                        PropKind::BonePile
+                    } else if r < 0.75 {
+                        PropKind::Cobweb
+                    } else {
+                        PropKind::GroundDecal
+                    }
+                }
+
+                // Frozen City - scrPopProps: SnowMan/SodaMachine/StreetLight/Hydrant/Car + IcePatch as functional
+                5 => {
+                    let r: f32 = rng.random();
+                    if r < 0.18 {
+                        PropKind::IcePatch
+                    } else if r < 0.28 {
+                        PropKind::Snowman
+                    } else if r < 0.36 {
+                        PropKind::SodaMachine
+                    } else if r < 0.44 {
+                        PropKind::StreetLight
+                    } else if r < 0.54 {
+                        PropKind::Hydrant
+                    } else if r < 0.60 {
+                        PropKind::Car
+                    } else {
+                        PropKind::GroundDecal
+                    }
+                }
+
+                // Labs - upstream Tube/MutantTube, plus functional hazards; keep ToxicBarrel for Bevy test parity
+                6 => {
+                    let r: f32 = rng.random();
+                    if r < 0.30 {
+                        PropKind::Tube
+                    } else if r < 0.38 {
+                        PropKind::MutantTube
+                    } else if r < 0.50 {
+                        PropKind::ToxicBarrel
+                    } else if r < 0.60 {
+                        PropKind::FireTrap
+                    } else if r < 0.65 {
+                        PropKind::Mine
+                    } else {
+                        PropKind::GroundDecal
+                    }
+                }
+
+                // Palace - upstream Pillar/SmallGenerator/Torch plus functional FireTrap/Mine for test parity
+                7 => {
+                    let r: f32 = rng.random();
+                    if r < 0.20 {
+                        PropKind::Pillar
+                    } else if r < 0.35 {
+                        PropKind::SmallGenerator
+                    } else if r < 0.42 {
+                        PropKind::Torch
+                    } else if r < 0.50 {
+                        PropKind::FireTrap
+                    } else if r < 0.55 {
+                        PropKind::Mine
+                    } else {
+                        PropKind::GroundDecal
+                    }
+                }
+
+                _ => PropKind::GroundDecal,
+            }
         };
 
         // Functional floor patches occur more frequently than solid props;
@@ -2240,7 +2348,7 @@ fn spawn_prop(
             Color::srgb(0.38, 0.72, 0.28),
             Vec2::splat(24.0),
             24.0,
-            4,
+            2,
             true,
             false,
             None,
@@ -2253,7 +2361,7 @@ fn spawn_prop(
             Color::srgb(0.82, 0.78, 0.62),
             Vec2::splat(32.0),
             32.0,
-            8,
+            50,
             true,
             false,
             None,
@@ -2283,7 +2391,7 @@ fn spawn_prop(
             Color::srgb(0.35, 0.86, 0.30),
             Vec2::splat(24.0),
             24.0,
-            3,
+            1,
             true,
             false,
             Some(PropDeathEffect::toxic_barrel()),
@@ -2300,7 +2408,7 @@ fn spawn_prop(
             Color::srgb(0.62, 0.28, 0.22),
             Vec2::new(48.0, 28.0),
             38.0,
-            10,
+            20,
             true,
             false,
             Some(PropDeathEffect::car()),
@@ -2317,8 +2425,8 @@ fn spawn_prop(
             Color::srgb(0.95, 0.82, 0.25),
             Vec2::splat(24.0),
             24.0,
-            3,
-            // Upstream inherits Barrel: explodes on death.
+            1,
+            // Upstream inherits Barrel: hp=1, explodes on death.
             true,
             false,
             Some(PropDeathEffect::legacy_barrel()),
@@ -2331,7 +2439,7 @@ fn spawn_prop(
             Color::srgb(0.42, 0.46, 0.45),
             Vec2::splat(24.0),
             24.0,
-            6,
+            1,
             true,
             false,
             None,
@@ -2357,7 +2465,7 @@ fn spawn_prop(
             Color::srgb(0.70, 0.58, 0.72),
             Vec2::new(26.0, 32.0),
             24.0,
-            7,
+            8,
             true,
             false,
             None,
@@ -2374,7 +2482,7 @@ fn spawn_prop(
             Color::srgb(0.90, 0.94, 1.0),
             Vec2::new(24.0, 32.0),
             24.0,
-            5,
+            10,
             true,
             false,
             None,
@@ -2387,7 +2495,7 @@ fn spawn_prop(
             Color::srgb(1.0, 0.62, 0.18),
             Vec2::new(12.0, 28.0),
             12.0,
-            4,
+            20,
             true,
             false,
             None,
@@ -2396,11 +2504,8 @@ fn spawn_prop(
         ),
 
         PropKind::BigGenerator => {
-            let hp = if run.loop_count == 0 {
-                40
-            } else {
-                (18 - run.loop_count as i32 * 2).max(8)
-            };
+            // Upstream: max_hp 230, or 50 if loops>0 (Create_0.gml)
+            let hp = if run.loop_count == 0 { 230 } else { 50 };
             (
                 &["images/sprGenerator.png", "images/sprBigGenerator.png"],
                 Color::srgb(0.55, 0.75, 1.0),
@@ -2419,11 +2524,271 @@ fn spawn_prop(
             Color::srgb(0.9, 0.82, 0.55),
             Vec2::splat(36.0),
             32.0,
-            12,
+            1000,
             true,
             false,
             None,
             -8.0,
+            true,
+        ),
+
+        PropKind::BonePile => (
+            &["images/sprBonePileIdle.png", "images/sprBonePile.png"],
+            Color::srgb(0.82, 0.78, 0.62),
+            Vec2::splat(24.0),
+            22.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::NightBonePile => (
+            &[
+                "images/sprNightBonePileIdle.png",
+                "images/sprNightBonePile.png",
+            ],
+            Color::srgb(0.62, 0.62, 0.68),
+            Vec2::splat(24.0),
+            22.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::NightCactus => (
+            &[
+                "images/sprNightCactus.png",
+                "images/sprNightCactus2.png",
+                "images/sprNightCactus3.png",
+            ],
+            Color::srgb(0.28, 0.52, 0.38),
+            Vec2::splat(24.0),
+            24.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Crystal => (
+            &["images/sprCrystalProp.png", "images/sprCrystal.png"],
+            Color::srgb(0.72, 0.82, 0.95),
+            Vec2::splat(24.0),
+            22.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Hydrant => (
+            &["images/sprHydrant.png", "images/sprIcicle.png"],
+            Color::srgb(0.82, 0.15, 0.15),
+            Vec2::splat(24.0),
+            24.0,
+            5,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::StreetLight => (
+            &["images/sprStreetLight.png"],
+            Color::srgb(0.88, 0.88, 0.78),
+            Vec2::splat(24.0),
+            20.0,
+            5,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::SodaMachine => (
+            &["images/sprSodaMachine.png", "images/sprNewsStand.png"],
+            Color::srgb(0.75, 0.15, 0.18),
+            Vec2::splat(28.0),
+            26.0,
+            24,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Tube => (
+            &["images/sprTube.png"],
+            Color::srgb(0.62, 0.72, 0.68),
+            Vec2::splat(24.0),
+            20.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::MutantTube => (
+            &["images/sprMutantTube.png"],
+            Color::srgb(0.58, 0.78, 0.42),
+            Vec2::splat(26.0),
+            24.0,
+            24,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Pillar => (
+            &["images/sprNuclearPillar.png", "images/sprPillar.png"],
+            Color::srgb(0.62, 0.62, 0.68),
+            Vec2::splat(28.0),
+            24.0,
+            70,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::SmallGenerator => (
+            &["images/sprSmallGenerator.png"],
+            Color::srgb(0.55, 0.75, 1.0),
+            Vec2::splat(28.0),
+            24.0,
+            40,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Anchor => (
+            &["images/sprAnchor.png"],
+            Color::srgb(0.42, 0.46, 0.52),
+            Vec2::splat(32.0),
+            28.0,
+            50,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::WaterPlant => (
+            &["images/sprWaterPlant.png", "images/sprWaterPlant2.png"],
+            Color::srgb(0.18, 0.58, 0.42),
+            Vec2::splat(24.0),
+            20.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::OasisBarrel => (
+            &["images/sprOasisBarrel.png"],
+            Color::srgb(0.78, 0.62, 0.28),
+            Vec2::splat(24.0),
+            22.0,
+            2,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::WaterMine => (
+            &["images/sprWaterMine.png"],
+            Color::srgb(0.18, 0.35, 0.62),
+            Vec2::splat(24.0),
+            20.0,
+            20,
+            true,
+            false,
+            Some(PropDeathEffect::mine()),
+            -10.0,
+            true,
+        ),
+        PropKind::MoneyPile => (
+            &["images/sprMoneyPile.png"],
+            Color::srgb(0.82, 0.72, 0.12),
+            Vec2::splat(24.0),
+            22.0,
+            1,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::YVStatue => (
+            &["images/sprYVStatue.png"],
+            Color::srgb(0.72, 0.68, 0.58),
+            Vec2::splat(24.0),
+            22.0,
+            15,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::Bush => (
+            &["images/sprBushIdle.png", "images/sprBush.png"],
+            Color::srgb(0.28, 0.58, 0.18),
+            Vec2::splat(24.0),
+            22.0,
+            1,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::BigFlower => (
+            &["images/sprBigFlowerIdle.png", "images/sprBigFlower.png"],
+            Color::srgb(0.82, 0.38, 0.58),
+            Vec2::splat(26.0),
+            24.0,
+            8,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::PizzaBox => (
+            &["images/sprPizzaBox.png"],
+            Color::srgb(0.82, 0.52, 0.18),
+            Vec2::splat(24.0),
+            22.0,
+            4,
+            true,
+            false,
+            None,
+            -10.0,
+            true,
+        ),
+        PropKind::PlantPot => (
+            &["images/sprPlantPotIdle.png", "images/sprPlantPot.png"],
+            Color::srgb(0.42, 0.62, 0.28),
+            Vec2::splat(24.0),
+            20.0,
+            3,
+            true,
+            false,
+            None,
+            -10.0,
             true,
         ),
 

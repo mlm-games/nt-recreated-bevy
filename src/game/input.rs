@@ -110,11 +110,15 @@ pub fn sample_input(
     let mut move_axis = keyboard_move(&keys);
     let mut aim_axis = Vec2::ZERO;
 
+    // Upstream defaults (`scripts/scrKeymapsSetup/scrKeymapsSetup.gml:7`):
+    // fire = LMB/RB, spec = RMB/LB, pick = E/A, swap = Space/RB-horn=B.
+    // Bevy keeps Shift as keyboard alias for spec (RMB alternative).
     let mut fire_held = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     let mut fire_pressed =
         mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space);
-    let mut ability_pressed = keys.just_pressed(KeyCode::ShiftLeft);
-    // Weapon pickup (original `press_pick` – NT uses E): F / E / Q ; gamepad South (A) / East (B)
+    let mut ability_pressed = mouse.just_pressed(MouseButton::Right)
+        || keys.just_pressed(KeyCode::ShiftLeft)
+        || keys.just_pressed(KeyCode::ShiftRight);
     let mut interact_pressed = keys.just_pressed(KeyCode::KeyE)
         || keys.just_pressed(KeyCode::KeyF)
         || keys.just_pressed(KeyCode::KeyQ)

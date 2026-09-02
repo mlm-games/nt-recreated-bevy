@@ -201,6 +201,7 @@ impl Plugin for GamePlugin {
                     (
                         combat::resolve_deaths,
                         pickups::collect_pickups,
+                        pickups::tick_rad_container_contact,
                         progress_sys::portal_check,
                         progress_sys::portal_attract,
                         progress_sys::portal_enter,
