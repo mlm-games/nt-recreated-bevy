@@ -759,6 +759,13 @@ fn mutation_choice_card(
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    // GML-accurate SkillIcon layout (320×240 GUI):
+    // - dim 0,0,0 ~210 (GenCont-style), title 160,26, subtitle 160,42
+    // - icons 24×32 via ui_art at y≈90, row centred, step 56 (4 picks) / 64 (2-3)
+    // - this Repose layer provides only the dim + text + invisible hitboxes;
+    //   the actual 24×32 portraits are spawned in ui_art::sync_mutation_icons
+    //   as camera-anchored gm_sprite("sprSkillIcon", skill_index-1) at the same
+    //   gui_x/y, so visuals match nt-rewrite SkillIcon exactly.
     let v = nt_view(st);
     let is_ultra = st
         .mutation_choices
@@ -777,16 +784,16 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     };
 
     let n = st.mutation_choices.len().max(1);
-    let card_w = if n >= 4 { 66.0 } else { 82.0 };
-    let card_h = 96.0;
-    let gap = 5.0;
-    let total_w = n as f32 * card_w + n.saturating_sub(1) as f32 * gap;
-    let start_x = 160.0 - total_w * 0.5;
-    let y = 76.0;
+    // Match ui_art step so hitboxes line up with icons
+    let step = if n >= 4 { 56.0 } else { 64.0 };
+    let start_x = 160.0 - (n as f32 - 1.0) * step * 0.5;
+    // Card is the click target (transparent – icon is drawn in ui_art)
+    let card_w = 56.0;
+    let card_h = 110.0;
+    let y = 70.0;
 
     let mut layers: Vec<View> = Vec::new();
 
-    // Original-style: black screen-space dim, no rounded Material card.
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
@@ -806,7 +813,9 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     for (i, choice) in st.mutation_choices.iter().enumerate() {
         let (ultra, name, desc) = mutation_choice_parts(choice);
-        let x = start_x + i as f32 * (card_w + gap);
+        // Card centred on the icon
+        let icon_x = start_x + i as f32 * step;
+        let x = icon_x - card_w * 0.5;
         let a = actions.clone();
         let idx = i;
         let border = if ultra {
@@ -834,25 +843,26 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                         .height(card_h * v.s)
                         .padding(3.0 * v.s)
                         .gap(2.0 * v.s)
-                        .background(RColor::from_rgba(6, 8, 6, 235))
+                        .background(RColor::from_rgba(0, 0, 0, 0))
                         .border((1.0 * v.s).max(1.0), border, 0.0)
                         .clickable()
                         .on_click(move || push(&a, UiAction::PickMutation(idx))),
                 )
                 .child((
                     RText(format!("{}", i + 1))
-                        .size((8.0 * v.s).max(8.0))
+                        .size((7.0 * v.s).max(7.0))
                         .font_family("Silkscreen")
                         .color(accent)
                         .single_line(),
+                    // Name centred under the icon (y ~122)
                     RText(name.to_ascii_uppercase())
-                        .size((9.0 * v.s).max(9.0))
+                        .size((7.0 * v.s).max(7.0))
                         .font_family("Silkscreen")
                         .color(col(238, 239, 225))
                         .single_line()
                         .overflow_ellipsize(),
                     RText(desc)
-                        .size((7.0 * v.s).max(7.0))
+                        .size((6.0 * v.s).max(6.0))
                         .font_family("Silkscreen")
                         .color(col(156, 160, 150)),
                 )),

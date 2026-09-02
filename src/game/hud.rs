@@ -28,6 +28,7 @@ pub fn sync_hud(
     let Some(run) = run else {
         ui.game_over = false;
         ui.mutation_choices.clear();
+        ui.mutation_choice_ids.clear();
         ui.boss_hp = 0;
         ui.boss_max = 0;
         ui.boss_name.clear();
@@ -102,28 +103,34 @@ pub fn sync_hud(
         ui.total_kills = save.total_kills;
     }
 
-    ui.mutation_choices = if let Some(pending_ultra) = pending_ultra {
-        pending_ultra
-            .choices
-            .iter()
-            .map(|u| {
-                let def = ultra_mutation_def(*u);
-                format!("ULTRA: {} - {}", def.name, def.description)
-            })
-            .collect()
+    let (choices, ids) = if let Some(ultra) = pending_ultra {
+        (
+            ultra
+                .choices
+                .iter()
+                .map(|u| {
+                    let def = ultra_mutation_def(*u);
+                    format!("ULTRA: {} - {}", def.name, def.description)
+                })
+                .collect::<Vec<_>>(),
+            ultra.choices.iter().map(|u| ultra_skill_index(*u)).collect(),
+        )
+    } else if let Some(p) = pending {
+        (
+            p.choices
+                .iter()
+                .map(|m| {
+                    let def = mutation_def(*m);
+                    format!("{} - {}", def.name, def.description)
+                })
+                .collect::<Vec<_>>(),
+            p.choices.iter().map(|m| mutation_skill_index(*m)).collect(),
+        )
     } else {
-        pending
-            .map(|p| {
-                p.choices
-                    .iter()
-                    .map(|m| {
-                        let def = mutation_def(*m);
-                        format!("{} - {}", def.name, def.description)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+        (Vec::new(), Vec::new())
     };
+    ui.mutation_choices = choices;
+    ui.mutation_choice_ids = ids;
 }
 
 /// Reset the HUD when a new run begins (called from OnEnter(InGame) after the
@@ -132,6 +139,7 @@ pub fn reset_hud_flags(bridge: Res<UiBridge>) {
     if let Ok(mut ui) = bridge.shared.lock() {
         ui.game_over = false;
         ui.mutation_choices.clear();
+        ui.mutation_choice_ids.clear();
         ui.toast.clear();
         ui.toast_timer = 0.0;
         ui.boss_hp = 0;

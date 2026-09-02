@@ -4142,6 +4142,44 @@ pub fn mutation_skill_index(id: MutationId) -> u8 {
     }
 }
 
+/// Ultra skill icon subimage.
+pub fn ultra_skill_index(id: UltraMutationId) -> u8 {
+    match id {
+        UltraMutationId::FishGunWarrant => 1,
+        UltraMutationId::FishConfiscate => 2,
+        UltraMutationId::CrystalFortress => 3,
+        UltraMutationId::CrystalJuggernaut => 4,
+        UltraMutationId::EyesMonsterStyle => 5,
+        UltraMutationId::EyesProjectileStyle => 6,
+        UltraMutationId::MeltingBrainCapacity => 7,
+        UltraMutationId::MeltingDetachment => 8,
+        UltraMutationId::PlantTrapper => 9,
+        UltraMutationId::PlantKiller => 10,
+        UltraMutationId::VenuzBack2Bizniz => 11,
+        UltraMutationId::VenuzGunGod => 12,
+        UltraMutationId::SteroidsAmbidextrous => 13,
+        UltraMutationId::SteroidsGetArmed => 14,
+        UltraMutationId::RobotRefinedTaste => 15,
+        UltraMutationId::RobotRegurgitate => 16,
+        UltraMutationId::ChickenHarderToKill => 17,
+        UltraMutationId::ChickenDetermination => 18,
+        UltraMutationId::RebelPersonalGuard => 19,
+        UltraMutationId::RebelRiot => 20,
+        UltraMutationId::HorrorStalker => 21,
+        UltraMutationId::HorrorAnomaly => 22,
+        UltraMutationId::RogueSuperBlastArmor => 23,
+        UltraMutationId::RoguePortalStrike => 24,
+        UltraMutationId::BigDogHeavyArtillery => 25,
+        UltraMutationId::BigDogGuardian => 26,
+        UltraMutationId::SkeletonBloodArmor => 27,
+        UltraMutationId::SkeletonNecromancy => 28,
+        UltraMutationId::FrogToxicLord => 29,
+        UltraMutationId::FrogSwampBody => 30,
+        UltraMutationId::CuzHoarder => 1,
+        UltraMutationId::CuzQuickSwap => 2,
+    }
+}
+
 #[cfg(test)]
 mod weapon_id_tests {
     use super::*;

@@ -123,6 +123,9 @@ pub struct SharedUi {
     pub toast: String,
     pub toast_timer: f32,
     pub mutation_choices: Vec<String>,
+    /// GML skill index for each pending mutation (1-based subimage of
+    /// `sprSkillIcon` / `sprSkillIconHUD`).
+    pub mutation_choice_ids: Vec<u8>,
     pub game_over: bool,
     pub character: String,
     /// nt-rewrite `enum Race` id of the chosen mutant (Random=0..Cuz=16).
@@ -206,6 +209,7 @@ impl Default for SharedUi {
             toast: String::new(),
             toast_timer: 0.0,
             mutation_choices: Vec::new(),
+            mutation_choice_ids: Vec::new(),
             game_over: false,
             character: "Fish".to_string(),
             selected_character: 1,

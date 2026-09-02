@@ -63,6 +63,16 @@ enum CampCharPhase {
 #[derive(Component)]
 pub struct HudArt;
 
+/// Marker for mutation-choice icons (sprSkillIcon 24×32) – camera-anchored,
+/// despawned when the choice is resolved.
+#[derive(Component)]
+struct MutationIconArt;
+
+#[derive(Resource, Default)]
+struct MutationArtRefs {
+    entities: Vec<Entity>,
+}
+
 /// Handles for the HUD pieces that update every tick.
 #[derive(Resource)]
 pub struct HudArtRefs {
@@ -1464,7 +1474,9 @@ impl Plugin for UiArtPlugin {
             .add_systems(Update, hide_title_during_transition)
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
+            .add_systems(OnExit(AppState::InGame), despawn_mutation_art)
             .add_systems(FixedUpdate, sync_hud_art)
+            .add_systems(Update, sync_mutation_icons)
             .add_systems(Update, sync_gencont_art);
     }
 }
@@ -3667,6 +3679,106 @@ fn despawn_hud_art(
     }
     if refs.is_some() {
         commands.remove_resource::<HudArtRefs>();
+    }
+}
+
+fn despawn_mutation_art(
+    mut commands: Commands,
+    q: Query<Entity, With<MutationIconArt>>,
+    refs: Option<Res<MutationArtRefs>>,
+) {
+    for e in &q {
+        commands.entity(e).try_despawn();
+    }
+    if refs.is_some() {
+        commands.remove_resource::<MutationArtRefs>();
+    }
+}
+
+/// Sync mutation choice icons (SkillIcon)
+fn sync_mutation_icons(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
+    bridge: Res<crate::menus::UiBridge>,
+    existing: Query<Entity, With<MutationIconArt>>,
+    mut refs: Option<ResMut<MutationArtRefs>>,
+) {
+    let ids = if let Ok(ui) = bridge.shared.lock() {
+        ui.mutation_choice_ids.clone()
+    } else {
+        Vec::new()
+    };
+    let has_pending = !ids.is_empty();
+    // Despawn when choice cleared / picked
+    if !has_pending {
+        if refs.is_some() || !existing.is_empty() {
+            for e in &existing {
+                commands.entity(e).try_despawn();
+            }
+            if let Some(mut r) = refs {
+                r.entities.clear();
+            }
+        }
+        return;
+    }
+    // Avoid respawning every frame if count unchanged – check cached ids via entity count
+    if let Some(r) = refs.as_ref() {
+        if r.entities.len() == ids.len() {
+            // Already have correct count; assume icons stable (skill indices rarely change mid-panel)
+            return;
+        }
+    }
+    // Clear old icons before respawning for new layout/count
+    for e in &existing {
+        commands.entity(e).try_despawn();
+    }
+    let Some((cam, map)) = view_setup(&windows, &cam_q) else {
+        return;
+    };
+    // Native sprite is sprSkillIcon 24×32. Verify catalog has it; fall back to HUD 16×16.
+    let icon_path = if catalog.has("images/sprSkillIcon.png") {
+        "images/sprSkillIcon.png"
+    } else {
+        "images/sprSkillIconHUD.png"
+    };
+    // Layout: same math as menus::mutation_panel – centred row, step 56-64.
+    let n = ids.len();
+    let step = if n >= 4 { 56.0 } else { 64.0 };
+    let start_x = 160.0 - (n as f32 - 1.0) * step * 0.5;
+    // Icons sit at y ≈ 90-96 inside the 56×110 cards (y 70). Use 90 for centering.
+    let icon_y = 90.0;
+    let mut new_entities = Vec::with_capacity(n);
+    for (i, &skill_id) in ids.iter().enumerate() {
+        let gui_x = start_x + i as f32 * step;
+        // skill_id is 1-based (scrSkills), frame 0-based
+        let frame = (skill_id as usize).saturating_sub(1) % 30;
+        let (spr, tf) = gm_sprite(
+            &catalog,
+            &asset_server,
+            &map,
+            icon_path,
+            frame,
+            gui_x,
+            icon_y,
+            1.0,
+            1.0,
+            Color::WHITE,
+            -860.0,
+        );
+        let e = commands
+            .spawn((MutationIconArt, ChildOf(cam), spr, tf))
+            .id();
+        new_entities.push(e);
+    }
+    if let Some(mut r) = refs {
+        r.entities = new_entities;
+    } else {
+        commands.insert_resource(MutationArtRefs {
+            entities: new_entities,
+        });
     }
 }
 
