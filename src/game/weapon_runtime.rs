@@ -895,19 +895,21 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GRENADE LAUNCHER" => {
+            // GML Grenade/Create_0: damage 15, speed 10 (300 px/s), alarm0 60 (2.0s), friction 0.1→0.4@6f, bounce speed*=0.6
             set_explosive(
                 def,
-                6,
+                15,
                 1,
-                330.0,
-                0.9,
-                0.055,
-                8.0,
-                7.0,
-                155.0,
+                300.0,
+                2.0,
+                0.052,
+                10.0,
+                4.0,
+                200.0,
                 Color::srgb(1.0, 0.58, 0.2),
-                Vec2::splat(11.0),
+                Vec2::splat(6.0),
             );
+            def.bounces = 4; // GML move_bounce_solid(true) repeatedly until fuse
         }
 
         "DOUBLE SHOTGUN" => {

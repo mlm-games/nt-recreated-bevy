@@ -3744,12 +3744,14 @@ fn sync_mutation_icons(
     } else {
         "images/sprSkillIconHUD.png"
     };
-    // Layout: same math as menus::mutation_panel – centred row, step 56-64.
+    // Layout: mirrors LevCont/Other_10 – view_width 320, num icons,
+    // step = min(32, floor(320/(num+1))) == 32 for 2-4 choices, half 16.
+    // x = view_xview_center - (num-1)*half + index*step, y = view_height -21.
     let n = ids.len();
-    let step = if n >= 4 { 56.0 } else { 64.0 };
-    let start_x = 160.0 - (n as f32 - 1.0) * step * 0.5;
-    // Icons sit at y ≈ 90-96 inside the 56×110 cards (y 70). Use 90 for centering.
-    let icon_y = 90.0;
+    let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
+    let half = step * 0.5;
+    let start_x = 160.0 - (n as f32 - 1.0) * half;
+    let icon_y = GUI_H - 21.0;
     let mut new_entities = Vec::with_capacity(n);
     for (i, &skill_id) in ids.iter().enumerate() {
         let gui_x = start_x + i as f32 * step;
@@ -3766,7 +3768,7 @@ fn sync_mutation_icons(
             1.0,
             1.0,
             Color::WHITE,
-            -860.0,
+            -850.0,
         );
         let e = commands
             .spawn((MutationIconArt, ChildOf(cam), spr, tf))

@@ -96,6 +96,11 @@ fn archetyped(name: &str) -> ProjectileArchetype {
             ..default()
         },
 
+        "GRENADE LAUNCHER" | "GOLDEN GRENADE LAUNCHER" => ProjectileArchetype {
+            custom_explosion: Some(CustomExplosion { radius: 80.0 }),
+            ..default()
+        },
+
         "NUKE LAUNCHER" => ProjectileArchetype {
             custom_explosion: Some(CustomExplosion { radius: 340.0 }),
             ..default()
@@ -476,9 +481,10 @@ mod tests {
                 "{}",
                 meta.wep_name
             );
+            let wants_grenade = base == "GRENADE LAUNCHER";
             assert_eq!(
                 a.custom_explosion.is_some(),
-                wants_nuke || base.contains("STICKY"),
+                wants_nuke || base.contains("STICKY") || wants_grenade,
                 "{}",
                 meta.wep_name
             );

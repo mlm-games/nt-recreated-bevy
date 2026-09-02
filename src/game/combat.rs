@@ -300,6 +300,60 @@ pub fn tick_projectile_friction(
     }
 }
 
+pub fn tick_grenade_fuse(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(
+        Entity,
+        &mut crate::game::components::GrenadeFuse,
+        &mut ProjectileFriction,
+        &Projectile,
+        &Transform,
+        &mut Sprite,
+    )>,
+) {
+    for (e, mut fuse, mut friction, proj, tf, mut sprite) in &mut q {
+        // GML alarm[1]=6 → friction 0.4 + 4×Smoke
+        if !fuse.friction_switched {
+            fuse.alarm1.tick(time.delta());
+            if fuse.alarm1.just_finished() {
+                friction.0 = 0.4;
+                fuse.friction_switched = true;
+                if !fuse.smoke_armed {
+                    fuse.smoke_armed = true;
+                    // GML Grenade Alarm_1: repeat 4 Smoke motion_add random 2
+                    use bevy::prelude::Color;
+                    use game_utils_bevy::vfx::VfxSpawner;
+                    VfxSpawner::spawn_burst(
+                        &mut commands,
+                        tf.translation.truncate(),
+                        4,
+                        Color::srgba(0.55, 0.55, 0.55, 0.6),
+                        (12.0, 65.0),
+                    );
+                }
+            }
+        }
+        // GML Draw_0: flash black/white last 10 frames (alarm0 <=10)
+        // Bevy life 2.0s → flash when remaining <= 10/30 = 0.333s
+        let remaining = proj.life.remaining_secs();
+        if remaining <= 0.334 && remaining > 0.01 {
+            // toggle every ~0.06s (~2 frames) like GML %5>2
+            let phase = (remaining * 30.0).floor() as i32 % 5;
+            let flash_white = phase <= 2;
+            sprite.color = if flash_white {
+                Color::WHITE
+            } else {
+                Color::BLACK
+            };
+        } else if fuse.friction_switched {
+            // restore white after smoke phase, before flash
+            sprite.color = Color::WHITE;
+        }
+        let _ = e;
+    }
+}
+
 pub fn tick_shell_bonus(time: Res<Time<Fixed>>, mut q: Query<&mut ShellBonus>) {
     for mut bonus in &mut q {
         bonus.timer.tick(time.delta());
@@ -360,6 +414,7 @@ pub fn move_projectiles(
             Option<&DeploysSentry>,
             Option<&SpawnsWeaponPickup>,
             Option<&PlasmaBurst>,
+            Option<&crate::game::components::GrenadeFuse>,
         ),
         Without<Prop>,
     >,
@@ -388,6 +443,7 @@ pub fn move_projectiles(
         deploys_sentry,
         spawn_pickup_spec,
         plasma_burst,
+        grenade_fuse,
     ) in &mut q
     {
         p.life.tick(time.delta());
@@ -482,12 +538,14 @@ pub fn move_projectiles(
             }
 
             // Bounce remaining? OG Bullet2: speed*=0.8 then +wallbounce 5*0.95
+            // GML Grenade: speed*=0.6 (no wallbounce bonus)
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
             {
                 bounce.0 -= 1;
+                let factor = if grenade_fuse.is_some() { 0.6 } else { 0.8 };
                 let mut bounced =
-                    crate::game::projectile_math::bounce_velocity(vel.0, normal) * 0.8;
+                    crate::game::projectile_math::bounce_velocity(vel.0, normal) * factor;
                 if let Some(mut wb) = shell_bounce {
                     let add = wb.0;
                     let sp = bounced.length();

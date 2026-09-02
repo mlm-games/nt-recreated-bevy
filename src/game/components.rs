@@ -648,6 +648,15 @@ impl DamageSource {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ProjectileFriction(pub f32);
 
+/// Grenade launcher fuse / flash state (GML Grenade alarm0/alarm1)
+/// `flash_at = 10` frames remaining, `smoke_tick` after 6 frames, bounce retention 0.6
+#[derive(Component, Debug)]
+pub struct GrenadeFuse {
+    pub smoke_armed: bool,
+    pub friction_switched: bool,
+    pub alarm1: Timer,
+}
+
 #[derive(Component, Debug)]
 pub struct ShellBonus {
     pub timer: Timer,

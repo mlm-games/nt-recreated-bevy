@@ -1536,7 +1536,15 @@ pub fn spawn_player_projectile_with_source(
         }
     }
     if let Some(w) = weapon {
-        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+        if w.0 == 7 || w.0 == 44 {
+            // GML Grenade friction 0.1 → 0.4 @ alarm[1]=6f + Smoke×4
+            ec.insert(ProjectileFriction(0.1));
+            ec.insert(crate::game::components::GrenadeFuse {
+                smoke_armed: false,
+                friction_switched: false,
+                alarm1: Timer::from_seconds(6.0 / 30.0, TimerMode::Once),
+            });
+        } else if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
             ec.insert(ProjectileFriction(0.6));
             ec.insert(ShellBonus {
                 timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
