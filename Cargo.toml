@@ -132,8 +132,13 @@ inherits = "release"
 opt-level = "s"
 strip = "debuginfo"
 
+# [patch."https://github.com/mlm-games/repose-bevy"]
+# repose-bevy = { path = "../Repos/repose-bevy" }
+
 # [patch.crates-io]
-# repose-core = { path = "../../../Repos/repose/crates/repose-core" }
-# repose-ui = { path = "../../../Repos/repose/crates/repose-ui" }
-# repose-material = { path = "../../../Repos/repose/crates/repose-material" }
-# repose-render-wgpu = { path = "../../../Repos/repose/crates/repose-render-wgpu" }
+# repose-core = { path = "../Repos/repose/crates/repose-core" }
+# repose-ui = { path = "../Repos/repose/crates/repose-ui" }
+# repose-app = { path = "../Repos/repose/crates/repose-app" }
+# repose-material = { path = "../Repos/repose/crates/repose-material" }
+# repose-render-wgpu = { path = "../Repos/repose/crates/repose-render-wgpu" }
+# repose-text = { path = "../Repos/repose/crates/repose-text" }
