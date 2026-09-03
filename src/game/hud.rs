@@ -114,7 +114,11 @@ pub fn sync_hud(
                     format!("ULTRA: {} - {}", def.name, def.description)
                 })
                 .collect::<Vec<_>>(),
-            ultra.choices.iter().map(|u| ultra_skill_index(*u)).collect(),
+            ultra
+                .choices
+                .iter()
+                .map(|u| ultra_skill_index(*u))
+                .collect(),
         )
     } else if let Some(p) = pending {
         (
@@ -130,12 +134,28 @@ pub fn sync_hud(
     } else {
         (Vec::new(), Vec::new())
     };
+    let prev_len = ui.mutation_choices.len();
     ui.mutation_choices = choices;
     ui.mutation_choice_ids = ids;
+    // GML LevCont recreates SkillIcons anew each level-up; clear stale selection when offers change
+    if ui.mutation_choices.len() != prev_len {
+        ui.mutation_selected = None;
+    }
+    if ui.mutation_choices.is_empty() {
+        ui.mutation_selected = None;
+    } else if let Some(sel) = ui.mutation_selected {
+        if sel >= ui.mutation_choices.len() {
+            ui.mutation_selected = None;
+        }
+    }
     // Death screen mutations – capture once while Player still alive for 0.85s (PlayerDying)
     if run.game_over {
         if let Ok((player, _, _)) = player_q.single() {
-            ui.death_mutation_ids = player.mutations.iter().map(|m| mutation_skill_index(*m)).collect();
+            ui.death_mutation_ids = player
+                .mutations
+                .iter()
+                .map(|m| mutation_skill_index(*m))
+                .collect();
         }
     } else {
         ui.death_mutation_ids.clear();
@@ -149,6 +169,7 @@ pub fn reset_hud_flags(bridge: Res<UiBridge>) {
         ui.game_over = false;
         ui.mutation_choices.clear();
         ui.mutation_choice_ids.clear();
+        ui.mutation_selected = None;
         ui.death_mutation_ids.clear();
         ui.toast.clear();
         ui.toast_timer = 0.0;

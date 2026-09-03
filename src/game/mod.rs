@@ -282,11 +282,7 @@ impl Plugin for GamePlugin {
             )
             .add_systems(
                 Update,
-                (
-                    progress_sys::handle_mutation_choice,
-                    hud::sync_hud,
-                )
-                    .in_set(NtSimSet::Always),
+                (progress_sys::handle_mutation_choice, hud::sync_hud).in_set(NtSimSet::Always),
             )
             .add_systems(Update, clear_input_when_inactive)
             .add_systems(OnExit(AppState::InGame), clear_input_pulses)

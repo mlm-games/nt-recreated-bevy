@@ -1388,7 +1388,7 @@ pub fn projectile_hits(
                 target_pos,
                 Color::srgb(1.0, 0.92, 0.35),
             );
-            // OG hit spark — sprBulletHit for player, sprEnemyBulletHit for enemy
+            // OG hit spark - sprBulletHit for player, sprEnemyBulletHit for enemy
             {
                 let hit_sprite = match *proj_team {
                     Team::Player => "images/sprBulletHit.png",
@@ -2285,9 +2285,11 @@ pub fn resolve_deaths(
                 *anchor = crate::game::content::sprite_anchor(&catalog, dead);
             }
         }
-        commands.entity(player_e).insert(crate::game::components::PlayerDying {
-            timer: Timer::from_seconds(0.85, TimerMode::Once),
-        });
+        commands
+            .entity(player_e)
+            .insert(crate::game::components::PlayerDying {
+                timer: Timer::from_seconds(0.85, TimerMode::Once),
+            });
         commands.spawn((
             GameCleanup,
             crate::game::reactive_audio::QueuedReactiveCue(

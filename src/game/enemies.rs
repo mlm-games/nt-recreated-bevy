@@ -183,7 +183,7 @@ fn ready_timer() -> Timer {
 }
 
 /// Approximate GML `collision_line(Wall)` for Bandit/Scorpion LOS.
-/// Only WallTile blocks (not decor Props like barrels/cactus) — matching
+/// Only WallTile blocks (not decor Props like barrels/cactus) - matching
 /// GML `collision_line(x,y,target.x,target.y,Wall,0,0)`. The old version
 /// checked every Prop and made Bandits blind behind decoration.
 fn has_line_of_sight(from: Vec2, to: Vec2, walls: &Query<&WallCell, With<WallTile>>) -> bool {
@@ -891,7 +891,11 @@ fn enemy_bullet_sprite(
     asset_server: &AssetServer,
     kind: EnemyKind,
     _def: EnemyDef,
-) -> (Sprite, bevy::sprite::Anchor, Option<crate::game::anim::SpriteAnim>) {
+) -> (
+    Sprite,
+    bevy::sprite::Anchor,
+    Option<crate::game::anim::SpriteAnim>,
+) {
     let primary = crate::game::projectile_art::enemy_projectile_path(kind);
     let candidates = [
         primary,

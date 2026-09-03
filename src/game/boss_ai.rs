@@ -2206,7 +2206,11 @@ fn fire_projectile(
             crate::game::projectile_art::sprite_and_anim_from_projectile_path(
                 asset_server,
                 catalog,
-                &[primary, "images/sprEnemyBullet1.png", "images/sprBullet1.png"],
+                &[
+                    primary,
+                    "images/sprEnemyBullet1.png",
+                    "images/sprBullet1.png",
+                ],
                 None,
             )
         }

@@ -319,7 +319,7 @@ pub fn check_level_up(
     }
 
     if leveled {
-        // Feedback only — do NOT open mutation UI mid-combat.
+        // Feedback only - do NOT open mutation UI mid-combat.
         toast.show(if player.ultra_pick_owed && player.level >= 10 {
             "LEVEL ULTRA!"
         } else {
@@ -365,7 +365,7 @@ fn begin_between_floor_skill_picks(
         let choices = roll_mutations(player);
         if choices.is_empty() {
             // No mutations left: full heal and consume one owed pick.
-            // Do not pause — there is no UI to show. Drain all owed picks that
+            // Do not pause - there is no UI to show. Drain all owed picks that
             // would otherwise leave deferred+paused with no Pending resource.
             while player.mutation_picks_owed > 0 {
                 let c = roll_mutations(player);
@@ -1471,7 +1471,7 @@ fn pick_loading_tip(_run: &Run) -> String {
         "KILL ENEMIES TO LEVEL UP",
         "MUTATIONS STACK AFTER EACH LEVEL",
         "PORTALS OPEN WHEN THE AREA IS CLEAR",
-        "WATCH YOUR AMMO — REVOLVER IS 3 DMG",
+        "WATCH YOUR AMMO - REVOLVER IS 3 DMG",
         "HOLD SHIFT TO AIM SLOWLY",
         "BOILING VEINS SAVES YOU AT LOW HP",
         "RHINO SKIN GIVES +4 MAX HP",

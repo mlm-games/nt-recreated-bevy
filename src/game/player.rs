@@ -1201,7 +1201,7 @@ fn spawn_pellets(
             Some(id),
         );
     }
-    // Shell casing (scrBulletShotShellFX) — OG ejects a `Shell` with
+    // Shell casing (scrBulletShotShellFX) - OG ejects a `Shell` with
     // `sprBulletShell` at `gunangle + right*100 + orandom(25)` @ 2-4 speed.
     // Bevy: small physics pop that tumbles and fades like `GroundPhysics`.
     // OG calls this once per pellet for triple/double minigun, once for others;

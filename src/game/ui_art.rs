@@ -2597,6 +2597,13 @@ fn main_menu_hover(
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
     };
+    // Settings overlay is modal - don't leak hover lift/sndHover to the buttons behind it (GML MenuOptions blocks)
+    if ui.overlay != crate::app::OverlayMenu::None {
+        if ui.main_menu_hover != -1 {
+            ui.main_menu_hover = -1;
+        }
+        return;
+    }
 
     let mut hovered = -1_i32;
     if let Some(cursor) = window.cursor_position() {
@@ -2682,6 +2689,13 @@ fn char_select_tick(
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
     };
+    // Modal overlay blocks char-select hover (GML MenuOptions is modal)
+    if ui.overlay != crate::app::OverlayMenu::None {
+        if ui.title_hover_race != -1 {
+            ui.title_hover_race = -1;
+        }
+        return;
+    }
     let selected_race = ui.selected_character;
 
     // CharSelect/Draw_0: _pointed via bbox rectangle.
@@ -3706,10 +3720,10 @@ fn sync_mutation_icons(
     existing: Query<Entity, With<MutationIconArt>>,
     mut refs: Option<ResMut<MutationArtRefs>>,
 ) {
-    let ids = if let Ok(ui) = bridge.shared.lock() {
-        ui.mutation_choice_ids.clone()
+    let (ids, selected) = if let Ok(ui) = bridge.shared.lock() {
+        (ui.mutation_choice_ids.clone(), ui.mutation_selected)
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
     let has_pending = !ids.is_empty();
     // Despawn when choice cleared / picked
@@ -3724,14 +3738,7 @@ fn sync_mutation_icons(
         }
         return;
     }
-    // Avoid respawning every frame if count unchanged – check cached ids via entity count
-    if let Some(r) = refs.as_ref() {
-        if r.entities.len() == ids.len() {
-            // Already have correct count; assume icons stable (skill indices rarely change mid-panel)
-            return;
-        }
-    }
-    // Clear old icons before respawning for new layout/count
+    // Clear old icons before respawning for new layout/count - respawn each frame so selected tint updates instantly
     for e in &existing {
         commands.entity(e).try_despawn();
     }
@@ -3757,6 +3764,13 @@ fn sync_mutation_icons(
         let gui_x = start_x + i as f32 * step;
         // skill_id is 1-based (scrSkills), frame 0-based
         let frame = (skill_id as usize).saturating_sub(1) % 30;
+        let is_selected = selected == Some(i);
+        // GML SkillIcon Draw: selected ? c_white : c_gray (128,128,128)
+        let tint = if is_selected {
+            Color::WHITE
+        } else {
+            Color::srgb_u8(128, 128, 128)
+        };
         let (spr, tf) = gm_sprite(
             &catalog,
             &asset_server,
@@ -3767,7 +3781,7 @@ fn sync_mutation_icons(
             icon_y,
             1.0,
             1.0,
-            Color::WHITE,
+            tint,
             -850.0,
         );
         let e = commands

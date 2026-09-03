@@ -63,6 +63,7 @@ pub enum UiAction {
     CycleCrown(i8),
     /// Pick a specific crown slot in the open loadout grid.
     SelectCrown(u8),
+    SelectMutation(usize),
     PickMutation(usize),
 }
 
@@ -222,15 +223,19 @@ fn loading_ui(st: &SharedUi) -> View {
 }
 
 fn gen_cont_overlay(st: &SharedUi) -> View {
+    // GML GenCont/Draw_0 exact:
+    //   scrDrawSpiral() is WGSL vortex (already behind)
+    //   _progress = instance_number(Floor)/goal
+    //   _percentage = string_pad_zeroes(round(progress*100),2)+"%"
+    //   _text = loc_fmt("GenCont:Generating","GENERATING... %",pct) or Venuz "VERIFYING... %"
+    //   draw_text_nt(cx,cy-54,text) at (160,66) #7d838d center
+    //   draw_text_nt(cx,cy+24,"@s"+tip) at (160,144)
+    //   scrDrawRoadmap(cx,cy,waypoints) – roadmap is optional but positions are center
+    // No progress bar in GML – bar was Bevy invention. Keep text-only for exactness.
     let v = nt_view(st);
     let pct = st.gen_progress.clamp(0.0, 1.0);
-    let bar_x = 70.0;
-    let bar_y = 90.0;
-    let bar_w = 180.0;
-    let bar_h = 6.0;
+    // Venuz variant: level>=10 check is runtime; keep GENERATING for now (exact would need race check)
     let pct_text = format!("GENERATING... {}%", (pct * 100.0).round() as u32);
-    // Letterbox-exact like loading_ui: container at (ox,oy) size 320*s×240*s,
-    // children at GUI coords *s – stays centered on any aspect.
     ZStack(Modifier::new().fill_max_size()).child(
         Column(
             Modifier::new()
@@ -245,9 +250,12 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
         )
         .child(
             ZStack(Modifier::new().width(320.0 * v.s).height(240.0 * v.s)).child((
-                // full-bleed black behind spiral (InGame vortex bg alpha may be 0)
-                Column(Modifier::new().fill_max_size().background(RColor::from_rgba(0, 0, 0, 255))),
-                // text at 160,66 centered
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .background(RColor::from_rgba(0, 0, 0, 255)),
+                ),
+                // GML: draw_text_nt(_cx, _cy-54, _text) where _cx=160,_cy=120 => 66
                 Column(
                     Modifier::new()
                         .fill_max_size()
@@ -266,35 +274,7 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                         .color(col(125, 131, 141))
                         .single_line(),
                 ),
-                // bar below text
-                Column(
-                    Modifier::new()
-                        .fill_max_size()
-                        .padding_values(PaddingValues {
-                            left: bar_x * v.s,
-                            right: 0.0,
-                            top: bar_y * v.s,
-                            bottom: 0.0,
-                        })
-                        .align_items(AlignItems::FLEX_START),
-                )
-                .child(
-                    Column(
-                        Modifier::new()
-                            .width(bar_w * v.s)
-                            .height(bar_h * v.s)
-                            .background(col(20, 20, 24))
-                            .border((1.0 * v.s).max(1.0), col(238, 239, 225), 0.0)
-                            .padding((1.0 * v.s).max(1.0)),
-                    )
-                    .child(Column(
-                        Modifier::new()
-                            .width(((bar_w - 2.0) * pct * v.s).max(1.0))
-                            .height((bar_h - 2.0) * v.s)
-                            .background(col(238, 239, 225)),
-                    )),
-                ),
-                // tip at 144
+                // GML: draw_text_nt(_cx, _cy+24, "@s"+tip) => 144
                 Column(
                     Modifier::new()
                         .fill_max_size()
@@ -319,21 +299,66 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let a1 = actions.clone();
-    let a2 = actions.clone();
-    let a3 = actions.clone();
+    // GML Pause: dark dim + 3 centered text buttons at 160,y with Silkscreen,
+    // hover via point_in_rectangle. No Material.
+    let v = nt_view(st);
     let tr = &st.translations;
-
-    Column(
+    let mut layers: Vec<View> = Vec::new();
+    layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 180)),
-    )
-    .child(nt_surface_wrap(st, pause_panel(tr, a1, a2, a3)))
+            .background(RColor::from_rgba(0, 0, 0, 220))
+            .clickable()
+            .on_click(|| {}),
+    ));
+    layers.push(nt_text_at(
+        t(tr, "paused", "PAUSED").to_ascii_uppercase(),
+        160.0,
+        60.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    let a1 = actions.clone();
+    layers.push(text_button_at(
+        "RESUME",
+        160.0,
+        100.0,
+        100.0,
+        18.0,
+        &v,
+        col(98, 220, 88),
+        move || push(&a1, UiAction::Resume),
+    ));
+    let a2 = actions.clone();
+    layers.push(text_button_at(
+        "SETTINGS",
+        160.0,
+        124.0,
+        100.0,
+        18.0,
+        &v,
+        col(238, 239, 225),
+        move || push(&a2, UiAction::OpenSettings),
+    ));
+    let a3 = actions.clone();
+    let quit_label = t(tr, "quit-to-title", "QUIT TO TITLE").to_ascii_uppercase();
+    // Leak to 'static for text_button_at signature; GML uses loc() strings
+    let quit_static: &'static str = Box::leak(quit_label.into_boxed_str());
+    layers.push(text_button_at(
+        quit_static,
+        160.0,
+        148.0,
+        120.0,
+        18.0,
+        &v,
+        col(221, 56, 45),
+        move || push(&a3, UiAction::QuitToTitle),
+    ));
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
+#[allow(dead_code)]
 fn pause_panel(
     tr: &HashMap<String, String>,
     a1: Arc<Mutex<Vec<UiAction>>>,
@@ -367,191 +392,228 @@ fn pause_panel(
     ))
 }
 
-fn settings_ui(overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    let a_m_down = actions.clone();
-    let a_m_up = actions.clone();
-    let a_s_down = actions.clone();
-    let a_s_up = actions.clone();
-    let a_mu_down = actions.clone();
-    let a_mu_up = actions.clone();
-    let a_save = actions.clone();
-    let a_back = actions.clone();
+fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let v = nt_view(st);
+    let mut layers: Vec<View> = Vec::new();
+    layers.push(Column(
+        Modifier::new()
+            .fill_max_size()
+            .background(RColor::from_rgba(0, 0, 0, 230))
+            .clickable()
+            .on_click(|| {}),
+    ));
+    // Title at 160,24 (GML Draw_64 header)
+    layers.push(nt_text_at(
+        "SETTINGS".to_string(),
+        160.0,
+        24.0,
+        &v,
+        col(153, 153, 153),
+        true,
+    ));
+
+    // Rows: mimic AudioOptions sliders + Language list.
+    // GML Audio: MASTER/MUSIC/AMBIENCE/EFFECTS sliders 0..1 with % display.
+    // We expose master/sfx/music (ambient tied to master for now).
     let master = st.master_vol;
     let sfx = st.sfx_vol;
     let music = st.music_vol;
-    let tr = &st.translations;
-    let lang = &st.language;
-    let langs = &st.available_languages;
-    let overlay_clone = overlay.clone();
-    let actions_clone = actions.clone();
+    let rows: Vec<(f32, String, String)> = vec![
+        (
+            56.0,
+            "MASTER".to_string(),
+            format!("{:.0}%", master * 100.0),
+        ),
+        (76.0, "SFX".to_string(), format!("{:.0}%", sfx * 100.0)),
+        (96.0, "MUSIC".to_string(), format!("{:.0}%", music * 100.0)),
+    ];
+    for (gy, label, val) in rows {
+        let v_down = match label.as_str() {
+            "MASTER" => master - 0.1,
+            "SFX" => sfx - 0.1,
+            _ => music - 0.1,
+        };
+        let v_up = match label.as_str() {
+            "MASTER" => master + 0.1,
+            "SFX" => sfx + 0.1,
+            _ => music + 0.1,
+        };
+        layers.push(nt_text_at(
+            label.clone(),
+            80.0,
+            gy,
+            &v,
+            col(238, 239, 225),
+            false,
+        ));
+        layers.push(nt_text_at(val, 200.0, gy, &v, col(125, 131, 141), false));
+        // Hitboxes for - / + (approx original slider arrows at 40 and 240)
+        let a_down = actions.clone();
+        let label_c = label.clone();
+        layers.push(hitbox_at(
+            40.0,
+            gy - 6.0,
+            24.0,
+            16.0,
+            &v,
+            move || match label_c.as_str() {
+                "MASTER" => push(&a_down, UiAction::SetMasterVol(v_down)),
+                "SFX" => push(&a_down, UiAction::SetSfxVol(v_down)),
+                _ => push(&a_down, UiAction::SetMusicVol(v_down)),
+            },
+        ));
+        let a_up = actions.clone();
+        let label_c2 = label.clone();
+        layers.push(hitbox_at(
+            240.0,
+            gy - 6.0,
+            24.0,
+            16.0,
+            &v,
+            move || match label_c2.as_str() {
+                "MASTER" => push(&a_up, UiAction::SetMasterVol(v_up)),
+                "SFX" => push(&a_up, UiAction::SetSfxVol(v_up)),
+                _ => push(&a_up, UiAction::SetMusicVol(v_up)),
+            },
+        ));
+        // GML draws "<" at 60 and ">" at 260; we hint with text
+        layers.push(nt_text_at(
+            "<".to_string(),
+            44.0,
+            gy,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+        layers.push(nt_text_at(
+            ">".to_string(),
+            252.0,
+            gy,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+    }
 
-    let menu_state: Rc<MenuState> = remember(MenuState::new);
-    let lang_items: Vec<DropdownMenuEntry> = langs
-        .iter()
-        .map(|l| {
-            let a = actions_clone.clone();
-            let code = l.clone();
-            let mut item = DropdownMenuItem::new(l.clone(), move || {
-                push(&a, UiAction::SetLanguage(code.clone()))
-            });
-            if l == lang {
-                item = item.disabled();
-            }
-            DropdownMenuEntry::Item(item)
-        })
-        .collect();
-    let menu_trigger = menu_state.clone();
-    let lang_label = st.language.clone();
-    let trigger = FilledTonalButton(
-        Modifier::new().width(100.0).height(40.0),
-        move || menu_trigger.open(),
-        ButtonConfig::default(),
-        move || RText(lang_label.clone()).size(20.0),
-    );
+    // Language row at 120, centered – GML Language category lists languages with sprite icons
+    let lang_label = format!("LANGUAGE: {}", st.language.to_ascii_uppercase());
+    layers.push(nt_text_at(
+        lang_label,
+        160.0,
+        120.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    let a_lang = actions.clone();
+    layers.push(hitbox_at(60.0, 114.0, 200.0, 20.0, &v, move || {
+        push(&a_lang, UiAction::NextLanguage)
+    }));
 
-    let lang_dropdown = DropdownMenu(
-        menu_state,
-        overlay_clone,
-        Modifier::new(),
-        trigger,
-        lang_items,
-        DropdownMenuConfig {
-            min_width: 100.0,
-            ..Default::default()
-        },
-    );
-
-    let inner = Column(
-        Modifier::new()
-            .width(360.0)
-            .padding(24.0)
-            .background(col(20, 20, 28))
-            .clip_rounded(12.0)
-            .align_items(AlignItems::CENTER),
-    )
-    .child(
-        RText(t(tr, "settings", "Settings"))
-            .size(36.0)
-            .color(RColor::WHITE),
-    )
-    .child(spacer(12.0))
-    .child(
-        RText(format!(
-            "{}: {:.0}%",
-            t(tr, "master-volume", "Master"),
-            master * 100.0
-        ))
-        .size(18.0)
-        .color(RColor::WHITE),
-    )
-    .child(Row(Modifier::new().gap(8.0)).child((
-        mk_button_sm("-", move || {
-            push(&a_m_down, UiAction::SetMasterVol(master - 0.1))
-        }),
-        mk_button_sm("+", move || {
-            push(&a_m_up, UiAction::SetMasterVol(master + 0.1))
-        }),
-    )))
-    .child(spacer(8.0))
-    .child(
-        RText(format!(
-            "{}: {:.0}%",
-            t(tr, "sfx-volume", "SFX"),
-            sfx * 100.0
-        ))
-        .size(18.0)
-        .color(RColor::WHITE),
-    )
-    .child(Row(Modifier::new().gap(8.0)).child((
-        mk_button_sm("-", move || push(&a_s_down, UiAction::SetSfxVol(sfx - 0.1))),
-        mk_button_sm("+", move || push(&a_s_up, UiAction::SetSfxVol(sfx + 0.1))),
-    )))
-    .child(spacer(8.0))
-    .child(
-        RText(format!(
-            "{}: {:.0}%",
-            t(tr, "music-volume", "Music"),
-            music * 100.0
-        ))
-        .size(18.0)
-        .color(RColor::WHITE),
-    )
-    .child(Row(Modifier::new().gap(8.0)).child((
-        mk_button_sm("-", move || {
-            push(&a_mu_down, UiAction::SetMusicVol(music - 0.1))
-        }),
-        mk_button_sm("+", move || {
-            push(&a_mu_up, UiAction::SetMusicVol(music + 0.1))
-        }),
-    )))
-    .child(spacer(8.0))
-    .child(
-        RText(format!("{}:", t(tr, "language", "Language")))
-            .size(18.0)
-            .color(RColor::WHITE),
-    )
-    .child(Row(Modifier::new().gap(6.0)).child(lang_dropdown))
-    .child(spacer(16.0))
-    .child(mk_button(
-        &t(tr, "save", "Save"),
-        col(60, 120, 200),
+    // SAVE / BACK at bottom (GML BackButton at bottom)
+    let a_save = actions.clone();
+    layers.push(text_button_at(
+        "SAVE",
+        160.0,
+        180.0,
+        80.0,
+        18.0,
+        &v,
+        col(60, 140, 90),
         move || push(&a_save, UiAction::SaveSettings),
-    ))
-    .child(mk_button(
-        &t(tr, "back", "Back"),
-        col(70, 70, 90),
+    ));
+    let a_back = actions.clone();
+    layers.push(text_button_at(
+        "BACK",
+        160.0,
+        204.0,
+        80.0,
+        18.0,
+        &v,
+        col(125, 131, 141),
         move || push(&a_back, UiAction::CloseOverlay),
     ));
 
+    ZStack(Modifier::new().fill_max_size()).child(layers)
+}
+
+fn hitbox_at(x: f32, y: f32, w: f32, h: f32, v: &NtView, on_click: impl Fn() + 'static) -> View {
     Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 180)),
+            .padding_values(PaddingValues {
+                left: v.ox + x * v.s,
+                right: 0.0,
+                top: v.oy + y * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
     )
-    .child(nt_surface_wrap(st, inner))
+    .child(Column(
+        Modifier::new()
+            .width(w * v.s)
+            .height(h * v.s)
+            .clickable()
+            .on_click(on_click),
+    ))
 }
 
 fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    // GML Credits object draws centered text at 320×240; we mirror with nt_text_at
+    let v = nt_view(st);
     let a = actions.clone();
     let tr = &st.translations;
-    let inner = Column(
-        Modifier::new()
-            .width(400.0)
-            .padding(24.0)
-            .background(col(20, 20, 28))
-            .clip_rounded(12.0)
-            .align_items(AlignItems::CENTER),
-    )
-    .child((
-        RText(t(tr, "credits", "Credits"))
-            .size(36.0)
-            .color(RColor::WHITE),
-        spacer(12.0),
-        RText("A source-side fan recreation of Nuclear Throne (Vlambeer)")
-            .size(16.0)
-            .color(RColor::WHITE),
-        RText("Built with Bevy + Repose on the my-ecosystem-template-bevy")
-            .size(16.0)
-            .color(RColor::WHITE),
-        RText("Template by mlm-games | No original game assets included")
-            .size(16.0)
-            .color(RColor::WHITE),
-        spacer(16.0),
-        mk_button(&t(tr, "back", "Back"), col(70, 70, 90), move || {
-            push(&a, UiAction::CloseOverlay)
-        }),
-    ));
-
-    Column(
+    let mut layers: Vec<View> = Vec::new();
+    layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .justify_content(JustifyContent::CENTER)
-            .align_items(AlignItems::CENTER)
-            .background(RColor::from_rgba(0, 0, 0, 180)),
-    )
-    .child(nt_surface_wrap(st, inner))
+            .background(RColor::from_rgba(0, 0, 0, 230))
+            .clickable()
+            .on_click(|| {}),
+    ));
+    layers.push(nt_text_at(
+        t(tr, "credits", "CREDITS").to_ascii_uppercase(),
+        160.0,
+        40.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    layers.push(nt_text_at(
+        "A fan recreation of Nuclear Throne (Vlambeer)".to_string(),
+        160.0,
+        80.0,
+        &v,
+        col(238, 239, 225),
+        true,
+    ));
+    layers.push(nt_text_at(
+        "Built with Bevy + Repose".to_string(),
+        160.0,
+        96.0,
+        &v,
+        col(125, 131, 141),
+        true,
+    ));
+    layers.push(nt_text_at(
+        "No original game assets included".to_string(),
+        160.0,
+        112.0,
+        &v,
+        col(125, 131, 141),
+        true,
+    ));
+    layers.push(text_button_at(
+        "BACK",
+        160.0,
+        180.0,
+        80.0,
+        18.0,
+        &v,
+        col(125, 131, 141),
+        move || push(&a, UiAction::CloseOverlay),
+    ));
+    ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
 static NT_PANEL: RColor = RColor(7, 8, 11, 218);
@@ -761,23 +823,29 @@ fn mutation_choice_card(
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML-accurate SkillIcon layout (320×240 GUI):
-    // - dim 0,0,0 ~210 (GenCont-style), title 160,26, subtitle 160,42
-    // - icons 24×32 via ui_art at y≈90, row centred, step 56 (4 picks) / 64 (2-3)
-    // - this Repose layer provides only the dim + text + invisible hitboxes;
-    //   the actual 24×32 portraits are spawned in ui_art::sync_mutation_icons
-    //   as camera-anchored gm_sprite("sprSkillIcon", skill_index-1) at the same
-    //   gui_x/y, so visuals match nt-rewrite SkillIcon exactly.
+    // GML LevCont/Draw_64 + Other_10 exact:
+    // - scrDrawSpiral() is the WGSL vortex quad (no dim)
+    // - bigname at (160,48) + appear slide, subtitle at (160,75) "@s" text
+    // - icons at y = view_height-21 = 219, x = center-(n-1)*half+idx*step
+    //   step = min(32, floor(320/(n+1))), half = step/2, scale = max(0.65, step/32)
+    // - SkillIcon draws sprSkillIcon[skill] at x,y+appeary-sign(selected) c_gray/c_white
+    // - selected description at (160,179) = view_height-61 (center middle)
+    // Bevy: vortex is separate quad; this layer provides text+hitboxes only;
+    // icons themselves are camera-anchored gm_sprite in ui_art::sync_mutation_icons
+    // at identical gui_x/y so Repose hitbox and sprite stay pixel-locked.
     let v = nt_view(st);
     let is_ultra = st
         .mutation_choices
         .iter()
         .any(|choice| choice.trim().starts_with("ULTRA:"));
 
-    let title = if is_ultra {
-        "ULTRA MUTATION"
+    // GML branch: CrownIcon -> "CHOOSE WISELY" / sprPickCrownText
+    //             UltraIcon -> "PICK YOUR ULTRA MUTATION" (+ Robot variant)
+    //             SkillIcon -> "SELECT MUTATIONS" / "INSTALL UPDATES"
+    let (title, subtitle) = if is_ultra {
+        ("ULTRA MUTATION", "PICK YOUR ULTRA MUTATION")
     } else {
-        "LEVEL UP"
+        ("LEVEL UP", "SELECT MUTATIONS")
     };
     let accent = if is_ultra {
         col(255, 221, 0)
@@ -785,50 +853,59 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         col(98, 220, 88)
     };
 
-    let n = st.mutation_choices.len().max(1);
-    // Must match ui_art::sync_mutation_icons and LevCont/Other_10:
-    // step = min(32, floor(320/(n+1))) == 32 for 2-4 choices, centered at 160,y 219
+    let n = st.mutation_choices.len().max(1).min(8);
+    // LevCont/Other_10: step_size = min(32, floor(view_width/(num+1)))
     let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
     let half = step * 0.5;
     let start_x = 160.0 - (n as f32 - 1.0) * half;
-    // Click hitbox around the 24×32 icon at y 219 – invisible, no fill
-    let card_w = 32.0;
-    let card_h = 38.0;
-    let y = 219.0 - card_h * 0.5;
+    // GML icon origin is the sprite's origin (12,16 for 24×32); gm_sprite
+    // already compensates, but hitbox must be centered on the same gui point.
+    // Use 32×32 hitbox (slightly generous) centred at (icon_x, 219).
+    let icon_y = 219.0; // view_height -21
+    let hit_w = 32.0;
+    let hit_h = 32.0;
+    let hit_y = icon_y - hit_h * 0.5;
 
     let mut layers: Vec<View> = Vec::new();
 
-    // LevCont draws scrDrawSpiral() as the background – no opaque dim.
-    // Keep a very light dim (80) so the paused game behind the spiral is still
-    // faintly visible, exactly like GML (spiral is drawn over view, no rectangle).
-    // Using 210 would hide the vortex.
+    // No dim – GML draws spiral over the paused view, not a black rect.
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
             .background(RColor::from_rgba(0, 0, 0, 0)),
     ));
 
-    layers.push(nt_text_at(title.to_string(), 160.0, 26.0, &v, accent, true));
-
+    // GML Draw_64: draw_text_bigname at (160,48) + appear (lerp), draw_text_nt at (160,75-appear)
+    // We render at appear==0 (settled) so positions are exact final frame.
+    layers.push(nt_text_at(title.to_string(), 160.0, 48.0, &v, accent, true));
     layers.push(nt_text_at(
-        "CHOOSE A MUTATION".to_string(),
+        subtitle.to_string(),
         160.0,
-        42.0,
+        75.0,
         &v,
         col(238, 239, 225),
         true,
     ));
 
-    for (i, choice) in st.mutation_choices.iter().enumerate() {
-        let (ultra, name, desc) = mutation_choice_parts(choice);
-        // Card centred on the icon – invisible hitbox, original has no card bg/border,
-        // just the 24×32 icon (gray vs white for selected). Keep hitbox 32×38 for
-        // comfortable clicking, no background/border so it never "fills" the screen.
+    for (i, choice) in st.mutation_choices.iter().enumerate().take(n) {
+        let (_ultra, _name, _desc) = mutation_choice_parts(choice);
         let icon_x = start_x + i as f32 * step;
-        let x = icon_x - card_w * 0.5;
+        let x = icon_x - hit_w * 0.5;
         let a = actions.clone();
         let idx = i;
-
+        let is_selected = st.mutation_selected == Some(i);
+        // Number 1..n above icon - GML shows num via icon order, we tint selected number brighter
+        layers.push(nt_text_at(
+            format!("{}", i + 1),
+            icon_x,
+            icon_y - 18.0,
+            &v,
+            if is_selected { RColor::WHITE } else { accent },
+            true,
+        ));
+        // GML SkillIcon/Mouse_4: first press selects (c_gray->c_white, sndHover), second press confirms
+        // We send SelectMutation on first click, PickMutation on second when already selected
+        let a2 = actions.clone();
         layers.push(
             Column(
                 Modifier::new()
@@ -836,49 +913,65 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                     .padding_values(PaddingValues {
                         left: v.ox + x * v.s,
                         right: 0.0,
-                        top: v.oy + y * v.s,
+                        top: v.oy + hit_y * v.s,
                         bottom: 0.0,
                     })
                     .align_items(AlignItems::FLEX_START),
             )
-            .child(
-                Column(
-                    Modifier::new()
-                        .width(card_w * v.s)
-                        .height(card_h * v.s)
-                        .padding(1.0 * v.s)
-                        .gap(1.0 * v.s)
-                        .background(RColor::from_rgba(0, 0, 0, 0))
-                        .clickable()
-                        .on_click(move || push(&a, UiAction::PickMutation(idx))),
-                )
-                .child((
-                    RText(format!("{}", i + 1))
-                        .size((6.0 * v.s).max(6.0))
-                        .font_family("Silkscreen")
-                        .color(accent)
-                        .single_line(),
-                    // Keep name/desc as subtle hint below the icon.
-                    RText(name.to_ascii_uppercase())
-                        .size((6.0 * v.s).max(6.0))
-                        .font_family("Silkscreen")
-                        .color(col(238, 239, 225))
-                        .single_line()
-                        .overflow_ellipsize(),
-                    RText(desc)
-                        .size((5.5 * v.s).max(5.5))
-                        .font_family("Silkscreen")
-                        .color(col(156, 160, 150)),
-                )),
-            ),
+            .child(Column(
+                Modifier::new()
+                    .width(hit_w * v.s)
+                    .height(hit_h * v.s)
+                    .background(if is_selected {
+                        RColor::from_rgba(255, 255, 255, 18)
+                    } else {
+                        RColor::from_rgba(0, 0, 0, 0)
+                    })
+                    .border(
+                        if is_selected { 1.0 } else { 0.0 },
+                        RColor::from_rgba(255, 255, 255, 90),
+                        2.0,
+                    )
+                    .clickable()
+                    .on_click(move || {
+                        if is_selected {
+                            push(&a, UiAction::PickMutation(idx))
+                        } else {
+                            push(&a2, UiAction::SelectMutation(idx))
+                        }
+                    }),
+            )),
         );
-        let _ = ultra;
+    }
+
+    // GML SkillIcon selected draws txt2 at (160,179) = view_height-61 center middle, only for selected
+    // If nothing selected, show hint "SELECT A MUTATION" like GML splash
+    if let Some(sel) = st
+        .mutation_selected
+        .and_then(|i| st.mutation_choices.get(i))
+    {
+        let (_, name, desc) = mutation_choice_parts(sel);
+        let line = if desc.is_empty() {
+            name.to_ascii_uppercase()
+        } else {
+            format!("{} - {}", name.to_ascii_uppercase(), desc)
+        };
+        layers.push(nt_text_at(line, 160.0, 179.0, &v, RColor::WHITE, true));
+    } else {
+        layers.push(nt_text_at(
+            "HOVER AND CLICK TO SELECT".to_string(),
+            160.0,
+            179.0,
+            &v,
+            col(125, 131, 141),
+            true,
+        ));
     }
 
     layers.push(nt_text_at(
         "1 / 2 / 3 / 4".to_string(),
         160.0,
-        218.0,
+        230.0,
         &v,
         col(125, 131, 141),
         true,
@@ -994,13 +1087,10 @@ fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     // Invisible full-screen click → QuitToTitle; keyboard R → StartGame handled in process_ui_actions
     layers.push(Column(
-        Modifier::new()
-            .fill_max_size()
-            .clickable()
-            .on_click({
-                let a = quit_actions.clone();
-                move || push(&a, UiAction::QuitToTitle)
-            }),
+        Modifier::new().fill_max_size().clickable().on_click({
+            let a = quit_actions.clone();
+            move || push(&a, UiAction::QuitToTitle)
+        }),
     ));
 
     ZStack(Modifier::new().fill_max_size()).child(layers)

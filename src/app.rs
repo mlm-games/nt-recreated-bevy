@@ -126,6 +126,8 @@ pub struct SharedUi {
     /// GML skill index for each pending mutation (1-based subimage of
     /// `sprSkillIcon` / `sprSkillIconHUD`).
     pub mutation_choice_ids: Vec<u8>,
+    /// GML SkillIcon.selected: None = nothing hovered, Some(idx) = hovered/selected, requiring second click to confirm.
+    pub mutation_selected: Option<usize>,
     pub game_over: bool,
     /// Acquired mutations (skill indices) for death screen – mirrors GML results.
     pub death_mutation_ids: Vec<u8>,
@@ -212,6 +214,7 @@ impl Default for SharedUi {
             toast_timer: 0.0,
             mutation_choices: Vec::new(),
             mutation_choice_ids: Vec::new(),
+            mutation_selected: None,
             game_over: false,
             death_mutation_ids: Vec::new(),
             character: "Fish".to_string(),
@@ -349,6 +352,7 @@ impl Plugin for AppPlugin {
                     force_death_overlay_state,
                     process_ui_actions,
                     handle_pause_input,
+                    handle_mutation_keys,
                     handle_death_restart,
                     tick_pending_unpause,
                     sync_virtual_time_with_pause,
@@ -888,8 +892,44 @@ fn process_ui_actions(
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
                 }
             }
+            UiAction::SelectMutation(idx) => {
+                // GML SkillIcon: first click = select (sndHover), second = confirm
+                let already = bridge
+                    .shared
+                    .lock()
+                    .map(|ui| ui.mutation_selected == Some(idx))
+                    .unwrap_or(false);
+                if already {
+                    mutation_choice.0 = Some(idx);
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.mutation_selected = None;
+                    }
+                } else {
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.mutation_selected = Some(idx);
+                    }
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndHover", 0.45);
+                }
+            }
             UiAction::PickMutation(idx) => {
-                mutation_choice.0 = Some(idx);
+                // Direct confirm (used when already selected, or via keyboard 1-4 second press)
+                let selected = bridge
+                    .shared
+                    .lock()
+                    .map(|ui| ui.mutation_selected)
+                    .unwrap_or(None);
+                if selected == Some(idx) {
+                    mutation_choice.0 = Some(idx);
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.mutation_selected = None;
+                    }
+                } else {
+                    // First press selects, second will pick - mirror SelectMutation
+                    if let Ok(mut ui) = bridge.shared.lock() {
+                        ui.mutation_selected = Some(idx);
+                    }
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndHover", 0.45);
+                }
             }
         }
     }
@@ -951,6 +991,54 @@ fn handle_pause_input(
             }
         }
         _ => {}
+    }
+}
+
+fn handle_mutation_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    state: Res<State<AppState>>,
+    bridge: Res<UiBridge>,
+) {
+    if *state.get() != AppState::InGame {
+        return;
+    }
+    let Ok(ui) = bridge.shared.lock() else {
+        return;
+    };
+    if ui.mutation_choices.is_empty() || ui.gen_active || ui.game_over {
+        return;
+    }
+    let len = ui.mutation_choices.len();
+    drop(ui);
+    let idx = if keys.just_pressed(KeyCode::Digit1) {
+        Some(0)
+    } else if keys.just_pressed(KeyCode::Digit2) {
+        Some(1)
+    } else if keys.just_pressed(KeyCode::Digit3) {
+        Some(2)
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        Some(3)
+    } else {
+        None
+    };
+    if let Some(i) = idx {
+        if i >= len {
+            return;
+        }
+        // Push via bridge like UI click - respects two-step select/confirm
+        if let Ok(mut q) = bridge.actions.lock() {
+            // Check if already selected
+            let already = bridge
+                .shared
+                .lock()
+                .map(|ui| ui.mutation_selected == Some(i))
+                .unwrap_or(false);
+            if already {
+                q.push(UiAction::PickMutation(i));
+            } else {
+                q.push(UiAction::SelectMutation(i));
+            }
+        }
     }
 }
 
