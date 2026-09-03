@@ -336,6 +336,7 @@ fn setup_game(
     save: Res<crate::save::SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
     floor_started: MessageWriter<FloorStarted>,
+    bridge: Res<crate::menus::UiBridge>,
 ) {
     progress_sys::setup_run(
         commands,
@@ -353,6 +354,7 @@ fn setup_game(
         save,
         camera_q,
         floor_started,
+        bridge,
     );
 }
 

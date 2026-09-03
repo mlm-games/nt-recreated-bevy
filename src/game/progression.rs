@@ -63,6 +63,7 @@ pub fn setup_run(
     save: Res<SaveData>,
     camera_q: Query<Entity, With<Camera2d>>,
     mut floor_started: MessageWriter<FloorStarted>,
+    bridge: Res<crate::menus::UiBridge>,
 ) {
     score.0 = 0;
     dirty.0 = false;
@@ -79,6 +80,11 @@ pub fn setup_run(
     *overlay = OverlayMenu::None;
     pending_unpause.0 = None;
     *toast = Toast::default();
+    if let Ok(mut ui) = bridge.shared.lock() {
+        ui.run_id = ui.run_id.wrapping_add(1);
+        ui.overlay = OverlayMenu::None;
+        ui.paused = false;
+    }
 
     commands.remove_resource::<PendingMutation>();
     commands.remove_resource::<PendingUltra>();

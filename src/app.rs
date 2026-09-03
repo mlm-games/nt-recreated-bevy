@@ -173,6 +173,7 @@ pub struct SharedUi {
     pub gen_active: bool,
     pub gen_progress: f32,
     pub gen_tip: String,
+    pub run_id: u32,
 }
 
 impl Default for SharedUi {
@@ -244,6 +245,7 @@ impl Default for SharedUi {
             gen_active: false,
             gen_progress: 0.0,
             gen_tip: String::new(),
+            run_id: 0,
         }
     }
 }
@@ -346,7 +348,6 @@ impl Plugin for AppPlugin {
                 (
                     sanitize_save,
                     apply_saved_settings,
-                    sync_shared_ui,
                     sync_ui_viewport,
                     sync_post_process_settings::<AppState>,
                     force_death_overlay_state,
@@ -355,6 +356,10 @@ impl Plugin for AppPlugin {
                     handle_mutation_keys,
                     handle_death_restart,
                     tick_pending_unpause,
+                    // Sync after all overlay/paused changes so PostUpdate compose
+                    // sees fresh SharedUi in same frame – prevents 1-frame stale
+                    // MainMenu Settings flash after QuitToTitle (was before process).
+                    sync_shared_ui,
                     sync_virtual_time_with_pause,
                 )
                     .chain(),
