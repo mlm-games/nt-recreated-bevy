@@ -2626,9 +2626,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.4.4"
+version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273"
+checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -3088,6 +3088,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs-sys"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3289,9 +3298,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
+checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
 
 [[package]]
 name = "fixedbitset"
@@ -3447,12 +3456,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -3460,6 +3485,17 @@ name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
+
+[[package]]
+name = "futures-executor"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031b47cf1a3c6cc8bc2fc76cd437f521619387907d469316e7c0bc278f1f5432"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "futures-util",
+]
 
 [[package]]
 name = "futures-io"
@@ -3492,6 +3528,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-sink"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
+
+[[package]]
 name = "futures-task"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3503,9 +3545,13 @@ version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
+ "futures-channel",
  "futures-core",
+ "futures-io",
  "futures-macro",
+ "futures-sink",
  "futures-task",
+ "memchr",
  "pin-project-lite",
  "slab",
 ]
@@ -3513,27 +3559,34 @@ dependencies = [
 [[package]]
 name = "game-utils"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#4738b5e22f1e86424cdf3370b93efe6bbff8dded"
+source = "git+https://github.com/mlm-games/game-utils#334c1ab2ccd89d7ffd45bfd646a39d4525b15c2e"
 dependencies = [
  "directories",
  "fluent-bundle",
+ "getrandom 0.4.3",
  "glam 0.33.6",
+ "js-sys",
+ "opfs",
  "rand",
  "ron",
  "serde",
  "serde_json",
  "unic-langid",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]
 name = "game-utils-bevy"
 version = "0.1.2"
-source = "git+https://github.com/mlm-games/game-utils#4738b5e22f1e86424cdf3370b93efe6bbff8dded"
+source = "git+https://github.com/mlm-games/game-utils#334c1ab2ccd89d7ffd45bfd646a39d4525b15c2e"
 dependencies = [
  "bevy 0.20.0-dev",
  "game-utils",
  "rand",
  "serde",
+ "web-time",
 ]
 
 [[package]]
@@ -4182,6 +4235,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e0c1080212aad755ea003d18543e8768dd432c48819efd73a7bf1e39b7a5a3a"
 dependencies = [
  "cfg-if",
+ "futures-core",
  "futures-util",
  "wasm-bindgen",
 ]
@@ -5097,6 +5151,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "opfs"
+version = "0.2.0"
+source = "git+https://github.com/mlm-games/opfs#4fca9462957c7ba079d18e876166f82e53e1d474"
+dependencies = [
+ "dirs",
+ "futures",
+ "js-sys",
+ "tempfile",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5702,9 +5772,9 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "repose-app"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d4e5b74c1729e7e24d68eebe70806e448880146bf07799ab51ecb65742f28ef"
+checksum = "9452fc54e887ebf69e56e1315655d160d5b32be29a4ad33765071cf057713dcc"
 dependencies = [
  "log",
  "repose-core",
@@ -5717,7 +5787,7 @@ dependencies = [
 [[package]]
 name = "repose-bevy"
 version = "0.2.0"
-source = "git+https://github.com/mlm-games/repose-bevy#bee4d86f60ce61c75c81bdc9ee5eef2d8c41ce55"
+source = "git+https://github.com/mlm-games/repose-bevy#222dc510260f64684414c4a9b2d40c7de6998f04"
 dependencies = [
  "anyhow",
  "bevy 0.20.0-dev",
@@ -5735,9 +5805,9 @@ dependencies = [
 
 [[package]]
 name = "repose-core"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1600165cecd842911bfe4310e2cdc0f2305e666348e7ed796e558e306827135a"
+checksum = "c59bce7fe1feb4ce99b2bfd2261ca508832874f72c208885f86bb4e056ff28b0"
 dependencies = [
  "bitflags 2.13.1",
  "log",
@@ -5753,9 +5823,9 @@ dependencies = [
 
 [[package]]
 name = "repose-macros"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ac0987d6ec2929112a0a4695d502deffeee519d5156b14964520b1e2a5afa84"
+checksum = "5321e92772147d9b18323230b5a698862be299f003e2d3cf2c48ec7e7917cb49"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5764,21 +5834,22 @@ dependencies = [
 
 [[package]]
 name = "repose-material"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cc6d07c97cc45e996cfc79cea03f9a96266cb5062b594bd3060f36637528746"
+checksum = "cb3228267fa9b389b0fc1c6162e080d531873f9da2645efc6bcb5330ed46d283"
 dependencies = [
  "repose-core",
  "repose-text",
+ "repose-tree",
  "repose-ui",
  "web-time",
 ]
 
 [[package]]
 name = "repose-render-wgpu"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "705e3ee6112e81be13ba39a8115785d35771e32b65effc7593dde4f7b6f69e8a"
+checksum = "28a6ade8761cf47de4d29b706b090f4825d7caff0f8b72261afaa9117fd30eed"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5796,9 +5867,9 @@ dependencies = [
 
 [[package]]
 name = "repose-text"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c4205057c28ff0018b5cb498f44a896d8587fec1191d9481914eecb4a440f3"
+checksum = "14943fb67968cc8bcf90d50aec260ddda8c4f07365d008dc73e9618225b2882e"
 dependencies = [
  "font-awl",
  "js-sys",
@@ -5816,9 +5887,9 @@ dependencies = [
 
 [[package]]
 name = "repose-tree"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01296ce24eff3c2cfff0de15265d3fa62556aa6970896a6e6b08fcc33745bba0"
+checksum = "ff4d6bfb6054b0a77d420287322a84a0bdbb0e1478d5400e586cd03dc0b5920a"
 dependencies = [
  "log",
  "rapidhash",
@@ -5830,9 +5901,9 @@ dependencies = [
 
 [[package]]
 name = "repose-ui"
-version = "0.28.16"
+version = "0.28.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa11e7ab5e096bc22fd5c484e2603f8c9aaa0a46efa6299a8ce340a5129aa35c"
+checksum = "c9b2cc3948eeb447a83886b4695b09d3e871bb847a6247c66cbdb0c52f5968b5"
 dependencies = [
  "log",
  "repose-core",
@@ -6303,6 +6374,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6428,9 +6512,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.12.0"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f"
+checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
 dependencies = [
  "tinyvec_macros",
 ]
@@ -6440,6 +6524,28 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tokio"
+version = "1.53.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+dependencies = [
+ "bytes",
+ "pin-project-lite",
+ "tokio-macros",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
 
 [[package]]
 name = "toml_datetime"
@@ -6936,9 +7042,9 @@ dependencies = [
 
 [[package]]
 name = "web-workers"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c19355971a4b93d1c6aaef97fd759ac187cc0354c9b9d6a3019f4d9aaad64a7"
+checksum = "4606593135f49a636c98f948be9b986525a05ea44a5181d12253df7084f5ac59"
 dependencies = [
  "atomic-waker",
  "continue",

@@ -174,6 +174,13 @@ pub struct SharedUi {
     pub gen_progress: f32,
     pub gen_tip: String,
     pub run_id: u32,
+    /// MenuOptions category stack: 0 Main, 1 Audio, 2 Video, 3 Game, 4 Controls, 5 Language
+    pub settings_page: u8,
+    pub settings_page_stack: Vec<u8>,
+    /// Ambient volume (GML volume_ambient) – separate from sfx.
+    pub ambience_vol: f32,
+    /// PauseButton confirmation state: None = normal 4 buttons, Some(0)=MENU confirm, Some(1)=RETRY confirm
+    pub pause_confirm: Option<u8>,
 }
 
 impl Default for SharedUi {
@@ -246,6 +253,10 @@ impl Default for SharedUi {
             gen_progress: 0.0,
             gen_tip: String::new(),
             run_id: 0,
+            settings_page: 0,
+            settings_page_stack: Vec::new(),
+            ambience_vol: 1.0,
+            pause_confirm: None,
         }
     }
 }
@@ -507,6 +518,7 @@ fn sync_shared_ui(
         ui.master_vol = save.settings.master_volume;
         ui.sfx_vol = save.settings.sfx_volume;
         ui.music_vol = save.settings.music_volume;
+        ui.ambience_vol = save.settings.ambience_volume;
     }
     ui.transition_alpha = transition.overlay_alpha;
     ui.flash_alpha = flash.amount;
@@ -681,8 +693,114 @@ fn process_ui_actions(
             UiAction::OpenSettings => {
                 if let Some(mut ui) = lock_shared(&bridge) {
                     ui.saved_language = locale.current.clone();
+                    ui.settings_page = 0;
+                    ui.settings_page_stack.clear();
+                    ui.pause_confirm = None;
                 }
                 *overlay = OverlayMenu::Settings;
+            }
+            UiAction::SettingsCategory(cat) => {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    let cur = ui.settings_page;
+                    ui.settings_page_stack.push(cur);
+                    ui.settings_page = cat;
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+            }
+            UiAction::SettingsBack => {
+                let should_close = {
+                    match lock_shared(&bridge) {
+                        Some(mut ui) => {
+                            if let Some(prev) = ui.settings_page_stack.pop() {
+                                ui.settings_page = prev;
+                                false
+                            } else if ui.settings_page != 0 {
+                                ui.settings_page = 0;
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        None => true,
+                    }
+                };
+                if should_close {
+                    if *overlay == OverlayMenu::Settings
+                        && let Some(ui) = lock_shared(&bridge)
+                    {
+                        locale.set_locale(&ui.saved_language);
+                    }
+                    match *overlay {
+                        OverlayMenu::Settings | OverlayMenu::Credits if paused.0 => {
+                            *overlay = OverlayMenu::Pause;
+                            if let Some(mut ui) = lock_shared(&bridge) {
+                                ui.settings_page = 0;
+                                ui.settings_page_stack.clear();
+                            }
+                        }
+                        _ => {
+                            *overlay = OverlayMenu::None;
+                            if let Some(mut ui) = lock_shared(&bridge) {
+                                ui.settings_page = 0;
+                                ui.settings_page_stack.clear();
+                            }
+                        }
+                    }
+                } else {
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClickBack", 0.6);
+                }
+            }
+            UiAction::ShowPauseConfirm(kind) => {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.pause_confirm = Some(kind);
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+            }
+            UiAction::CancelPauseConfirm => {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.pause_confirm = None;
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClickBack", 0.6);
+            }
+            UiAction::ConfirmPause(kind) => {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.pause_confirm = None;
+                }
+                if kind == 0 {
+                    // MENU -> QuitToTitle exact GML image_index 5 flow (want_menu)
+                    paused.0 = false;
+                    *overlay = OverlayMenu::None;
+                    pending_unpause.0 = None;
+                    if let Some(mut ui) = lock_shared(&bridge) {
+                        ui.paused = false;
+                        ui.overlay = OverlayMenu::None;
+                        ui.phase = AppState::MainMenu;
+                        ui.game_over = false;
+                        ui.settings_page = 0;
+                        ui.settings_page_stack.clear();
+                    }
+                    transition.active = false;
+                    transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
+                    transition.progress = 0.0;
+                    transition.overlay_alpha = 0.0;
+                    transition.circle_progress = 0.0;
+                    transition.block_input = false;
+                    transition.pending_state = None;
+                    next_state.set(AppState::MainMenu);
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+                } else {
+                    // RETRY -> want_restart true (GML image_index 6)
+                    paused.0 = false;
+                    *overlay = OverlayMenu::None;
+                    pending_unpause.0 = None;
+                    if let Some(mut ui) = lock_shared(&bridge) {
+                        ui.paused = false;
+                        ui.overlay = OverlayMenu::None;
+                        ui.game_over = false;
+                    }
+                    transition.begin_to_state(AppState::Loading);
+                    play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+                }
             }
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
             UiAction::CloseOverlay => {
@@ -707,6 +825,9 @@ fn process_ui_actions(
             UiAction::Resume => {
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.pause_confirm = None;
+                }
             }
             UiAction::QuitToTitle => {
                 paused.0 = false;
@@ -745,11 +866,16 @@ fn process_ui_actions(
                 let v = set_vol(&bridge, |ui| &mut ui.music_vol, v);
                 channels.music = v;
             }
+            UiAction::SetAmbienceVol(v) => {
+                let _ = set_vol(&bridge, |ui| &mut ui.ambience_vol, v);
+                // GML ambience tied to master*music; keep stored for exact UI
+            }
             UiAction::SaveSettings => {
                 if let Some(ui) = lock_shared(&bridge) {
                     save.settings.master_volume = ui.master_vol;
                     save.settings.sfx_volume = ui.sfx_vol;
                     save.settings.music_volume = ui.music_vol;
+                    save.settings.ambience_volume = ui.ambience_vol;
                     save.settings.language = locale.current.clone();
                 }
                 if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
@@ -1025,6 +1151,9 @@ fn reset_pause_on_exit(
         ui.paused = false;
         ui.overlay = OverlayMenu::None;
         ui.game_over = false;
+        ui.pause_confirm = None;
+        ui.settings_page = 0;
+        ui.settings_page_stack.clear();
     }
 }
 
@@ -1036,6 +1165,7 @@ fn handle_pause_input(
     mut overlay: ResMut<OverlayMenu>,
     mut pending_unpause: ResMut<PendingUnpause>,
     transition: Res<Transition<AppState>>,
+    bridge: Res<crate::menus::UiBridge>,
 ) {
     if *state.get() != AppState::InGame {
         return;
@@ -1054,14 +1184,42 @@ fn handle_pause_input(
             paused.0 = true;
             *overlay = OverlayMenu::Pause;
             pending_unpause.0 = None;
+            if let Some(mut ui) = lock_shared(&bridge) {
+                ui.pause_confirm = None;
+                ui.settings_page = 0;
+                ui.settings_page_stack.clear();
+            }
         }
         OverlayMenu::Pause => {
+            if let Some(mut ui) = lock_shared(&bridge) {
+                if ui.pause_confirm.is_some() {
+                    ui.pause_confirm = None;
+                    return;
+                }
+            }
             *overlay = OverlayMenu::None;
             pending_unpause.0 = Some(Timer::from_seconds(0.2, TimerMode::Once));
         }
         OverlayMenu::Settings | OverlayMenu::Credits => {
-            if paused.0 {
+            let should_pop = {
+                if let Some(ui) = lock_shared(&bridge) {
+                    !ui.settings_page_stack.is_empty() || ui.settings_page != 0
+                } else { false }
+            };
+            if should_pop {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    if let Some(prev) = ui.settings_page_stack.pop() {
+                        ui.settings_page = prev;
+                    } else {
+                        ui.settings_page = 0;
+                    }
+                }
+            } else if paused.0 {
                 *overlay = OverlayMenu::Pause;
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.settings_page = 0;
+                    ui.settings_page_stack.clear();
+                }
             } else {
                 *overlay = OverlayMenu::None;
             }

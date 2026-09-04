@@ -3,12 +3,12 @@ name = "nt-recreated-bevy"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0"
-description = "Conversion of https://github.com/toarch7/nt-recreated-public to the mlm-games my-ecosystem-template-bevy for dogfooding (placeholder assets only)"
+description = "Conversion of https://github.com/toarch7/nt-recreated-public to the mlm-games my-ecosystem-template-bevy for dogfooding (placeholder assets / owned copy ones only)"
 repository = "https://github.com/mlm-games/nt-recreated-bevy"
 readme = "README.md"
-keywords = ["bevy", "gamedev", "nuclear-throne", "2d", "repose", "twin-stick"]
+keywords = ["bevy", "gamedev", "2d", "repose", "twin-stick"]
 categories = ["game-development"]
-rust-version = "1.96"
+rust-version = "1.98"
 default-run = "nt-recreated-bevy-desktop"
 
 [lib]
@@ -137,6 +137,7 @@ strip = "debuginfo"
 
 # [patch.crates-io]
 # repose-core = { path = "../Repos/repose/crates/repose-core" }
+# repose-tree = { path = "../Repos/repose/crates/repose-tree" }
 # repose-ui = { path = "../Repos/repose/crates/repose-ui" }
 # repose-app = { path = "../Repos/repose/crates/repose-app" }
 # repose-material = { path = "../Repos/repose/crates/repose-material" }

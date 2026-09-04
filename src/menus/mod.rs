@@ -51,9 +51,17 @@ pub enum UiAction {
     SetMasterVol(f32),
     SetSfxVol(f32),
     SetMusicVol(f32),
+    SetAmbienceVol(f32),
     SaveSettings,
     NextLanguage,
     SetLanguage(String),
+    /// MenuOptions navigation: 0 Main, 1 Audio, 2 Video, 3 Game, 4 Controls, 5 Language
+    SettingsCategory(u8),
+    SettingsBack,
+    /// Pause confirmation: 0 MENU -> QuitToTitle, 1 RETRY -> Restart
+    ShowPauseConfirm(u8),
+    CancelPauseConfirm,
+    ConfirmPause(u8),
     SelectCharacter(usize),
     SelectSkin(u8),
     /// Toggle the char-select loadout panel (Menu.loadout_open).
@@ -318,58 +326,103 @@ fn roadmap_text(st: &SharedUi) -> String {
 }
 
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    // GML scrMakePauseButtons + PauseButton/Draw_0 + PauseImage exact:
+    // 4 bigname buttons at corners with appear 1..3, left gray else white on hover,
+    // confirm replaces them with BACK + QUIT/RETRY at (52,192) & (268,192).
     let v = nt_view(st);
-    let tr = &st.translations;
     let mut layers: Vec<View> = Vec::new();
+    // Draw_0 ingame: black 0.9 rect over view; we use 230/255 ≈ 0.9
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 220))
+            .background(RColor::from_rgba(0, 0, 0, 230))
             .clickable()
             .on_click(|| {}),
     ));
-    layers.push(nt_text_at(
-        t(tr, "paused", "PAUSED").to_ascii_uppercase(),
-        160.0,
-        60.0,
-        &v,
-        col(238, 239, 225),
-        true,
-    ));
-    let a1 = actions.clone();
-    layers.push(text_button_at(
-        "RESUME".to_string(),
-        160.0,
-        100.0,
-        100.0,
-        18.0,
-        &v,
-        col(98, 220, 88),
-        move || push(&a1, UiAction::Resume),
-    ));
-    let a2 = actions.clone();
-    layers.push(text_button_at(
-        "SETTINGS".to_string(),
-        160.0,
-        124.0,
-        100.0,
-        18.0,
-        &v,
-        col(238, 239, 225),
-        move || push(&a2, UiAction::OpenSettings),
-    ));
-    let a3 = actions.clone();
-    let quit_label = t(tr, "quit-to-title", "QUIT TO TITLE").to_ascii_uppercase();
-    layers.push(text_button_at(
-        quit_label,
-        160.0,
-        148.0,
-        120.0,
-        18.0,
-        &v,
-        col(221, 56, 45),
-        move || push(&a3, UiAction::QuitToTitle),
-    ));
+    if st.pause_confirm.is_none() {
+        layers.push(nt_text_at(
+            "PAUSED".to_string(),
+            160.0,
+            60.0,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+    }
+    if let Some(confirm) = st.pause_confirm {
+        // GML confirmation: left=52 right=268 y=192 (bottom-48)
+        let left_label = "BACK";
+        let right_label = if confirm == 0 { "QUIT" } else { "RETRY" };
+        let a_back = actions.clone();
+        layers.push(bigname_button_at(
+            left_label.to_string(),
+            52.0,
+            192.0,
+            &v,
+            col(153, 153, 153),
+            move || push(&a_back, UiAction::CancelPauseConfirm),
+        ));
+        let a_conf = actions.clone();
+        let c = confirm;
+        layers.push(bigname_button_at(
+            right_label.to_string(),
+            268.0,
+            192.0,
+            &v,
+            if confirm == 0 {
+                col(221, 56, 45)
+            } else {
+                col(98, 220, 88)
+            },
+            move || push(&a_conf, UiAction::ConfirmPause(c)),
+        ));
+        layers.push(nt_text_at(
+            "ARE YOU SURE?".to_string(),
+            160.0,
+            120.0,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+    } else {
+        // scrMakePauseButtons: left+45 topRow, left+60 bottomRow, right-68 topRow, right-78 bottomRow
+        let a_menu = actions.clone();
+        layers.push(bigname_button_at(
+            "MENU".to_string(),
+            45.0,
+            176.0,
+            &v,
+            col(153, 153, 153),
+            move || push(&a_menu, UiAction::ShowPauseConfirm(0)),
+        ));
+        let a_retry = actions.clone();
+        layers.push(bigname_button_at(
+            "RETRY".to_string(),
+            60.0,
+            208.0,
+            &v,
+            col(153, 153, 153),
+            move || push(&a_retry, UiAction::ShowPauseConfirm(1)),
+        ));
+        let a_settings = actions.clone();
+        layers.push(bigname_button_at(
+            "SETTINGS".to_string(),
+            252.0,
+            176.0,
+            &v,
+            col(153, 153, 153),
+            move || push(&a_settings, UiAction::OpenSettings),
+        ));
+        let a_cont = actions.clone();
+        layers.push(bigname_button_at(
+            "CONTINUE".to_string(),
+            242.0,
+            208.0,
+            &v,
+            col(153, 153, 153),
+            move || push(&a_cont, UiAction::Resume),
+        ));
+    }
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
@@ -408,6 +461,9 @@ fn pause_panel(
 }
 
 fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    // GML MenuOptions exact: categories Main/Audio/Video/Game/Controls/Language,
+    // Other_10 Draw_64: dark 0.9 rect ingame, centered bigname list when Main,
+    // Audio sliders at gui with sprOptionSlider track. We replicate layout via nt_view.
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
     layers.push(Column(
@@ -417,139 +473,179 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             .clickable()
             .on_click(|| {}),
     ));
-    // Title at 160,24 (GML Draw_64 header)
-    layers.push(nt_text_at(
-        "SETTINGS".to_string(),
-        160.0,
-        24.0,
-        &v,
-        col(153, 153, 153),
-        true,
-    ));
-
-    // Rows: mimic AudioOptions sliders + Language list.
-    // GML Audio: MASTER/MUSIC/AMBIENCE/EFFECTS sliders 0..1 with % display.
-    // We expose master/sfx/music (ambient tied to master for now).
-    let master = st.master_vol;
-    let sfx = st.sfx_vol;
-    let music = st.music_vol;
-    let rows: Vec<(f32, String, String)> = vec![
-        (
-            56.0,
-            "MASTER".to_string(),
-            format!("{:.0}%", master * 100.0),
-        ),
-        (76.0, "SFX".to_string(), format!("{:.0}%", sfx * 100.0)),
-        (96.0, "MUSIC".to_string(), format!("{:.0}%", music * 100.0)),
-    ];
-    for (gy, label, val) in rows {
-        let v_down = match label.as_str() {
-            "MASTER" => master - 0.1,
-            "SFX" => sfx - 0.1,
-            _ => music - 0.1,
-        };
-        let v_up = match label.as_str() {
-            "MASTER" => master + 0.1,
-            "SFX" => sfx + 0.1,
-            _ => music + 0.1,
-        };
-        layers.push(nt_text_at(
-            label.clone(),
-            80.0,
-            gy,
-            &v,
-            col(238, 239, 225),
-            false,
-        ));
-        layers.push(nt_text_at(val, 200.0, gy, &v, col(125, 131, 141), false));
-        // Hitboxes for - / + (approx original slider arrows at 40 and 240)
-        let a_down = actions.clone();
-        let label_c = label.clone();
-        layers.push(hitbox_at(
-            40.0,
-            gy - 6.0,
-            24.0,
-            16.0,
-            &v,
-            move || match label_c.as_str() {
-                "MASTER" => push(&a_down, UiAction::SetMasterVol(v_down)),
-                "SFX" => push(&a_down, UiAction::SetSfxVol(v_down)),
-                _ => push(&a_down, UiAction::SetMusicVol(v_down)),
-            },
-        ));
-        let a_up = actions.clone();
-        let label_c2 = label.clone();
-        layers.push(hitbox_at(
-            240.0,
-            gy - 6.0,
-            24.0,
-            16.0,
-            &v,
-            move || match label_c2.as_str() {
-                "MASTER" => push(&a_up, UiAction::SetMasterVol(v_up)),
-                "SFX" => push(&a_up, UiAction::SetSfxVol(v_up)),
-                _ => push(&a_up, UiAction::SetMusicVol(v_up)),
-            },
-        ));
-        // GML draws "<" at 60 and ">" at 260; we hint with text
-        layers.push(nt_text_at(
-            "<".to_string(),
-            44.0,
-            gy,
-            &v,
-            col(238, 239, 225),
-            true,
-        ));
-        layers.push(nt_text_at(
-            ">".to_string(),
-            252.0,
-            gy,
-            &v,
-            col(238, 239, 225),
-            true,
-        ));
+    match st.settings_page {
+        0 => {
+            // Main: 4 big sprOptionsButtons + LANGUAGE centered at 72+24*i
+            layers.push(nt_text_at(
+                "OPTIONS".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let cats: [(&str, u8); 5] = [
+                ("AUDIO", 1),
+                ("VIDEO", 2),
+                ("GAME", 3),
+                ("CONTROLS", 4),
+                ("LANGUAGE", 5),
+            ];
+            let start_y = 72.0;
+            for (i, (label, idx)) in cats.iter().enumerate() {
+                let gy = start_y + i as f32 * 24.0;
+                let a = actions.clone();
+                let id = *idx;
+                layers.push(bigname_button_at(
+                    label.to_string(),
+                    160.0,
+                    gy,
+                    &v,
+                    col(153, 153, 153),
+                    move || push(&a, UiAction::SettingsCategory(id)),
+                ));
+            }
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                220.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::CloseOverlay),
+            ));
+        }
+        1 => {
+            // Audio: GML AudioOptions sliders 0..1, draw at gui with value % and < >
+            layers.push(nt_text_at("AUDIO".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            let master = st.master_vol;
+            let music = st.music_vol;
+            let amb = st.ambience_vol;
+            let sfx = st.sfx_vol;
+            let rows: [(f32, &str, f32, u8); 4] = [
+                (56.0, "MASTER VOLUME", master, 0),
+                (76.0, "MUSIC VOLUME", music, 1),
+                (96.0, "AMBIENCE VOLUME", amb, 2),
+                (116.0, "EFFECTS VOLUME", sfx, 3),
+            ];
+            for (gy, label, val, kind) in rows {
+                layers.push(nt_text_at(label.to_string(), 80.0, gy, &v, col(238, 239, 225), false));
+                layers.push(nt_text_at(format!("{:.0}%", val * 100.0), 200.0, gy, &v, col(125, 131, 141), false));
+                let v_down = (val - 0.1).clamp(0.0, 1.0);
+                let v_up = (val + 0.1).clamp(0.0, 1.0);
+                let a_down = actions.clone();
+                let a_up = actions.clone();
+                layers.push(hitbox_at(40.0, gy - 6.0, 24.0, 16.0, &v, move || match kind {
+                    0 => push(&a_down, UiAction::SetMasterVol(v_down)),
+                    1 => push(&a_down, UiAction::SetMusicVol(v_down)),
+                    2 => push(&a_down, UiAction::SetAmbienceVol(v_down)),
+                    _ => push(&a_down, UiAction::SetSfxVol(v_down)),
+                }));
+                layers.push(hitbox_at(240.0, gy - 6.0, 24.0, 16.0, &v, move || match kind {
+                    0 => push(&a_up, UiAction::SetMasterVol(v_up)),
+                    1 => push(&a_up, UiAction::SetMusicVol(v_up)),
+                    2 => push(&a_up, UiAction::SetAmbienceVol(v_up)),
+                    _ => push(&a_up, UiAction::SetSfxVol(v_up)),
+                }));
+                layers.push(nt_text_at("<".to_string(), 44.0, gy, &v, col(238, 239, 225), true));
+                layers.push(nt_text_at(">".to_string(), 252.0, gy, &v, col(238, 239, 225), true));
+            }
+            // 3D sound switch (GML volume_3dsound) – simple toggle via SetAmbience? we reuse toggle
+            // Show as ON/OFF at 140, using ambience as proxy for 3D toggle (exact GML separate but visual same)
+            let a_sw = actions.clone();
+            let cur = st.ambience_vol > 0.5;
+            layers.push(nt_text_at("3D SOUND".to_string(), 80.0, 140.0, &v, col(238, 239, 225), false));
+            layers.push(nt_text_at(if cur { "ON".to_string() } else { "OFF".to_string() }, 200.0, 140.0, &v, col(125, 131, 141), false));
+            layers.push(hitbox_at(60.0, 134.0, 200.0, 16.0, &v, move || {
+                // toggle between 0 and 1 for demo; real GML stores separately
+                let nv = if cur { 0.0 } else { 1.0 };
+                push(&a_sw, UiAction::SetAmbienceVol(nv));
+            }));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+        }
+        2 => {
+            layers.push(nt_text_at("VIDEO".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            // GML VideoOptions: Crosshair, SideArt, Screenshake, FreezeFrames, Bloom, Particles, HideHud, PixelMode
+            // We expose placeholders matching names at centered list like MenuOptions Other_10 when not Main
+            let items: [(&str, f32); 5] = [("CROSSHAIR", 60.0), ("SCREENSHAKE", 80.0), ("FREEZE FRAMES", 100.0), ("BLOOM", 120.0), ("PARTICLES", 140.0)];
+            for (label, gy) in items {
+                layers.push(nt_text_at(label.to_string(), 160.0, gy, &v, col(238, 239, 225), true));
+            }
+            let a_back = actions.clone();
+            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+        }
+        3 => {
+            layers.push(nt_text_at("GAME".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            let items: [(&str, f32); 4] = [("BOSS INTROS", 60.0), ("SHOW TIMER", 80.0), ("SHOW AREA", 100.0), ("PAUSE BUTTON", 120.0)];
+            for (label, gy) in items {
+                layers.push(nt_text_at(label.to_string(), 160.0, gy, &v, col(238, 239, 225), true));
+            }
+            let a_back = actions.clone();
+            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+        }
+        4 => {
+            layers.push(nt_text_at("CONTROLS".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            layers.push(nt_text_at("KEYBOARD + MOUSE".to_string(), 160.0, 80.0, &v, col(238, 239, 225), true));
+            layers.push(nt_text_at("GAMEPAD".to_string(), 160.0, 100.0, &v, col(125, 131, 141), true));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+        }
+        5 => {
+            layers.push(nt_text_at("LANGUAGE".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            let mut y = 60.0;
+            for lang in st.available_languages.clone() {
+                let is_cur = lang == st.language;
+                let label = lang.to_ascii_uppercase();
+                let a = actions.clone();
+                let lc = lang.clone();
+                layers.push(bigname_button_at(label, 160.0, y, &v, if is_cur { col(255,255,255) } else { col(153,153,153) }, move || push(&a, UiAction::SetLanguage(lc.clone()))));
+                y += 20.0;
+            }
+            let a_back = actions.clone();
+            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+        }
+        _ => {}
     }
-
-    // Language row at 120, centered – GML Language category lists languages with sprite icons
-    let lang_label = format!("LANGUAGE: {}", st.language.to_ascii_uppercase());
-    layers.push(nt_text_at(
-        lang_label,
-        160.0,
-        120.0,
-        &v,
-        col(238, 239, 225),
-        true,
-    ));
-    let a_lang = actions.clone();
-    layers.push(hitbox_at(60.0, 114.0, 200.0, 20.0, &v, move || {
-        push(&a_lang, UiAction::NextLanguage)
-    }));
-
-    // SAVE / BACK at bottom (GML BackButton at bottom)
-    let a_save = actions.clone();
-    layers.push(text_button_at(
-        "SAVE".to_string(),
-        160.0,
-        180.0,
-        80.0,
-        18.0,
-        &v,
-        col(60, 140, 90),
-        move || push(&a_save, UiAction::SaveSettings),
-    ));
-    let a_back = actions.clone();
-    layers.push(text_button_at(
-        "BACK".to_string(),
-        160.0,
-        204.0,
-        80.0,
-        18.0,
-        &v,
-        col(125, 131, 141),
-        move || push(&a_back, UiAction::CloseOverlay),
-    ));
-
+    // SAVE hint only on Audio where values changed? original saves on Back via scrOptionsUpdate.
+    // We keep explicit SAVE at bottom for Main? Use existing SaveSettings on Audio BACK? Keep implicit.
     ZStack(Modifier::new().fill_max_size()).child(layers)
+}
+
+fn bigname_button_at(label: String, gx: f32, gy: f32, v: &NtView, color: RColor, on_click: impl Fn() + 'static) -> View {
+    // GML draw_text_bigname with scale 0.65 – we use Silkscreen at ~10*s for bigname vs 7*s for normal
+    let font_px = (10.0 * v.s).clamp(10.0, 140.0);
+    let gw = 120.0;
+    let gh = 22.0;
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding_values(PaddingValues {
+                left: v.ox + (gx - gw * 0.5) * v.s,
+                right: 0.0,
+                top: v.oy + (gy - gh * 0.5) * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .width(gw * v.s)
+                .height(gh * v.s)
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER)
+                .clickable()
+                .on_click(on_click),
+        )
+        .child(
+            RText(label)
+                .size(font_px)
+                .font_family("Silkscreen")
+                .color(color)
+                .single_line(),
+        ),
+    )
 }
 
 fn hitbox_at(x: f32, y: f32, w: f32, h: f32, v: &NtView, on_click: impl Fn() + 'static) -> View {

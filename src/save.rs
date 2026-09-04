@@ -42,6 +42,7 @@ pub struct SettingsData {
     pub master_volume: f32,
     pub sfx_volume: f32,
     pub music_volume: f32,
+    pub ambience_volume: f32,
     pub language: String,
 }
 
@@ -51,6 +52,7 @@ impl Default for SettingsData {
             master_volume: 1.0,
             sfx_volume: 1.0,
             music_volume: 0.8,
+            ambience_volume: 1.0,
             language: "en".to_string(),
         }
     }

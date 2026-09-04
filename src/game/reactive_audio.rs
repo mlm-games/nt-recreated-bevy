@@ -391,7 +391,13 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
         UiAction::SetMasterVol(_)
         | UiAction::SetSfxVol(_)
         | UiAction::SetMusicVol(_)
+        | UiAction::SetAmbienceVol(_)
         | UiAction::SetLanguage(_) => None,
+        UiAction::SettingsCategory(_)
+        | UiAction::SettingsBack
+        | UiAction::ShowPauseConfirm(_)
+        | UiAction::CancelPauseConfirm
+        | UiAction::ConfirmPause(_) => Some(ReactiveCue::UiClick),
     }
 }
 
