@@ -1144,7 +1144,7 @@ pub fn portal_attract(
     >,
     portal_q: Query<&Transform, With<Portal>>,
     mask: Res<FloorMask>,
-    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    _walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     run: Res<Run>,
 ) {
     if run.game_over || !run.portal_open {

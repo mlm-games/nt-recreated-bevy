@@ -369,7 +369,8 @@ impl Plugin for AppPlugin {
                     sync_virtual_time_with_pause,
                 )
                     .chain(),
-            );
+            )
+            .add_systems(OnExit(AppState::InGame), reset_pause_on_exit);
     }
 }
 
@@ -977,11 +978,15 @@ fn process_ui_actions(
 }
 
 fn force_death_overlay_state(
+    state: Res<State<AppState>>,
     run: Option<Res<crate::game::components::Run>>,
     mut paused: ResMut<Paused>,
     mut overlay: ResMut<OverlayMenu>,
     mut pending_unpause: ResMut<PendingUnpause>,
 ) {
+    if *state.get() != AppState::InGame {
+        return;
+    }
     let Some(run) = run else {
         return;
     };
@@ -990,6 +995,26 @@ fn force_death_overlay_state(
         paused.0 = false;
         *overlay = OverlayMenu::None;
         pending_unpause.0 = None;
+    }
+}
+
+fn reset_pause_on_exit(
+    mut paused: ResMut<Paused>,
+    mut overlay: ResMut<OverlayMenu>,
+    mut pending_unpause: ResMut<PendingUnpause>,
+    bridge: Res<crate::menus::UiBridge>,
+    mut run: Option<ResMut<crate::game::components::Run>>,
+) {
+    paused.0 = false;
+    *overlay = OverlayMenu::None;
+    pending_unpause.0 = None;
+    if let Some(r) = run.as_mut() {
+        r.game_over = false;
+    }
+    if let Some(mut ui) = lock_shared(&bridge) {
+        ui.paused = false;
+        ui.overlay = OverlayMenu::None;
+        ui.game_over = false;
     }
 }
 
