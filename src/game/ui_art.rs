@@ -76,6 +76,8 @@ struct MutationArtRefs {
 /// Handles for the HUD pieces that update every tick.
 #[derive(Resource)]
 pub struct HudArtRefs {
+    /// Health bar outline (sprHealthBar) at (20,4).
+    pub hp_bar: Entity,
     /// Dark background strip (frame 2) and health fill strip (frame 1).
     pub hp_bg: Entity,
     pub hp_fg: Entity,
@@ -1488,7 +1490,7 @@ impl Plugin for UiArtPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_hud_art)
             .add_systems(OnExit(AppState::InGame), despawn_hud_art)
             .add_systems(OnExit(AppState::InGame), despawn_mutation_art)
-            .add_systems(FixedUpdate, sync_hud_art)
+            .add_systems(Update, sync_hud_art)
             .add_systems(Update, sync_mutation_icons)
             .add_systems(Update, sync_gencont_art);
     }
@@ -3267,7 +3269,7 @@ fn spawn_hud_art(
         Color::WHITE,
         -870.0,
     );
-    commands.spawn((HudArt, ChildOf(cam), bar_spr, bar_tf));
+    let hp_bar = commands.spawn((HudArt, ChildOf(cam), bar_spr, bar_tf)).id();
 
     // Fill strips: sprHealthFill is 1 px wide; upstream stretches it over the
     // 84 px track (bg = lsthealth frame 2, fg = hp frame 1) at gui (22, 7).
@@ -3419,6 +3421,7 @@ fn spawn_hud_art(
     ];
 
     commands.insert_resource(HudArtRefs {
+        hp_bar,
         hp_bg,
         hp_fg,
         exp_bar,
@@ -3577,12 +3580,33 @@ fn sync_hud_art(
         }
     }
 
+    // Keep HUD pixel-locked on resize – Repose text uses live nt_view s
+    if let Ok(mut spr) = sprites.get_mut(refs.hp_bar) {
+        let m = meta_of(&catalog, "images/sprHealthBar.png");
+        spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
+    }
+    if let Ok(mut tf) = transforms.get_mut(refs.hp_bar) {
+        let m = meta_of(&catalog, "images/sprHealthBar.png");
+        let (fw, fh, ox, oy) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+        let c = map.to_world(20.0 - ox + fw * 0.5, 4.0 - oy + fh * 0.5);
+        tf.translation.x = c.x;
+        tf.translation.y = c.y;
+    }
     // Rad bar subimage = floor(min(1, rads/max) * 16).
     let rad_frac = (player.rads as f32 / player.next_level_rads.max(1) as f32).clamp(0.0, 1.0);
     let rad_frame = (rad_frac * 16.0).floor().min(16.0);
     if let Ok(mut spr) = sprites.get_mut(refs.exp_bar) {
         let fw = meta_of(&catalog, "images/sprExpBar.png")[1].max(1.0);
         spr.rect = Some(Rect::new(rad_frame * fw, 0.0, (rad_frame + 1.0) * fw, 24.0));
+        let m = meta_of(&catalog, "images/sprExpBar.png");
+        spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
+    }
+    if let Ok(mut tf) = transforms.get_mut(refs.exp_bar) {
+        let m = meta_of(&catalog, "images/sprExpBar.png");
+        let (fw, fh, ox, oy) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+        let c = map.to_world(4.0 - ox + fw * 0.5, 4.0 - oy + fh * 0.5);
+        tf.translation.x = c.x;
+        tf.translation.y = c.y;
     }
     // Level-up overlay while a mutation pick is pending.
     if let Ok(mut vis) = visibilities.get_mut(refs.exp_level) {
@@ -3591,6 +3615,17 @@ fn sync_hud_art(
         } else {
             Visibility::Hidden
         };
+    }
+    if let Ok(mut spr) = sprites.get_mut(refs.exp_level) {
+        let m = meta_of(&catalog, "images/sprExpBarLevel.png");
+        spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
+    }
+    if let Ok(mut tf) = transforms.get_mut(refs.exp_level) {
+        let m = meta_of(&catalog, "images/sprExpBarLevel.png");
+        let (fw, fh, ox, oy) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+        let c = map.to_world(4.0 - ox + fw * 0.5, 4.0 - oy + fh * 0.5);
+        tf.translation.x = c.x;
+        tf.translation.y = c.y;
     }
 
     // Ammo stacks: bg frame from equipped weapon types, icon fill from counts.
@@ -3611,6 +3646,7 @@ fn sync_hud_art(
         } else {
             0
         };
+        let dx = 2.0 + t as f32 * 10.0 - if t >= 2 { 2.0 } else { 0.0 };
         if let Ok(mut spr) = sprites.get_mut(refs.ammo_bg[t]) {
             let fw = meta_of(&catalog, AMMO_SPRITES[t].0)[1].max(1.0);
             spr.rect = Some(Rect::new(
@@ -3619,6 +3655,15 @@ fn sync_hud_art(
                 (bg_frame + 1) as f32 * fw,
                 12.0,
             ));
+            let m = meta_of(&catalog, AMMO_SPRITES[t].0);
+            spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
+        }
+        if let Ok(mut tf) = transforms.get_mut(refs.ammo_bg[t]) {
+            let m = meta_of(&catalog, AMMO_SPRITES[t].0);
+            let (w, h, ox, oy) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+            let c = map.to_world(dx - ox + w * 0.5, 32.0 - oy + h * 0.5);
+            tf.translation.x = c.x;
+            tf.translation.y = c.y;
         }
         let icon_frame =
             (AMMO_FILL_FRAMES - (fill * AMMO_FILL_FRAMES).ceil()).clamp(0.0, AMMO_FILL_FRAMES);
@@ -3626,11 +3671,20 @@ fn sync_hud_art(
             let fw = meta_of(&catalog, AMMO_SPRITES[t].1)[1].max(1.0);
             let fi = icon_frame.round();
             spr.rect = Some(Rect::new(fi * fw, 0.0, (fi + 1.0) * fw, 12.0));
+            let m = meta_of(&catalog, AMMO_SPRITES[t].1);
+            spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
+        }
+        if let Ok(mut tf) = transforms.get_mut(refs.ammo_icon[t]) {
+            let m = meta_of(&catalog, AMMO_SPRITES[t].1);
+            let (w, h, ox, oy) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
+            let c = map.to_world(dx - ox + w * 0.5, 32.0 - oy + h * 0.5);
+            tf.translation.x = c.x;
+            tf.translation.y = c.y;
         }
     }
 
     // Weapon icons: swap texture when equipment changes; outline copies are
-    // white for the active slot, #404040 for the stored one.
+    // white for the active slot, #404040 for the stored one. Keep live on resize.
     for slot in 0..2usize {
         let slot_idx = slot.min(inv.weapon_slots.saturating_sub(1));
         let id = inv.weapons[slot_idx];
@@ -3645,9 +3699,49 @@ fn sync_hud_art(
                 {
                     if let Ok(mut spr) = sprites.get_mut(*entity) {
                         spr.image = asset_server.load(path.to_string());
-                        spr.rect = Some(weapon_icon_rect(meta_of(&catalog, path), wide));
+                        let r = weapon_icon_rect(meta_of(&catalog, path), wide);
+                        spr.rect = Some(r);
+                        spr.custom_size = Some(Vec2::new(r.width() * map.s, r.height() * map.s));
                     }
                 }
+            }
+        }
+        // Even when id unchanged, keep size/pos in sync with new map.s (resize)
+        for (i, &e) in refs.wep[slot].0.iter().enumerate() {
+            let (ox, oy) = [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)][i];
+            if let Ok(mut tf) = transforms.get_mut(e) {
+                let dx = wep_slot_pos(slot);
+                let cur_id = WeaponId(refs.wep_ids[slot]);
+                if let Some(p) = crate::game::content::weapon_hud_sprite(cur_id.0) {
+                    let r = weapon_icon_rect(meta_of(&catalog, p), wide);
+                    let c = map.to_world(dx + ox + r.width() / 2.0, 16.0 + oy + r.height() / 2.0);
+                    tf.translation.x = c.x;
+                    tf.translation.y = c.y;
+                }
+            }
+            if let Ok(mut spr) = sprites.get_mut(e) {
+                let cur_id = WeaponId(refs.wep_ids[slot]);
+                if let Some(p) = crate::game::content::weapon_hud_sprite(cur_id.0) {
+                    let r = weapon_icon_rect(meta_of(&catalog, p), wide);
+                    spr.custom_size = Some(Vec2::new(r.width() * map.s, r.height() * map.s));
+                }
+            }
+        }
+        if let Ok(mut tf) = transforms.get_mut(refs.wep[slot].1) {
+            let dx = wep_slot_pos(slot);
+            let cur_id = WeaponId(refs.wep_ids[slot]);
+            if let Some(p) = crate::game::content::weapon_hud_sprite(cur_id.0) {
+                let r = weapon_icon_rect(meta_of(&catalog, p), wide);
+                let c = map.to_world(dx + r.width() / 2.0, 16.0 + r.height() / 2.0);
+                tf.translation.x = c.x;
+                tf.translation.y = c.y;
+            }
+        }
+        if let Ok(mut spr) = sprites.get_mut(refs.wep[slot].1) {
+            let cur_id = WeaponId(refs.wep_ids[slot]);
+            if let Some(p) = crate::game::content::weapon_hud_sprite(cur_id.0) {
+                let r = weapon_icon_rect(meta_of(&catalog, p), wide);
+                spr.custom_size = Some(Vec2::new(r.width() * map.s, r.height() * map.s));
             }
         }
         let outline_tint = if slot == inv.current {
@@ -3741,11 +3835,11 @@ fn sync_mutation_icons(
     } else {
         "images/sprSkillIconHUD.png"
     };
-    // Layout: mirrors LevCont/Other_10 – view_width 320, num icons,
-    // step = min(32, floor(320/(num+1))) == 32 for 2-4 choices, half 16.
-    // x = view_xview_center - (num-1)*half + index*step, y = view_height -21.
+    // Layout: mirrors LevCont/Other_10 – step = min(32,floor(320/(n+1))),
+    // half = step/2, scale = max(0.65, step/32), y = view_height-21
     let n = ids.len();
     let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
+    let scale = (step / 32.0).max(0.65);
     let half = step * 0.5;
     let start_x = 160.0 - (n as f32 - 1.0) * half;
     let icon_y = GUI_H - 21.0;
@@ -3756,6 +3850,8 @@ fn sync_mutation_icons(
         let frame = (skill_id as usize).saturating_sub(1) % 30;
         let is_selected = selected == Some(i);
         // GML SkillIcon Draw: selected ? c_white : c_gray (128,128,128)
+        // image_xscale/yscale = _scale from Other_10, y lifts 1px when selected
+        let lift = if is_selected { 1.0 } else { 0.0 };
         let tint = if is_selected {
             Color::WHITE
         } else {
@@ -3768,9 +3864,9 @@ fn sync_mutation_icons(
             icon_path,
             frame,
             gui_x,
-            icon_y,
-            1.0,
-            1.0,
+            icon_y - lift,
+            scale,
+            scale,
             tint,
             -850.0,
         );

@@ -854,13 +854,17 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         .iter()
         .any(|choice| choice.trim().starts_with("ULTRA:"));
 
-    // GML branch: CrownIcon -> "CHOOSE WISELY" / sprPickCrownText
-    //             UltraIcon -> "PICK YOUR ULTRA MUTATION" (+ Robot variant)
-    //             SkillIcon -> "SELECT MUTATIONS" / "INSTALL UPDATES"
-    let (title, subtitle) = if is_ultra {
-        ("ULTRA MUTATION", "PICK YOUR ULTRA MUTATION")
+    let is_robot = st.character.to_ascii_lowercase() == "robot";
+    let (title, subtitle, robot_extra) = if is_ultra {
+        if is_robot {
+            ("ULTRA MUTATION", "INSTALL ULTRA UPDATE", None)
+        } else {
+            ("ULTRA MUTATION", "PICK YOUR ULTRA MUTATION", None)
+        }
+    } else if is_robot {
+        ("LEVEL UP", "INSTALL UPDATES", Some("DO NOT TURN OFF ROBOT"))
     } else {
-        ("LEVEL UP", "SELECT MUTATIONS")
+        ("LEVEL UP", "SELECT MUTATIONS", None)
     };
     let accent = if is_ultra {
         col(255, 221, 0)
@@ -870,16 +874,16 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     let n = st.mutation_choices.len().max(1).min(8);
     // LevCont/Other_10: step_size = min(32, floor(view_width/(num+1)))
+    // scale = max(0.65, step/32) – matches ui_art sync_mutation_icons
     let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
+    let scale = (step / 32.0).max(0.65);
     let half = step * 0.5;
     let start_x = 160.0 - (n as f32 - 1.0) * half;
-    // GML icon origin is the sprite's origin (12,16 for 24×32); gm_sprite
-    // already compensates, but hitbox must be centered on the same gui point.
-    // Use 32×32 hitbox (slightly generous) centred at (icon_x, 219).
+    // GML icons at y = view_height-21 = 219, origin (12,16), 24x32 * scale
     let icon_y = 219.0; // view_height -21
-    let hit_w = 32.0;
-    let hit_h = 32.0;
-    let hit_y = icon_y - hit_h * 0.5;
+    let hit_w = 24.0 * scale;
+    let hit_h = 32.0 * scale;
+    let hit_y = icon_y - 16.0 * scale;
 
     let mut layers: Vec<View> = Vec::new();
 
@@ -890,8 +894,10 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             .background(RColor::from_rgba(0, 0, 0, 0)),
     ));
 
-    // GML Draw_64: draw_text_bigname at (160,48) + appear (lerp), draw_text_nt at (160,75-appear)
-    // We render at appear==0 (settled) so positions are exact final frame.
+    // GML LevCont/Draw_0: draw_text_bigname at (160,48) + appear, draw_text_nt at (160,75)
+    // after appear settles. Original uses sprLevelUpText/sprLevelUltraText bigname
+    // and loc'd subtitle (SELECT % MUTATIONS / PICK YOUR ULTRA MUTATION).
+    // We render at appear==0 so positions are exact final frame.
     layers.push(nt_text_at(title.to_string(), 160.0, 48.0, &v, accent, true));
     layers.push(nt_text_at(
         subtitle.to_string(),
@@ -901,6 +907,16 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         col(238, 239, 225),
         true,
     ));
+    if let Some(extra) = robot_extra {
+        layers.push(nt_text_at(
+            extra.to_string(),
+            160.0,
+            87.0,
+            &v,
+            col(238, 239, 225),
+            true,
+        ));
+    }
 
     for (i, choice) in st.mutation_choices.iter().enumerate().take(n) {
         let (_ultra, _name, _desc) = mutation_choice_parts(choice);
@@ -909,17 +925,8 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         let a = actions.clone();
         let idx = i;
         let is_selected = st.mutation_selected == Some(i);
-        // Number 1..n above icon - GML shows num via icon order, we tint selected number brighter
-        layers.push(nt_text_at(
-            format!("{}", i + 1),
-            icon_x,
-            icon_y - 18.0,
-            &v,
-            if is_selected { RColor::WHITE } else { accent },
-            true,
-        ));
         // GML SkillIcon/Mouse_4: first press selects (c_gray->c_white, sndHover), second press confirms
-        // We send SelectMutation on first click, PickMutation on second when already selected
+        // No numbers, no border – just invisible hitbox matching sprite bbox scaled.
         let a2 = actions.clone();
         layers.push(
             Column(
@@ -937,16 +944,7 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
                 Modifier::new()
                     .width(hit_w * v.s)
                     .height(hit_h * v.s)
-                    .background(if is_selected {
-                        RColor::from_rgba(255, 255, 255, 18)
-                    } else {
-                        RColor::from_rgba(0, 0, 0, 0)
-                    })
-                    .border(
-                        if is_selected { 1.0 } else { 0.0 },
-                        RColor::from_rgba(255, 255, 255, 90),
-                        2.0,
-                    )
+                    .background(RColor::from_rgba(0, 0, 0, 0))
                     .clickable()
                     .on_click(move || {
                         if is_selected {
@@ -959,38 +957,28 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         );
     }
 
-    // GML SkillIcon selected draws txt2 at (160,179) = view_height-61 center middle, only for selected
-    // If nothing selected, show hint "SELECT A MUTATION" like GML splash
+    // GML SkillIcon/Draw_0 selected draws txt2 = "@wNAME#@sDESC" at
+    // (view_width/2, view_height-61) = (160,179) with fa_center/fa_middle,
+    // two lines (name white, desc small gray). Only when selected & appeary==0.
+    // Original shows nothing when nothing selected (icons just gray).
     if let Some(sel) = st
         .mutation_selected
         .and_then(|i| st.mutation_choices.get(i))
     {
         let (_, name, desc) = mutation_choice_parts(sel);
-        let line = if desc.is_empty() {
-            name.to_ascii_uppercase()
-        } else {
-            format!("{} - {}", name.to_ascii_uppercase(), desc)
-        };
-        layers.push(nt_text_at(line, 160.0, 179.0, &v, RColor::WHITE, true));
-    } else {
+        // Name white, desc gray – two separate centered lines as in GML # newline
         layers.push(nt_text_at(
-            "HOVER AND CLICK TO SELECT".to_string(),
+            name.to_ascii_uppercase(),
             160.0,
-            179.0,
+            173.0,
             &v,
-            col(125, 131, 141),
+            RColor::WHITE,
             true,
         ));
+        if !desc.is_empty() {
+            layers.push(nt_text_at(desc, 160.0, 185.0, &v, col(238, 239, 225), true));
+        }
     }
-
-    layers.push(nt_text_at(
-        "1 / 2 / 3 / 4".to_string(),
-        160.0,
-        230.0,
-        &v,
-        col(125, 131, 141),
-        true,
-    ));
 
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
