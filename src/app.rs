@@ -370,7 +370,10 @@ impl Plugin for AppPlugin {
                 )
                     .chain(),
             )
-            .add_systems(OnExit(AppState::InGame), reset_pause_on_exit);
+            .add_systems(OnExit(AppState::InGame), reset_pause_on_exit)
+            .add_systems(OnEnter(AppState::MainMenu), reset_pause_on_exit)
+            .add_systems(OnEnter(AppState::Title), reset_pause_on_exit)
+            .add_systems(OnEnter(AppState::Splash), reset_pause_on_exit);
     }
 }
 
@@ -709,6 +712,13 @@ fn process_ui_actions(
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;
+                // Immediately reflect in SharedUi so Repose doesn't keep ghost pause
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.paused = false;
+                    ui.overlay = OverlayMenu::None;
+                    ui.phase = AppState::MainMenu;
+                    ui.game_over = false;
+                }
                 // Keep quit-to-menu instant for now; vortex handled in MainMenuPlay.
                 // If a wipe is desired here, switch to begin_vortex_to(MainMenu).
                 transition.active = false;

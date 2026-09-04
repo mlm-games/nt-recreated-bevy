@@ -73,6 +73,7 @@ impl Plugin for GamePlugin {
             .init_resource::<ThroneRoomState>()
             .init_resource::<progress_sys::DeferredFloorGen>()
             .init_resource::<ambience::AreaAudioState>()
+            .init_resource::<ambience::AmbFilter>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
             .add_message::<reactive_audio::UiBridgeAction>()
             .init_resource::<reactive_audio::ReactiveAudioState>()
@@ -259,11 +260,13 @@ impl Plugin for GamePlugin {
             .add_systems(
                 Update,
                 (
+                    ambience::update_amb_filter,
                     ambience::sync_area_audio,
                     ambience::tick_area_audio_fades,
                     ambience::sync_area_audio_volumes.after(ambience::tick_area_audio_fades),
                 ),
             )
+            .add_systems(OnExit(AppState::InGame), ambience::despawn_area_audio)
             .add_systems(
                 Update,
                 (
@@ -276,7 +279,7 @@ impl Plugin for GamePlugin {
                         reactive_audio::play_reactive_audio_requests,
                     )
                         .chain(),
-                    reactive_audio::update_combat_intensity_audio,
+                    reactive_audio::update_combat_intensity_audio.run_if(in_state(AppState::InGame)),
                 )
                     .in_set(NtSimSet::Always),
             )
