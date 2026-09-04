@@ -321,7 +321,7 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ));
     let a1 = actions.clone();
     layers.push(text_button_at(
-        "RESUME",
+        "RESUME".to_string(),
         160.0,
         100.0,
         100.0,
@@ -332,7 +332,7 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ));
     let a2 = actions.clone();
     layers.push(text_button_at(
-        "SETTINGS",
+        "SETTINGS".to_string(),
         160.0,
         124.0,
         100.0,
@@ -343,10 +343,8 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     ));
     let a3 = actions.clone();
     let quit_label = t(tr, "quit-to-title", "QUIT TO TITLE").to_ascii_uppercase();
-    // Leak to 'static for text_button_at signature; GML uses loc() strings
-    let quit_static: &'static str = Box::leak(quit_label.into_boxed_str());
     layers.push(text_button_at(
-        quit_static,
+        quit_label,
         160.0,
         148.0,
         120.0,
@@ -513,7 +511,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
     // SAVE / BACK at bottom (GML BackButton at bottom)
     let a_save = actions.clone();
     layers.push(text_button_at(
-        "SAVE",
+        "SAVE".to_string(),
         160.0,
         180.0,
         80.0,
@@ -524,7 +522,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
     ));
     let a_back = actions.clone();
     layers.push(text_button_at(
-        "BACK",
+        "BACK".to_string(),
         160.0,
         204.0,
         80.0,
@@ -604,7 +602,7 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         true,
     ));
     layers.push(text_button_at(
-        "BACK",
+        "BACK".to_string(),
         160.0,
         180.0,
         80.0,
@@ -1464,7 +1462,7 @@ fn nt_text_at_ex(
 }
 
 fn text_button_at(
-    label: &'static str,
+    label: String,
     gx: f32,
     gy: f32,
     gw: f32,

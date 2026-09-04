@@ -19,7 +19,7 @@ pub struct AnimDef {
 /// systems swap between idle/walk variants by rewriting `path`.
 #[derive(Component)]
 pub struct SpriteAnim {
-    pub path: &'static str,
+    pub path: String,
     pub def: AnimDef,
     pub frame: u32,
     pub timer: Timer,
@@ -29,9 +29,9 @@ pub struct SpriteAnim {
 }
 
 impl SpriteAnim {
-    pub fn new(path: &'static str, def: AnimDef) -> Self {
+    pub fn new(path: impl Into<String>, def: AnimDef) -> Self {
         Self {
-            path,
+            path: path.into(),
             def,
             frame: 0,
             timer: Timer::from_seconds(1.0 / def.fps.max(0.1), TimerMode::Repeating),
@@ -40,7 +40,7 @@ impl SpriteAnim {
         }
     }
 
-    pub fn oneshot(path: &'static str, def: AnimDef) -> Self {
+    pub fn oneshot(path: impl Into<String>, def: AnimDef) -> Self {
         let mut a = Self::new(path, def);
         a.oneshot = true;
         a
@@ -52,8 +52,8 @@ impl SpriteAnim {
         Rect::new(self.frame as f32 * w, 0.0, self.frame as f32 * w + w, h)
     }
 
-    pub fn set_path(&mut self, path: &'static str, def: AnimDef, oneshot: bool) {
-        self.path = path;
+    pub fn set_path(&mut self, path: impl Into<String>, def: AnimDef, oneshot: bool) {
+        self.path = path.into();
         self.def = def;
         self.frame = 0;
         self.oneshot = oneshot;
@@ -66,7 +66,7 @@ impl SpriteAnim {
 pub fn sprite_anim(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
-    path: &'static str,
+    path: &str,
 ) -> (Sprite, Option<SpriteAnim>) {
     let mut sprite = crate::game::content::sprite_exact(catalog, asset_server, path);
     match catalog.anim_def(path) {

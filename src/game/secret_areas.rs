@@ -361,9 +361,10 @@ pub fn tick_oasis_bandit_window(
     }
 }
 
-/// Cursed Caves: carry an endgame/cursed-tier weapon into the Crystal Caves.
-/// Interim rule until weapon tables carry a cursed bit: the golden/endgame
-/// family (generated IDs 90..=127) counts as cursed.
+/// Cursed Caves: GML checks `scrPlayerCountCursed` >0 in Crystal Caves.
+/// Until per-slot curse flag exists, use endgame tier proxy: wep_gold or
+/// wep_rads>=12 (ultras) counts as cursed-tier. Falls back to id>=90 for
+/// modded weapons.
 pub fn detect_cursed_caves(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -383,6 +384,14 @@ pub fn detect_cursed_caves(
 }
 
 fn is_cursed_weapon(w: WeaponId) -> bool {
+    if w.0 == 0 {
+        return false;
+    }
+    if let Some(data) = crate::game::weapons_data::WEAPONS.get(w.0 as usize) {
+        // Golden weapons and ultra-tier rad weapons are cursed-tier; proper
+        // per-slot curse flag will replace this tier proxy.
+        return data.wep_gold || data.wep_rads >= 12 || (90..=127).contains(&w.0);
+    }
     (90..=127).contains(&w.0)
 }
 

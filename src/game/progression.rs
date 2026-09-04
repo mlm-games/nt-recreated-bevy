@@ -1143,6 +1143,7 @@ pub fn portal_attract(
         (With<Player>, Without<Portal>, Without<PortalSucking>),
     >,
     portal_q: Query<&Transform, With<Portal>>,
+    mask: Res<FloorMask>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     run: Res<Run>,
 ) {
@@ -1162,7 +1163,7 @@ pub fn portal_attract(
         return;
     }
     // GML Portal/Create attract_objects: requires LOS clear
-    let los_blocked = crate::game::walls::segment_hits_wall(ppos, tpos, &walls);
+    let los_blocked = crate::game::walls::segment_hits_wall(ppos, tpos, &mask);
     if los_blocked {
         return;
     }

@@ -43,7 +43,7 @@ pub fn spawn_pickup(
     match kind {
         PickupKind::Rad(_) => {
             if let Some(def) = catalog.anim_def(&path) {
-                let mut anim = crate::game::anim::SpriteAnim::new(&leak(path), def);
+                let mut anim = crate::game::anim::SpriteAnim::new(path.clone(), def);
                 anim.timer = Timer::from_seconds(1.0 / 12.0, TimerMode::Repeating);
                 anim.frame = rng.random_range(0..def.frames.max(1));
                 ec.insert(anim);
@@ -75,11 +75,6 @@ pub fn spawn_pickup(
     }
     let e = ec.id();
     Juice::pop_in(commands, e, 0.14);
-}
-
-/// Leak pickup sprite paths so `SpriteAnim` can hold them as &'static str.
-fn leak(path: String) -> &'static str {
-    Box::leak(path.into_boxed_str())
 }
 
 pub fn spawn_chest(

@@ -321,7 +321,7 @@ fn big_bandit_ai(
 
             if boss.attack_timer.just_finished() {
                 let dist = pos.distance(player_pos);
-                let los = !crate::game::walls::segment_hits_wall(pos, player_pos, walls);
+                let los = !crate::game::walls::segment_hits_wall_query(pos, player_pos, &walls);
                 let period = if looped {
                     (20.0 + rand::rng().random_range(0.0..50.0)) / 30.0
                 } else {
@@ -1369,10 +1369,13 @@ fn hyper_ai(
     limit_velocity(vel, def.speed.max(35.0));
     tf.translation += (vel.0 * dt).extend(0.0);
 
-    // Rearm orbit ring periodically.
-    if boss.attack_timer.just_finished() {
+    // Rearm orbit ring periodically - only spawn once at init to avoid leak.
+    // GML hyper creates ring on Create, not every attack. We guard by tracking pattern_index.
+    if boss.attack_timer.just_finished() && boss.pattern_index == 0 {
         boss.pattern_index += 1;
         hyper_ensure_orbit(commands, owner, pos, loop_count, boss.enraged);
+    } else if boss.attack_timer.just_finished() {
+        boss.pattern_index += 1;
     }
 
     // Search phase when the player keeps distance.
@@ -1436,8 +1439,8 @@ fn hyper_ensure_orbit(
     loop_count: u32,
     enraged: bool,
 ) {
-    let n = hyper_orbit_count(loop_count) + usize::from(enraged);
-
+    let wanted = (hyper_orbit_count(loop_count) + usize::from(enraged)).min(12);
+    let n = wanted;
     for i in 0..n {
         let angle = i as f32 / n as f32 * std::f32::consts::TAU;
         let radius = 70.0 + (i % 3) as f32 * 12.0;
@@ -1485,10 +1488,14 @@ pub fn tick_hyper_orbit_crystals(
 ) {
     let dt = time.delta_secs();
 
-    for (_entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
+    for (entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
         let Ok(core_tf) = cores.get(crystal.owner) else {
-            // Core dead: become a drifting free crystal.
-            vel.0 *= 0.9;
+            // Core dead: fade out and despawn (was leak: drifted forever).
+            vel.0 *= 0.92;
+            // Despawn after 2s drift to prevent accumulation
+            if vel.0.length() < 5.0 {
+                commands.entity(entity).despawn();
+            }
             continue;
         };
 

@@ -306,7 +306,13 @@ impl Plugin for AppPlugin {
                         sampler: bevy::image::ImageSampler::nearest(),
                     },
                     move |_s, _c| {
-                        let st = shared_ui.lock().unwrap().clone();
+                        let st = match shared_ui.lock() {
+                            Ok(g) => g.clone(),
+                            Err(poisoned) => {
+                                bevy::log::warn!("SharedUi mutex poisoned, recovering");
+                                poisoned.into_inner().clone()
+                            }
+                        };
                         let acts = actions_ui.clone();
                         let overlay_rc = remember(OverlayHandle::new);
                         let overlay = (*overlay_rc).clone();
@@ -372,13 +378,39 @@ fn sync_ui_viewport(windows: Query<&Window, With<PrimaryWindow>>, bridge: Res<Ui
         return;
     };
 
-    let Ok(mut ui) = bridge.shared.lock() else {
-        return;
+    let mut ui = match bridge.shared.lock() {
+        Ok(g) => g,
+        Err(p) => {
+            bevy::log::warn!("SharedUi mutex poisoned in sync_ui_viewport");
+            p.into_inner()
+        }
     };
 
     ui.viewport_width = window.width();
     ui.viewport_height = window.height();
     ui.hud_compact = crate::menus::is_compact_viewport(ui.viewport_width, ui.viewport_height);
+}
+
+fn lock_shared(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
+    match bridge.shared.lock() {
+        Ok(g) => Some(g),
+        Err(p) => {
+            bevy::log::warn!("SharedUi mutex poisoned");
+            Some(p.into_inner())
+        }
+    }
+}
+fn lock_actions(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, Vec<crate::menus::UiAction>>> {
+    match bridge.actions.lock() {
+        Ok(g) => Some(g),
+        Err(p) => {
+            bevy::log::warn!("UiAction mutex poisoned");
+            Some(p.into_inner())
+        }
+    }
+}
+fn lock_shared_mut(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
+    lock_shared(bridge)
 }
 
 fn sanitize_save(mut save: ResMut<SaveData>) {
@@ -438,8 +470,12 @@ fn sync_shared_ui(
     selected: Res<SelectedCharacter>,
     floor_trans: Option<Res<crate::game::components::FloorTransition>>,
 ) {
-    let Ok(mut ui) = bridge.shared.lock() else {
-        return;
+    let mut ui = match bridge.shared.lock() {
+        Ok(g) => g,
+        Err(p) => {
+            bevy::log::warn!("SharedUi mutex poisoned in sync_shared_ui");
+            p.into_inner()
+        }
     };
     ui.phase = state.get().clone();
     if state.is_changed() && *state.get() == AppState::Title {
@@ -567,9 +603,14 @@ fn play_ui_sfx(
 
 fn set_vol(bridge: &UiBridge, field: impl Fn(&mut SharedUi) -> &mut f32, v: f32) -> f32 {
     let v = v.clamp(0.0, 1.0);
-    if let Ok(mut ui) = bridge.shared.lock() {
-        *field(&mut ui) = v;
-    }
+    let mut guard = match bridge.shared.lock() {
+        Ok(g) => g,
+        Err(p) => {
+            bevy::log::warn!("SharedUi poisoned in set_vol");
+            p.into_inner()
+        }
+    };
+    *field(&mut *guard) = v;
     v
 }
 
@@ -591,13 +632,18 @@ fn process_ui_actions(
     mut selected: ResMut<SelectedCharacter>,
     mut mutation_choice: ResMut<MutationChoice>,
 ) {
-    let Ok(mut q) = bridge.actions.lock() else {
-        return;
+    let actions: Vec<UiAction> = match bridge.actions.lock() {
+        Ok(mut q) => std::mem::take(&mut *q),
+        Err(p) => {
+            bevy::log::warn!("UiAction mutex poisoned, recovering");
+            let mut inner = p.into_inner();
+            std::mem::take(&mut *inner)
+        }
     };
-    for action in q.drain(..) {
+    for action in actions {
         match action {
             UiAction::StartGame => {
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                 }
@@ -613,7 +659,7 @@ fn process_ui_actions(
                     "sndMenuCharSelect",
                     0.7,
                 );
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                     ui.loadout_open = false;
@@ -629,7 +675,7 @@ fn process_ui_actions(
                 next_state.set(AppState::Title);
             }
             UiAction::OpenSettings => {
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.saved_language = locale.current.clone();
                 }
                 *overlay = OverlayMenu::Settings;
@@ -637,7 +683,7 @@ fn process_ui_actions(
             UiAction::OpenCredits => *overlay = OverlayMenu::Credits,
             UiAction::CloseOverlay => {
                 if *overlay == OverlayMenu::Settings
-                    && let Ok(ui) = bridge.shared.lock()
+                    && let Some(ui) = lock_shared(&bridge)
                 {
                     locale.set_locale(&ui.saved_language);
                 }
@@ -689,14 +735,14 @@ fn process_ui_actions(
                 channels.music = v;
             }
             UiAction::SaveSettings => {
-                if let Ok(ui) = bridge.shared.lock() {
+                if let Some(ui) = lock_shared(&bridge) {
                     save.settings.master_volume = ui.master_vol;
                     save.settings.sfx_volume = ui.sfx_vol;
                     save.settings.music_volume = ui.music_vol;
                     save.settings.language = locale.current.clone();
                 }
-                let _ = manager.save(&*save);
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.saved_language = locale.current.clone();
                 }
                 if paused.0 {
@@ -732,14 +778,10 @@ fn process_ui_actions(
                     continue;
                 }
 
-                let already_selected = bridge
-                    .shared
-                    .lock()
-                    .map(|ui| ui.selected_character == i)
-                    .unwrap_or(false);
+                let already_selected = lock_shared(&bridge).map(|ui| ui.selected_character == i).unwrap_or(false);
 
                 if already_selected {
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.title_go_visible = false;
                         ui.title_hover_race = -1;
                     }
@@ -751,7 +793,7 @@ fn process_ui_actions(
                 selected.0 = race;
                 let lo = save.race_loadout(race);
 
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.selected_character = i;
                     ui.character = match race {
                         crate::game::content::RaceId::Random => "Random".to_string(),
@@ -822,8 +864,8 @@ fn process_ui_actions(
                 let already = save.race_loadout(race).preferred_skin == s;
                 if !already && save.skin_unlocked(race, s) {
                     save.race_loadout_mut(race).preferred_skin = s;
-                    let _ = manager.save(&*save);
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.selected_skin = s;
                     }
                     let cue = match s {
@@ -837,7 +879,7 @@ fn process_ui_actions(
                 }
             }
             UiAction::ToggleLoadout => {
-                if let Ok(mut ui) = bridge.shared.lock() {
+                if let Some(mut ui) = lock_shared(&bridge) {
                     ui.loadout_open = !ui.loadout_open;
                 }
             }
@@ -854,7 +896,7 @@ fn process_ui_actions(
                         crate::game::content::WEAPON_NONE
                     };
 
-                    let _ = manager.save(&*save);
+                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
                 }
             }
             UiAction::CycleStoredWeapon(_) => {
@@ -874,7 +916,7 @@ fn process_ui_actions(
                 }
                 let lo = save.race_loadout_mut(race);
                 lo.start_crown = next;
-                let _ = manager.save(&*save);
+                if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
             }
             UiAction::SelectCrown(crown_id) => {
                 let race = selected.0;
@@ -891,7 +933,7 @@ fn process_ui_actions(
                 if !already && save.crown_unlocked(race, crown_id) {
                     save.race_loadout_mut(race).start_crown =
                         crate::game::content::crown_gml_to_port(crown_id);
-                    let _ = manager.save(&*save);
+                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuCrown", 1.0);
                 } else if !already {
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
@@ -899,18 +941,15 @@ fn process_ui_actions(
             }
             UiAction::SelectMutation(idx) => {
                 // GML SkillIcon: first click = select (sndHover), second = confirm
-                let already = bridge
-                    .shared
-                    .lock()
-                    .map(|ui| ui.mutation_selected == Some(idx))
+                let already = lock_shared(&bridge).map(|ui| ui.mutation_selected == Some(idx))
                     .unwrap_or(false);
                 if already {
                     mutation_choice.0 = Some(idx);
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.mutation_selected = None;
                     }
                 } else {
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.mutation_selected = Some(idx);
                     }
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndHover", 0.45);
@@ -918,19 +957,16 @@ fn process_ui_actions(
             }
             UiAction::PickMutation(idx) => {
                 // Direct confirm (used when already selected, or via keyboard 1-4 second press)
-                let selected = bridge
-                    .shared
-                    .lock()
-                    .map(|ui| ui.mutation_selected)
+                let selected = lock_shared(&bridge).map(|ui| ui.mutation_selected)
                     .unwrap_or(None);
                 if selected == Some(idx) {
                     mutation_choice.0 = Some(idx);
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.mutation_selected = None;
                     }
                 } else {
                     // First press selects, second will pick - mirror SelectMutation
-                    if let Ok(mut ui) = bridge.shared.lock() {
+                    if let Some(mut ui) = lock_shared(&bridge) {
                         ui.mutation_selected = Some(idx);
                     }
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndHover", 0.45);
@@ -1007,7 +1043,7 @@ fn handle_mutation_keys(
     if *state.get() != AppState::InGame {
         return;
     }
-    let Ok(ui) = bridge.shared.lock() else {
+    let Some(ui) = lock_shared(&bridge) else {
         return;
     };
     if ui.mutation_choices.is_empty() || ui.gen_active || ui.game_over {
@@ -1031,12 +1067,9 @@ fn handle_mutation_keys(
             return;
         }
         // Push via bridge like UI click - respects two-step select/confirm
-        if let Ok(mut q) = bridge.actions.lock() {
+        if let Some(mut q) = lock_actions(&bridge) {
             // Check if already selected
-            let already = bridge
-                .shared
-                .lock()
-                .map(|ui| ui.mutation_selected == Some(i))
+            let already = lock_shared(&bridge).map(|ui| ui.mutation_selected == Some(i))
                 .unwrap_or(false);
             if already {
                 q.push(UiAction::PickMutation(i));
@@ -1066,7 +1099,7 @@ fn handle_death_restart(
     if !keys.just_pressed(KeyCode::KeyR) {
         return;
     }
-    if let Ok(mut ui) = bridge.shared.lock() {
+    if let Some(mut ui) = lock_shared(&bridge) {
         ui.title_go_visible = false;
         ui.title_hover_race = -1;
     }

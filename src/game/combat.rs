@@ -583,19 +583,15 @@ pub fn move_projectiles(
                     let mut dead = false;
                     let mut legacy_explosive = false;
                     let mut death_copy = death_effect;
-                    for (pe, mut prop, _ptf, de) in &mut props {
-                        if pe != prop_e {
-                            continue;
-                        }
+                    if let Ok((_, mut prop, _, de)) = props.get_mut(prop_e) {
                         // Use projectile damage (original scr_hit: hp -= amount), not fixed 1
                         prop.hp -= p.damage.max(1);
                         legacy_explosive = prop.explosive;
                         death_copy = de.copied();
                         if prop.hp <= 0 {
                             dead = true;
-                            commands.entity(pe).despawn();
+                            commands.entity(prop_e).despawn();
                         }
-                        break;
                     }
                     if dead {
                         spawn_prop_death_effect(

@@ -57,7 +57,7 @@ pub fn flush_pending_enemy_spawns(
 }
 
 pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
-    loop {
+    for _ in 0..64 {
         let x = rng.random_range(-ARENA_W / 2.0 + 80.0..ARENA_W / 2.0 - 80.0);
         let y = rng.random_range(-ARENA_H / 2.0 + 80.0..ARENA_H / 2.0 - 80.0);
         let p = Vec2::new(x, y);
@@ -65,6 +65,8 @@ pub fn random_spawn_pos(rng: &mut impl RngExt, min_from_center: f32) -> Vec2 {
             return p;
         }
     }
+    // Fallback to furthest cardinal if min too large (prevents hang on boss arenas)
+    Vec2::new(ARENA_W / 2.0 - 80.0, 0.0)
 }
 
 pub fn spawn_enemy(
@@ -186,24 +188,31 @@ fn ready_timer() -> Timer {
 /// Only WallTile blocks (not decor Props like barrels/cactus) - matching
 /// GML `collision_line(x,y,target.x,target.y,Wall,0,0)`. The old version
 /// checked every Prop and made Bandits blind behind decoration.
-fn has_line_of_sight(from: Vec2, to: Vec2, walls: &Query<&WallCell, With<WallTile>>) -> bool {
+fn has_line_of_sight(from: Vec2, to: Vec2, mask: &FloorMask) -> bool {
     let dir = to - from;
     let dist = dir.length();
     if dist < 1.0 {
         return true;
     }
-    let steps = (dist / 16.0).ceil().max(8.0) as usize;
+    // DDA on 16px wall lattice via FloorMask: a wall cell is exactly a non-floor cell
+    // on the TILE=32 grid subdivided to 16. For fidelity we check at TILE/2 steps
+    // but only hash lookups, not O(Walls) scans.
+    let steps = (dist / 8.0).ceil().max(4.0) as usize;
     for i in 1..steps {
         let t = i as f32 / steps as f32;
         let p = from + dir * t;
-        for cell in walls.iter() {
-            let c = Vec2::new(cell.0 as f32 * 16.0 + 8.0, cell.1 as f32 * 16.0 + 8.0);
-            let half = Vec2::splat(8.0);
-            if p.x >= c.x - half.x
-                && p.x <= c.x + half.x
-                && p.y >= c.y - half.y
-                && p.y <= c.y + half.y
-            {
+        // Convert to wall lattice (16px) then check floor
+        let tile_check = Vec2::new(
+            (p.x / 16.0).floor() * 16.0 + 8.0,
+            (p.y / 16.0).floor() * 16.0 + 8.0,
+        );
+        // If sample point sits on a non-walkable tile center, it's blocked.
+        // Use mask cells (32px) approximated: check nearest 32 cell.
+        if !mask.is_walkable(p) && !mask.is_walkable(tile_check) {
+            // Ensure it's actually a wall solid (not void outside arena)
+            // Void is also non-walkable but outside arena should not block LOS inside?
+            // Treat any non-walkable inside arena bounds as wall.
+            if p.x.abs() < ARENA_W / 2.0 && p.y.abs() < ARENA_H / 2.0 {
                 return false;
             }
         }
@@ -234,7 +243,6 @@ pub fn enemy_ai(
         (With<Enemy>, Without<Prop>),
     >,
     props: Query<(Entity, &Prop, &Transform), With<Prop>>,
-    walls_los: Query<&WallCell, With<WallTile>>,
     corpses: Query<(Entity, &Corpse, &Transform), (With<Corpse>, Without<Enemy>)>,
 ) {
     let Ok((player_tf, player)) = player_q.single() else {
@@ -341,7 +349,7 @@ pub fn enemy_ai(
             // Drive Bandit entirely via its Alarm_1 timer + walk
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
-                let los = has_line_of_sight(pos, player_pos, &walls_los);
+                let los = has_line_of_sight(pos, player_pos, &mask);
                 if los {
                     if dist > 48.0 {
                         if rng.random::<f32>() < 0.25 {
@@ -489,7 +497,7 @@ pub fn enemy_ai(
                 brain.walk = 10.0 + rng.random_range(0.0..10.0);
                 sprite.flip_x = vel.0.x < 0.0;
                 // visible check 210
-                let los = has_line_of_sight(pos, player_pos, &walls_los);
+                let los = has_line_of_sight(pos, player_pos, &mask);
                 if los && dist < 210.0 && rng.random::<f32>() < 0.5 {
                     brain.attack = Timer::from_seconds(
                         (30.0 + rng.random_range(0.0..5.0)) / 30.0,
@@ -631,7 +639,7 @@ pub fn enemy_ai(
             // Bandit/Scorpion already continued above, so only generic here.
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
-                let los = has_line_of_sight(pos, player_pos, &walls_los);
+                let los = has_line_of_sight(pos, player_pos, &mask);
                 let base_ang = dir.y.atan2(dir.x);
                 // Per-kind walk params sourced from objects/*/{Alarm_1.gml,Other_10.gml}
                 // GML walk uses px/frame impulse (`speed`/`motion_add`) and walk frames.

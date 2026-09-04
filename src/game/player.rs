@@ -1184,7 +1184,7 @@ fn spawn_pellets(
             Some(asset_server),
             muzzle,
             dir,
-            def.speed,
+            speed,
             def.damage,
             def.lifetime,
             def.projectile_radius,

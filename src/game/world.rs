@@ -433,7 +433,7 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
         }
     }
 
-    const EXTRA_LAYERS: i32 = 60; // TODO: look at how original does it
+    const EXTRA_LAYERS: i32 = 3;
     for _ in 0..EXTRA_LAYERS {
         let cur: Vec<(i32, i32)> = plan.wall_cells.iter().copied().collect();
         let mut grown = Vec::new();

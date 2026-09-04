@@ -18,8 +18,13 @@ impl Plugin for ScreensPlugin {
                      mut progress: ResMut<LoadingProgress>,
                      mut tip: ResMut<LoadingTip>| {
                         c.insert_resource(LoadingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
-                        let handles =
-                            vec![asset_server.load::<Font>("fonts/default.ttf").untyped()];
+                        // Use the embedded Silkscreen font path for progress tracking; fallback to default if missing.
+                        let handles = vec![
+                            asset_server
+                                .load::<Font>("fonts/Silkscreen-Regular.ttf")
+                                .untyped(),
+                            asset_server.load::<Font>("fonts/default.ttf").untyped(),
+                        ];
                         c.insert_resource(AssetsLoading(handles));
                         progress.0 = 0.0;
                         // Modular tip pool (game-utils LoadingTip) - mimics GenCont tip

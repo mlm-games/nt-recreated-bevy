@@ -21,8 +21,12 @@ pub fn sync_hud(
     player_q: Query<(&Player, &Health, &Inventory), With<Player>>,
     boss_q: Query<(&Enemy, &Health), With<BossBrain>>,
 ) {
-    let Ok(mut ui) = bridge.shared.lock() else {
-        return;
+    let mut ui = match bridge.shared.lock() {
+        Ok(g) => g,
+        Err(p) => {
+            bevy::log::warn!("SharedUi poisoned in sync_hud");
+            p.into_inner()
+        }
     };
 
     let Some(run) = run else {
@@ -165,17 +169,22 @@ pub fn sync_hud(
 /// Reset the HUD when a new run begins (called from OnEnter(InGame) after the
 /// first sync of the frame).
 pub fn reset_hud_flags(bridge: Res<UiBridge>) {
-    if let Ok(mut ui) = bridge.shared.lock() {
-        ui.game_over = false;
-        ui.mutation_choices.clear();
-        ui.mutation_choice_ids.clear();
-        ui.mutation_selected = None;
-        ui.death_mutation_ids.clear();
-        ui.toast.clear();
-        ui.toast_timer = 0.0;
-        ui.boss_hp = 0;
-        ui.boss_max = 0;
-        ui.boss_name.clear();
-        ui.loop_count = 0;
-    }
+    let mut ui = match bridge.shared.lock() {
+        Ok(g) => g,
+        Err(p) => {
+            bevy::log::warn!("SharedUi poisoned in reset_hud_flags");
+            p.into_inner()
+        }
+    };
+    ui.game_over = false;
+    ui.mutation_choices.clear();
+    ui.mutation_choice_ids.clear();
+    ui.mutation_selected = None;
+    ui.death_mutation_ids.clear();
+    ui.toast.clear();
+    ui.toast_timer = 0.0;
+    ui.boss_hp = 0;
+    ui.boss_max = 0;
+    ui.boss_name.clear();
+    ui.loop_count = 0;
 }

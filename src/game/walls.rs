@@ -108,7 +108,33 @@ pub fn queue_wall_breaks_along_segment(
 }
 
 /// True when the segment a→b passes close to any wall solid (LoS probe).
-pub fn segment_hits_wall(
+/// Optimized via FloorMask hash lookup instead of O(Walls) scan.
+pub fn segment_hits_wall(a: Vec2, b: Vec2, mask: &FloorMask) -> bool {
+    let delta = b - a;
+    let len = delta.length();
+    if len < 1.0 {
+        return false;
+    }
+    let dir = delta / len;
+    let steps = (len / 12.0).ceil() as i32;
+    for i in 1..steps.max(1) {
+        let p = a + dir * (i as f32 * 12.0);
+        if !mask.is_walkable(p) && p.x.abs() < ARENA_W / 2.0 && p.y.abs() < ARENA_H / 2.0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Legacy overload used by old callers during migration.
+pub fn segment_hits_wall_query(
+    a: Vec2,
+    b: Vec2,
+    walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+) -> bool {
+    segment_hits_wall_legacy(a, b, walls)
+}
+fn segment_hits_wall_legacy(
     a: Vec2,
     b: Vec2,
     walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
@@ -143,9 +169,11 @@ pub fn reset_hammerhead_budget(
     }
 }
 
-/// Palace throne-room: generators and statues are props whose death drives
-/// the loop gate and spawns guardians. This runs after prop damage has set
-/// `Prop.hp <= 0` but before the deferred despawn flush.
+/// Marker added after a generator has been counted, prevents double-count
+/// if the prop lingers for multiple ticks before despawn.
+#[derive(Component)]
+pub struct CountedGenerator;
+
 pub fn handle_throne_room_props(
     mut commands: Commands,
     mut throne_room: ResMut<ThroneRoomState>,
@@ -158,19 +186,19 @@ pub fn handle_throne_room_props(
         Option<&BigGenerator>,
         Option<&ThroneStatueProp>,
         &Transform,
+        Option<&CountedGenerator>,
     )>,
 ) {
-    for (e, prop, big_gen, statue, tf) in &q {
+    for (e, prop, big_gen, statue, tf, counted) in &q {
         if prop.hp > 0 {
             continue;
         }
 
         if big_gen.is_some() {
-            // Only count once per generator entity (hp just crossed).
-            // Use a marker to avoid double-counting if this system sees the
-            // same prop over multiple ticks before despawn.
-            // Since we run once per tick and the prop will be despawned
-            // next flush, we can safely count now.
+            if counted.is_some() {
+                continue;
+            }
+            commands.entity(e).insert(CountedGenerator);
             let before = throne_room.generators_destroyed;
             throne_room.note_generator_destroyed();
             if throne_room.generators_destroyed != before {
@@ -191,9 +219,6 @@ pub fn handle_throne_room_props(
                     }
                 }
             }
-            // Let the original prop-damage system handle the despawn;
-            // we just drive the gate.
-            let _ = e;
         }
 
         if let Some(statue) = statue {
