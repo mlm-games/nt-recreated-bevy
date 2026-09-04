@@ -1411,10 +1411,10 @@ pub fn tick_floor_transition(
     }
     match ft.stage {
         1 => {
-            ft.progress = (ft.progress + time.delta_secs() * 1.2).min(1.0);
+            ft.progress = (ft.progress + time.delta_secs() * 0.85).min(1.0);
             if ft.progress >= 1.0 {
                 ft.stage = 2;
-                ft.timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                ft.timer = Timer::from_seconds(4.0 / 30.0, TimerMode::Once);
             }
         }
         2 => {

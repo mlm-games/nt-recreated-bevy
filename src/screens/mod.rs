@@ -17,8 +17,8 @@ impl Plugin for ScreensPlugin {
                      asset_server: Res<AssetServer>,
                      mut progress: ResMut<LoadingProgress>,
                      mut tip: ResMut<LoadingTip>| {
-                        c.insert_resource(LoadingTimer(Timer::from_seconds(0.5, TimerMode::Once)));
-                        // Use the embedded Silkscreen font path for progress tracking; fallback to default if missing.
+                        c.insert_resource(LoadingTimer(Timer::from_seconds(1.2, TimerMode::Once)));
+                        c.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
                         let handles = vec![
                             asset_server
                                 .load::<Font>("fonts/Silkscreen-Regular.ttf")

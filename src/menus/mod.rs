@@ -228,13 +228,8 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
     //   _progress = instance_number(Floor)/goal
     //   _percentage = string_pad_zeroes(round(progress*100),2)+"%"
     //   _text = loc_fmt("GenCont:Generating","GENERATING... %",pct) or Venuz "VERIFYING... %"
-    //   draw_text_nt(cx,cy-54,text) at (160,66) #7d838d center
-    //   draw_text_nt(cx,cy+24,"@s"+tip) at (160,144)
-    //   scrDrawRoadmap(cx,cy,waypoints) – roadmap is optional but positions are center
-    // No progress bar in GML – bar was Bevy invention. Keep text-only for exactness.
     let v = nt_view(st);
     let pct = st.gen_progress.clamp(0.0, 1.0);
-    // Venuz variant: level>=10 check is runtime; keep GENERATING for now (exact would need race check)
     let pct_text = format!("GENERATING... {}%", (pct * 100.0).round() as u32);
     ZStack(Modifier::new().fill_max_size()).child(
         Column(
@@ -253,9 +248,8 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                 Column(
                     Modifier::new()
                         .fill_max_size()
-                        .background(RColor::from_rgba(0, 0, 0, 255)),
+                        .background(RColor::from_rgba(0, 0, 0, 0)),
                 ),
-                // GML: draw_text_nt(_cx, _cy-54, _text) where _cx=160,_cy=120 => 66
                 Column(
                     Modifier::new()
                         .fill_max_size()
@@ -293,14 +287,37 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                         .color(col(125, 131, 141))
                         .single_line(),
                 ),
+                Column(
+                    Modifier::new()
+                        .fill_max_size()
+                        .padding_values(PaddingValues {
+                            left: 0.0,
+                            right: 0.0,
+                            top: 168.0 * v.s,
+                            bottom: 0.0,
+                        })
+                        .align_items(AlignItems::CENTER),
+                )
+                .child(
+                    RText(roadmap_text(st))
+                        .size((5.0 * v.s).clamp(7.0, 64.0))
+                        .font_family("Silkscreen")
+                        .color(col(125, 131, 141))
+                        .single_line(),
+                ),
             )),
         ),
     )
 }
 
+fn roadmap_text(st: &SharedUi) -> String {
+    if st.world == 0 && st.floor == 0 {
+        return String::new();
+    }
+    format!("{}-{}  LOOP {}", st.world, st.floor_in_world, st.loop_count)
+}
+
 fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML Pause: dark dim + 3 centered text buttons at 160,y with Silkscreen,
-    // hover via point_in_rectangle. No Material.
     let v = nt_view(st);
     let tr = &st.translations;
     let mut layers: Vec<View> = Vec::new();

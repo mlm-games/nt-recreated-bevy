@@ -290,6 +290,19 @@ fn background_color(_state: &AppState) -> Color {
     Color::BLACK
 }
 
+fn vortex_needs_black(
+    state: &AppState,
+    ft: Option<&crate::game::components::FloorTransition>,
+    pending: bool,
+) -> bool {
+    match *state {
+        AppState::Title => false, // transparent over campfire
+        AppState::Loading => true,
+        AppState::InGame => ft.is_some_and(|f| f.active) || pending,
+        AppState::Splash | AppState::MainMenu => true,
+    }
+}
+
 /// Advance the controller and mirror its ring into the material. One system,
 /// zero per-wisp entities. Runs in Update with an internal 30 Hz accumulator
 /// (`Time<Virtual>` respects pause/slow-mo), so the tick rate is exact and
@@ -300,6 +313,9 @@ fn vortex_tick(
     mut ctl: Option<ResMut<SpiralCtl>>,
     mut materials: ResMut<Assets<VortexMaterial>>,
     q_mat: Query<&MeshMaterial2d<VortexMaterial>, With<VortexQuad>>,
+    ft: Option<Res<crate::game::components::FloorTransition>>,
+    pending: Option<Res<crate::game::components::PendingMutation>>,
+    pending_ultra: Option<Res<crate::game::components::PendingUltra>>,
 ) {
     let Some(ctl) = ctl.as_mut() else {
         return;
@@ -317,10 +333,11 @@ fn vortex_tick(
     mat.wisps = ring_to_uniform(&ctl.ring);
     mat.debris = debris_to_uniform(&ctl.debris_ring);
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
-    let bg_alpha = if matches!(*state.get(), AppState::Title) {
-        0.0
-    } else {
+    let pending_any = pending.is_some() || pending_ultra.is_some();
+    let bg_alpha = if vortex_needs_black(state.get(), ft.as_deref(), pending_any) {
         1.0
+    } else {
+        0.0
     };
     let thresh = if ctl.alive { 2.5 } else { 3.0 };
     mat.glob_a = Vec4::new(ctl.ticks, 1.0, r, g);
@@ -340,10 +357,10 @@ fn ensure_vortex_quad(
     cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
     existing: Query<(), (With<VortexQuad>, Without<Camera2d>)>,
     ctl: Option<Res<SpiralCtl>>,
+    ft: Option<Res<crate::game::components::FloorTransition>>,
+    pending: Option<Res<crate::game::components::PendingMutation>>,
+    pending_ultra: Option<Res<crate::game::components::PendingUltra>>,
 ) {
-    // SpiralCont only exists from the logo stage onward: boot_intro arms the
-    // controller at mode 4 and spawn_spiral_field re-arms it on quit-to-menu.
-    // Gating on the resource keeps the swirl off the splash cards (modes 0-3).
     let Some(ctl) = ctl else {
         return;
     };
@@ -377,10 +394,11 @@ fn ensure_vortex_quad(
     let effective_h = (map.hh * 2.0) / map.s;
     let mesh = meshes.add(Rectangle::new(effective_w, effective_h));
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
-    let bg_alpha = if matches!(*state.get(), AppState::Title) {
-        0.0
-    } else {
+    let pending_any = pending.is_some() || pending_ultra.is_some();
+    let bg_alpha = if vortex_needs_black(state.get(), ft.as_deref(), pending_any) {
         1.0
+    } else {
+        0.0
     };
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
@@ -399,17 +417,18 @@ fn ensure_vortex_quad(
         map.s
     );
 
+    let vortex_z = if *state.get() == AppState::Title {
+        -845.0 // Title: in front of pods/chars (-860..-846) so vortex covers characters during drain – hide_title_during_transition already hides, lingering wisps should be over characters
+    } else {
+        -885.0
+    };
     commands.spawn((
         VortexQuad,
         TitleArt,
         ChildOf(cam),
         Mesh2d(mesh),
         MeshMaterial2d(mat_handle),
-        // Layering per __global_object_depths.gml: SpiralCont=-101 renders
-        // ABOVE Floor(10)/Wall/Campfire(0) but BELOW Menu(-1001). On our z
-        // scale the boot/menu cards sit at -802..-800.5, so the quad slots
-        // below them while staying above the scene clear.
-        Transform::from_xyz(c.x, c.y, -840.0).with_scale(Vec3::new(map.s, map.s, 1.0)),
+        Transform::from_xyz(c.x, c.y, vortex_z).with_scale(Vec3::new(map.s, map.s, 1.0)),
     ));
 }
 
@@ -418,6 +437,7 @@ fn track_vortex_view(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<&Projection, With<Camera2d>>,
     mut q: Query<&mut Transform, With<VortexQuad>>,
+    state: Res<State<AppState>>,
 ) {
     let Ok(mut tf) = q.single_mut() else {
         return;
@@ -432,6 +452,11 @@ fn track_vortex_view(
     let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
     tf.translation.x = c.x;
     tf.translation.y = c.y;
+    tf.translation.z = if *state.get() == AppState::Title {
+        -845.0
+    } else {
+        -885.0
+    };
     tf.scale = Vec3::new(map.s, map.s, 1.0);
 }
 
@@ -458,6 +483,27 @@ pub fn teardown_vortex(
     let _ = q_quad;
 }
 
+fn ensure_spiral_for_levelup(
+    mut commands: Commands,
+    state: Res<State<AppState>>,
+    ft: Option<Res<crate::game::components::FloorTransition>>,
+    pending: Option<Res<crate::game::components::PendingMutation>>,
+    pending_ultra: Option<Res<crate::game::components::PendingUltra>>,
+    ctl: Option<Res<SpiralCtl>>,
+) {
+    if *state.get() != AppState::InGame {
+        return;
+    }
+    let needs_spiral =
+        ft.as_deref().is_some_and(|f| f.active) || pending.is_some() || pending_ultra.is_some();
+    if !needs_spiral {
+        return;
+    }
+    if ctl.as_deref().is_none_or(|c| !c.alive) {
+        commands.insert_resource(SpiralCtl::warmed_up());
+    }
+}
+
 fn despawn_vortex_when_done(
     mut commands: Commands,
     q_quad: Query<Entity, With<VortexQuad>>,
@@ -471,13 +517,10 @@ fn despawn_vortex_when_done(
     if ctl.alive {
         return;
     }
-    // Title lingers over already-loaded campfire bg and must expand fully
-    // before vanishing - youngest wisp needs ~120 ticks to reach s>2.5.
-    // InGame (post-Loading) should not cover gameplay, so no linger.
     let drain = if matches!(*state.get(), AppState::Title) {
         130.0
     } else if matches!(*state.get(), AppState::InGame) {
-        15.0
+        90.0
     } else {
         130.0
     };
@@ -540,6 +583,7 @@ impl Plugin for VortexPlugin {
             .add_systems(
                 Update,
                 (
+                    ensure_spiral_for_levelup,
                     ensure_vortex_quad,
                     track_vortex_view,
                     vortex_tick,
