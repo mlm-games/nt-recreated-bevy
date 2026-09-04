@@ -244,6 +244,19 @@ pub fn max_skin_count(race: usize) -> usize {
     }
 }
 
+fn race_default_weapon_id(race: usize) -> u8 {
+    match race {
+        6 => 255,  //TODO: Venuz golden_revolver - not in our subset
+        9 => 254,  // Chicken sword
+        12 => 253, // Rogue rifle
+        13 => 252, // BigDog spin
+        14 => 251, // Skeleton rusty
+        15 => 250, // Frog golden pistol
+        16 => 255, // Cuz golden
+        _ => WeaponId::REVOLVER.0,
+    }
+}
+
 /// scrMenuDrawLoadout skin column: x = _crownleft - _crownsize/2 - 22 = 184;
 /// y starts at gui_h/2 - (skinsize/2)*count - 2 and steps 28 per entry.
 /// Returns `(idx, gui_x, gui_y)` for `count` entries.
@@ -2016,35 +2029,17 @@ fn spawn_char_select_screen_ui(
 
     {
         const LB_STRIP_Z: f32 = -864.0;
-        const LB_RECT_Z: f32 = -865.0;
         const LB_FRAME: usize = 3;
-        let lb_meta = meta_of(catalog, "images/sprLetterbox.png");
-        let lb_w = lb_meta[1].max(1.0);
-        let lb_h = lb_meta[2].max(1.0);
+        let lb_h = meta_of(catalog, "images/sprLetterbox.png")[2].max(1.0);
         let yscale = LETTERBOX_SIZE / (lb_h - 9.0);
         let bh = lb_h * yscale;
-        let effective_w = (map.hw * 2.0) / map.s;
-        let margin = letterbox_margin(catalog, effective_w);
-        // Viewport is centered within the window: GUI surface [0,GUI_W] sits at
-        // viewport offset half_extra = (effective_w - GUI_W)/2. GML's scrDrawLetterbox
-        // is left-aligned (viewport [0,effective_w]), so to reproduce its exact
-        // asymmetric placement in our centered GuiMap we subtract half_extra.
-        let half_extra = (effective_w - GUI_W) * 0.5;
-        let lb_half_extra = half_extra;
-        // Viewport -> GUI: gui_x = viewport_x - half_extra
-        let top_gui_x = -lb_half_extra;
-        let bottom_gui_x = margin - lb_half_extra;
-        let bottom_left_cx = margin * 0.5 - lb_half_extra; // = (GUI_W - lb_w)/2
-        let top_right_cx = effective_w - margin * 0.5 - lb_half_extra; // = (GUI_W + lb_w)/2
-
-        // Top strip: viewport [_right - _width] = 0 -> gui -half_extra, spans lb_w
         let (spr, tf) = gm_sprite(
             catalog,
             asset_server,
             map,
             "images/sprLetterbox.png",
             LB_FRAME,
-            top_gui_x,
+            0.0,
             -1.0,
             1.0,
             yscale,
@@ -2063,7 +2058,7 @@ fn spawn_char_select_screen_ui(
             map,
             "images/sprLetterbox.png",
             LB_FRAME,
-            bottom_gui_x,
+            0.0,
             GUI_H + 2.0 - bh,
             1.0,
             yscale,
@@ -2077,29 +2072,6 @@ fn spawn_char_select_screen_ui(
                 .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
                 .id(),
         );
-
-        // Side margins (scrDrawLetterbox black rectangles):
-        //   bottom-left: [0, margin] viewport -> gui [ -half_extra, margin - half_extra ]
-        //   top-right:   [effective_w-margin, effective_w] viewport -> gui [effective_w - margin - half_extra, effective_w - half_extra]
-        if margin > 0.5 {
-            for (cx, cy) in [
-                (bottom_left_cx, GUI_H - LETTERBOX_SIZE * 0.5), // bottom-left
-                (top_right_cx, -1.0 + LETTERBOX_SIZE * 0.5),    // top-right
-            ] {
-                let c = map.to_world(cx, cy);
-                commands.spawn((
-                    TitleArt,
-                    TitleScreenUiArt,
-                    ChildOf(cam),
-                    Sprite {
-                        color: Color::BLACK,
-                        custom_size: Some(Vec2::new(margin * map.s, LETTERBOX_SIZE * map.s)),
-                        ..default()
-                    },
-                    Transform::from_xyz(c.x, c.y, LB_RECT_Z),
-                ));
-            }
-        }
     }
 
     // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait,
@@ -2264,10 +2236,23 @@ fn spawn_char_select_screen_ui(
                 },
                 -846.0,
             );
-            let e = commands
-                .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
-                .id();
-            art.wep_icons[slot] = Some((e, WeaponId::REVOLVER.0));
+            let e = if slot == 1 {
+                commands
+                    .spawn((
+                        TitleArt,
+                        TitleScreenUiArt,
+                        ChildOf(cam),
+                        spr,
+                        tf,
+                        Visibility::Hidden,
+                    ))
+                    .id()
+            } else {
+                commands
+                    .spawn((TitleArt, TitleScreenUiArt, ChildOf(cam), spr, tf))
+                    .id()
+            };
+            art.wep_icons[slot] = Some((e, if slot == 0 { WeaponId::REVOLVER.0 } else { 0 }));
         }
 
         // Open panel (sprLoadoutOpen, bottom-right origin) + the crown grid
@@ -3098,7 +3083,12 @@ fn char_select_tick(
         // Weapon id 0 is "no weapon". Never draw an icon for it. Previously
         // slot 0 was always visible, causing id 0 to render using WEAPONS[0]
         // metadata and appear as a bogus gun for some characters.
-        let should_show = avail && show_name && id != 0;
+        // Original scrMenuDrawLoadout skips slot 1 when _weapon == _default_weapon
+        // (and we also skip when both slots hold the same gun).
+        let is_duplicate_default = slot == 1 && id == race_default_weapon_id(selected_race);
+        let is_duplicate_start = slot == 1 && id != 0 && id == ui.start_weapon_id;
+        let should_show =
+            avail && show_name && id != 0 && !is_duplicate_default && !is_duplicate_start;
         if let Ok(mut vis) = visibility.get_mut(e) {
             *vis = if should_show {
                 Visibility::Visible
