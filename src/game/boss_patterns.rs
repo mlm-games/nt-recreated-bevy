@@ -1,5 +1,3 @@
-//! Pure boss pattern math: fans, rings, aim leading, orbit points.
-
 use bevy::prelude::*;
 
 pub fn fan_angles(base_angle: f32, count: usize, spread: f32) -> Vec<f32> {
@@ -41,9 +39,9 @@ pub fn lead_target(shooter: Vec2, target: Vec2, target_vel: Vec2, projectile_spe
     (target + target_vel * time - shooter).normalize_or_zero()
 }
 
-#[allow(dead_code)] // pure helper kept for upcoming orbit-phase patterns
-/// Large-orb split line angles for Throne II (full-circle lines).
-#[allow(dead_code)] // wired into Throne II orb splits next pattern pass
+#[allow(dead_code)]
+
+#[allow(dead_code)]
 pub fn split_line_dirs(base_angle: f32, lines: usize) -> Vec<f32> {
     if lines == 0 {
         return Vec::new();
@@ -52,13 +50,11 @@ pub fn split_line_dirs(base_angle: f32, lines: usize) -> Vec<f32> {
     (0..lines).map(|i| base_angle + step * i as f32).collect()
 }
 
-/// Star/static attack angles.
 #[allow(dead_code)]
 pub fn star_angles(points: usize, phase: f32) -> Vec<f32> {
     ring_angles(points.max(1), phase)
 }
 
-/// Orbiting laser crystal count for Hyper Crystal.
 #[allow(dead_code)]
 pub fn hyper_orbit_count(loop_count: u32) -> usize {
     5 + loop_count.saturating_sub(1) as usize * 2

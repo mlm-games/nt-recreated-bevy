@@ -1,20 +1,3 @@
-//! Portal vortex as a single WGSL quad (replaces the per-wisp entity swarm).
-//!
-//! Fidelity source: `nt-recreated-public-rewrite`:
-//!   - `objects/SpiralCont/Create_0.gml`  (warmup `repeat 150`, orbit drift)
-//!   - `objects/SpiralCont/Step_0.gml`    (angle += 8 + sin(a/300), spawn 1/tick)
-//!   - `objects/Spiral/Step_0.gml`        (grow law, destroy xscale>2.5)
-//!   - `scripts/scrDrawSpiral/scrDrawSpiral.gml` (white+black passes, lightning)
-//!
-//! Orbit is `80/50` per the public rewrite (this port tracks `~/Downloads`,
-//! not the commercial YYC `130/90`). Tick rate is exactly 30 Hz like GML;
-//! after SpiralCont dies wisps grow 1.5x (GML `grow *= 1.5`, destroy at 3).
-//!
-//! The CPU only advances the controller clock and maintains a ring of
-//! `[x, y, birth_tick, rot]` vec4s; every wisp's growth, fade, lightning and
-//! compositing happen in the fragment shader (`assets/shaders/vortex.wgsl`).
-//! One draw call regardless of wisp count - no entity churn, no startup stall.
-
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
@@ -25,14 +8,11 @@ use crate::app::AppState;
 use crate::game::ui_art::{GUI_H, GUI_W, TitleArt, gui_map};
 
 pub const MAX_WISPS: usize = 128;
-/// `SpiralDebris` ring size (avg ~1.6 alive, lifetime 66-88 ticks - generous).
+
 pub const MAX_DEBRIS: usize = 32;
-/// Create_0 `repeat 150` - the exact number of simulated ticks before the
-/// first drawn frame (faithful to SpiralCont/Create_0.gml:36).
+
 const WARMUP_TICKS: u32 = 150;
 
-/// `SpiralCont.type` from `SpiralCont/Create_0.gml`, derived from the area:
-/// vault = Proto, HQ = IDPD, mansion/crib = Venuz, everything else = Normal.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SpiralKind {
     #[default]
@@ -45,19 +25,17 @@ pub enum SpiralKind {
 impl SpiralKind {
     fn for_gml_area(area: u8) -> Self {
         match area {
-            // area_vault
+
             100 => Self::Proto,
-            // area_hq
+
             106 => Self::Idpd,
-            // area_mansion / area_crib
+
             103 | 107 => Self::Venuz,
             _ => Self::Normal,
         }
     }
 }
 
-/// GML `area_*` ints (`macros_general.gml`) for the Bevy route areas.
-/// Selects the SpiralKind and the debris sprite (`"sprDebris" + area`).
 pub fn gml_area_for_bevy_area(area: crate::game::areas::AreaId) -> u8 {
     use crate::game::areas::AreaId;
     match area {
@@ -72,19 +50,17 @@ pub fn gml_area_for_bevy_area(area: crate::game::areas::AreaId) -> u8 {
         AreaId::Vault => 100,
         AreaId::Oasis => 101,
         AreaId::PizzaSewers => 102,
-        // Y.V. mansion family
+
         AreaId::City => 103,
         AreaId::CursedCaves => 104,
         AreaId::Jungle => 105,
         AreaId::HQ => 106,
-        // Vault-themed
+
         AreaId::CrownVault => 100,
         AreaId::Loop => 1,
     }
 }
 
-/// Rare 1/50 area-variant debris (`SpiralDebris/Create_0.gml`): static path +
-/// frame (`image_index = 1`, wrapping to 0 on single-frame strips).
 fn variant_debris_for_gml_area(area: u8) -> Option<(&'static str, usize)> {
     match area {
         1 => Some(("images/sprBanditHurt.png", 1)),
@@ -98,10 +74,6 @@ fn variant_debris_for_gml_area(area: u8) -> Option<(&'static str, usize)> {
     }
 }
 
-/// Crown art index for the swirl-center figure (`"sprCrown" + crown +
-/// "Idle"` with GML `Crown` ints: None = 1, Death = 2 .. Protection = 13).
-/// Matched by NAME against `~/Downloads` `scrCrowns.gml`, not by the Bevy
-/// discriminant order (which swaps Luck/Risk).
 pub fn crown_fig_path(crown: crate::game::content::CrownKind) -> Option<&'static str> {
     use crate::game::content::CrownKind;
     match crown {
@@ -121,8 +93,6 @@ pub fn crown_fig_path(crown: crate::game::content::CrownKind) -> Option<&'static
     }
 }
 
-/// One Venuz `SpiralStar` (`SpiralStar/Create_0` + `Step_0`): fixed angle,
-/// same grow law as debris, killed past xscale 30. CPU-rendered (see below).
 struct Star {
     alive: bool,
     xstart: f32,
@@ -135,8 +105,6 @@ struct Star {
     entity: Option<Entity>,
 }
 
-/// One rare variant debris: same motion as `Debris` but its own texture, so
-/// it rides as a CPU sprite instead of the shared debris channel.
 struct Vard {
     alive: bool,
     xstart: f32,
@@ -153,7 +121,6 @@ struct Vard {
     entity: Option<Entity>,
 }
 
-/// One `SpiralDebris` instance (objects/SpiralDebris/Create_0.gml + Step_0.gml).
 struct Debris {
     alive: bool,
     xstart: f32,
@@ -168,60 +135,43 @@ struct Debris {
     frame: f32,
 }
 
-/// The `SpiralCont` driver state.
 #[derive(Resource)]
 pub struct SpiralCtl {
-    /// `image_angle` - accumulates UNBOUNDED like GML (never wraps %360);
-    /// the orbit trig divides by 921/583/500 so it must reach thousands of
-    /// degrees for the centre to wander like the original.
+
     pub angle: f32,
-    /// Total elapsed 30 Hz ticks.
+
     pub ticks: f32,
-    /// Fractional tick carry (FixedUpdate runs at 60 Hz).
+
     acc: f32,
-    /// Ring mirrored into the material uniform:
-    /// [x, y, birth_tick, rot_rad]; birth < 0 = empty slot. IDPD2-variant
-    /// wisps store a NEGATED rot (variant flag; shader takes abs).
+
     pub ring: Vec<[f32; 4]>,
     head: usize,
-    /// `SpiralDebris` instances (spawned by SpiralCont/Step_0 at 1/48 per tick,
-    /// 1/16 for Proto, never for Venuz).
+
     debris: Vec<Debris>,
-    /// Render-ready debris mirror: [x, y, rot_rad, frame + xscale/32];
-    /// x < -100 = empty slot.
+
     pub debris_ring: Vec<[f32; 4]>,
     dhead: usize,
-    /// Venuz `SpiralStar` instances: 1 spawn per tick, killed past xscale 30.
+
     stars: Vec<Star>,
-    /// Rare 1/50 area-variant debris (own texture, CPU-rendered).
+
     vards: Vec<Vard>,
-    /// Entities whose sim died and await despawn by the render system.
+
     retired: Vec<Entity>,
     pub alive: bool,
     pub death_tick: Option<f32>,
-    /// Total birth-rewind applied during the drain (5.5 per dead tick).
-    /// The shader subtracts it from wisp age for the lightning clock only,
-    /// keeping `lanim` realtime while scale fast-forwards (see `glob_a`).
+
     pub drain_bias: f32,
-    /// SpiralCont.type + GML area int (debris sprite, center behavior).
+
     pub kind: SpiralKind,
     pub gml_area: u8,
 }
 
 impl SpiralCtl {
-    /// Mirrors `SpiralCont/Create_0.gml:36` `repeat 150 { Step; with Spiral Step }`.
-    /// 150 ticks are simulated verbatim; the ring ends up with the 128 most
-    /// recent spawns (the oldest 22 have wrapped). Survivors are exactly those
-    /// the GML would have kept - ~119 with age < 120. Keeping dead slots in
-    /// the ring is faithful: the shader culls s>2.5 the same way GML destroys
-    /// instances when `image_xscale > 2.5`.
+
     pub fn warmed_up() -> Self {
         Self::warmed_up_for_gml_area(0)
     }
 
-    /// Warmup for a concrete GML area (debris sprite + SpiralKind).
-    /// Menus pass campfire (0): no `GameCont` there, matching Create_0's
-    /// `area = area_campfire` default.
     pub fn warmed_up_for_gml_area(gml_area: u8) -> Self {
         let mut ctl = Self {
             angle: rand::random::<f32>() * 360.0,
@@ -261,22 +211,11 @@ impl SpiralCtl {
         ctl
     }
 
-    /// One 30 Hz tick: SpiralCont/Step_0 + the debris spawn check and every
-    /// SpiralDebris/Step_0 - shared by the warmup and the live clock so the
-    /// field state is identical however the controller was armed.
-    ///
-    /// Drain: once SpiralCont is gone, GML compounds `grow *= 1.5` EVERY tick
-    /// (Spiral/Step_0, SpiralDebris/Step_0), so every survivor exceeds the
-    /// xscale-3 kill plane within ~21 ticks (~0.7s: oldest pop in ~4, mid in
-    /// ~8, newborns in ~21). Wisp ages are rewound 5.5 extra ticks per dead
-    /// tick (6.5x aging) for the identical staggered clear through the
-    /// shader growth table; debris compounds for real on the CPU.
     fn tick_once(&mut self) {
         self.ticks += 1.0;
         if self.alive {
             let kind = self.kind;
-            // SpiralCont/Step_0: increment angle, then emit at the center.
-            // IDPD/Venuz pin the center; Normal/Proto wander (orbit).
+
             self.angle += spiral_angle_inc(self.angle, kind);
             let (x, y) = if matches!(kind, SpiralKind::Idpd | SpiralKind::Venuz) {
                 (GUI_W / 2.0, GUI_H / 2.0)
@@ -284,25 +223,22 @@ impl SpiralCtl {
                 orbit(self.angle)
             };
             if kind == SpiralKind::Venuz {
-                // Venuz emits only SpiralStars (no normal wisps, no debris).
+
                 self.push_star(x, y);
             } else {
                 let mut rot = (self.angle + 45.0).to_radians();
                 if kind == SpiralKind::Idpd && (self.ticks as i64 % 11) <= 1 {
-                    // `if other.time % 11 <= 1 sprite_index = sprSpiralIDPD2`;
-                    // variant rides in the rot sign (shader takes abs).
+
                     rot = -rot;
                 }
                 self.ring[self.head] = [x, y, self.ticks, rot];
                 self.head = (self.head + 1) % MAX_WISPS;
 
-                // Debris: `random(16) < 1`, plus `random(3) < 1` except Proto
-                // (which always passes). Venuz handled above.
                 let proto = kind == SpiralKind::Proto;
                 if rand::random::<f32>() * 16.0 < 1.0
                     && (proto || rand::random::<f32>() * 3.0 < 1.0)
                 {
-                    // Rare 1/50 area variant goes the CPU route (own texture).
+
                     if rand::random::<f32>() * 50.0 < 1.0
                         && let Some((path, frame)) = variant_debris_for_gml_area(self.gml_area)
                     {
@@ -319,7 +255,7 @@ impl SpiralCtl {
                             rotspeed: rand::random::<f32>() * 16.0 - 8.0,
                             xscale: 0.0,
                             grow: 0.0,
-                            // GML default image_angle is 0; only rotspeed varies.
+
                             image_angle: 0.0,
                             frame: (rand::random::<f32>() * 4.0).floor().min(3.0),
                         };
@@ -328,10 +264,7 @@ impl SpiralCtl {
                 }
             }
         } else {
-            // No new spawns; survivors fast-forward (see method docs).
-            // The rewind is also tallied as drain_bias so the shader can
-            // keep the lightning clock (`lanim`) on realtime while scale
-            // fast-forwards - GML advances lanim unscaled after death.
+
             self.drain_bias += 5.5;
             for slot in self.ring.iter_mut() {
                 if slot[2] >= 0.0 {
@@ -340,8 +273,6 @@ impl SpiralCtl {
             }
         }
 
-        // SpiralDebris/Step_0 (exact order): position from current state,
-        // then advance angle/dist/grow/xscale, then self-rotation.
         let drain = !self.alive;
         for (i, d) in self.debris.iter_mut().enumerate() {
             if !d.alive {
@@ -349,15 +280,14 @@ impl SpiralCtl {
             }
             let (rad, dir) = (d.dist * d.xscale, d.angle.to_radians());
             let dx = rad * dir.cos();
-            let dy = -rad * dir.sin(); // lengthdir_y: negative sin (y-down flip)
+            let dy = -rad * dir.sin();
             d.angle += d.turnspeed;
             d.dist += d.grow;
             d.grow += 0.0005;
             d.xscale += d.grow / 1.5;
             d.grow = (d.grow + 1.0) * (1.0 + 0.001 * d.xscale) - 1.0;
             if drain {
-                // `if !instance_exists(SpiralCont) grow *= 1.5`, same position
-                // in the sequence as the GML (before the xscale term below).
+
                 d.grow *= 1.5;
             }
             d.grow *= d.xscale * 0.05 + 1.0;
@@ -371,7 +301,7 @@ impl SpiralCtl {
                 self.debris_ring[i] = [-1000.0; 4];
                 continue;
             }
-            // pack: frame + xscale/32 (xscale stays below ~21 before cull)
+
             self.debris_ring[i] = [
                 d.xstart + dx,
                 d.ystart + dy,
@@ -380,9 +310,6 @@ impl SpiralCtl {
             ];
         }
 
-        // SpiralStar/Step_0 (exact order): fixed angle (the `angle +=
-        // turnspeed` line is commented out upstream), same grow law as
-        // debris, killed past xscale 30 (no view cull).
         for s in self.stars.iter_mut() {
             if !s.alive {
                 continue;
@@ -403,8 +330,6 @@ impl SpiralCtl {
             }
         }
 
-        // Variant debris ride the debris recurrence (they ARE SpiralDebris
-        // instances with a swapped sprite), including the view cull.
         for v in self.vards.iter_mut() {
             if !v.alive {
                 continue;
@@ -435,8 +360,6 @@ impl SpiralCtl {
         }
     }
 
-    /// Spawn a Venuz star (SpiralStar/Create_0): `image_index =
-    /// choose(0,0,0,1)`, scale/grow zeroed. Reuses dead slots.
     fn push_star(&mut self, x: f32, y: f32) {
         let star = Star {
             alive: true,
@@ -460,7 +383,6 @@ impl SpiralCtl {
         }
     }
 
-    /// Spawn a rare variant debris (shares the debris roll, own texture).
     fn push_vard(&mut self, x: f32, y: f32, path: &'static str, frame: usize) {
         let vard = Vard {
             alive: true,
@@ -469,12 +391,12 @@ impl SpiralCtl {
             dist: rand::random::<f32>() * 135.0 + 10.0,
             angle: rand::random::<f32>() * 360.0,
             turnspeed: rand::random::<f32>() * 8.0 - 4.0,
-            // `rotspeed = random_range(20, 30) * choose(1, -1)`
+
             rotspeed: rand::random_range(20.0..30.0)
                 * if rand::random_bool(0.5) { 1.0 } else { -1.0 },
             grow: 0.0,
             xscale: 0.0,
-            // GML default image_angle is 0; variants only change rotspeed.
+
             image_angle: 0.0,
             path,
             frame,
@@ -488,9 +410,7 @@ impl SpiralCtl {
     }
 
     fn step(&mut self, dt_ticks: f32) {
-        // Exact GML 30 Hz cadence alive and dead; post-death acceleration is
-        // modelled per-wisp (birth rewind + debris grow compounding in
-        // tick_once), not by overclocking the whole clock.
+
         self.acc += dt_ticks;
         while self.acc >= 1.0 {
             self.acc -= 1.0;
@@ -499,8 +419,6 @@ impl SpiralCtl {
     }
 }
 
-/// SpiralCont/Step_0.gml angle increments (degrees): Normal/IDPD/Venuz add
-/// `8 + sin(angle/300)`; Proto adds `10 + sin(angle/300) * 2 + orandom(1)`.
 fn spiral_angle_inc(angle: f32, kind: SpiralKind) -> f32 {
     if kind == SpiralKind::Proto {
         10.0 + deg_sin(angle / 300.0) * 2.0 + (rand::random::<f32>() * 2.0 - 1.0)
@@ -509,9 +427,6 @@ fn spiral_angle_inc(angle: f32, kind: SpiralKind) -> f32 {
     }
 }
 
-/// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
-/// DEGREES; bevy takes radians, hence the conversions). Public rewrite uses
-/// `* 80 / * 50`.
 fn orbit(angle: f32) -> (f32, f32) {
     (
         GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 80.0,
@@ -519,6 +434,7 @@ fn orbit(angle: f32) -> (f32, f32) {
     )
 }
 
+// GML uses degrees, Bevy uses radians.
 fn deg_sin(deg: f32) -> f32 {
     deg.to_radians().sin()
 }
@@ -527,51 +443,35 @@ fn deg_cos(deg: f32) -> f32 {
     deg.to_radians().cos()
 }
 
-// GPU material
-
-/// Uniform layout must mirror `assets/shaders/vortex.wgsl`.
-/// NOTE: a nested `[[f32;4]; N]` makes encase compute a stride-4 array and
-/// abort ("array stride must be a multiple of 16"); a flat array of `Vec4`
-/// (alignment 16) is byte-identical on the wire and always valid.
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 struct VortexMaterial {
-    /// Per-wisp [x, y, birth_tick, rot]; birth < 0 = inactive slot.
+
     #[uniform(0)]
     wisps: [Vec4; MAX_WISPS],
-    /// (tick_now, drain_bias, bg_r, bg_g): drain_bias is the total
-    /// birth-rewind applied during the drain (0 while alive); the shader
-    /// subtracts it from wisp age for the lightning clock so `lanim` keeps
-    /// advancing in realtime exactly like Spiral/Step_0 (`lanim += ...`
-    /// runs unscaled after SpiralCont dies).
+
     #[uniform(1)]
     glob_a: Vec4,
-    /// (bg_b, bg_alpha, kill_scale, kind + debris16 * 4): kind is the
-    /// SpiralKind discriminant (Normal 0 / Proto 1 / Idpd 2 / Venuz 3);
-    /// debris16 flags jungle `sprDebris105` (16px frames, not 8px).
+
     #[uniform(2)]
     glob_b: Vec4,
-    // GameMaker filters everything bilinearly, but the app runs
-    // `ImagePlugin::default_nearest()` for the pixel-art look. The bind
-    // uses each image's own `sampler`, so the update system stamps
-    // `ImageSampler::linear()` on the vortex art (soft rotated wisps like
-    // the original) without touching the global pixel-art setting.
+
     #[texture(3)]
     #[sampler(4)]
     spiral_tex: Handle<Image>,
     #[texture(5)]
     #[sampler(6)]
     bolt_tex: Handle<Image>,
-    /// Render-ready debris: [x, y, rot_rad, frame + xscale/32]; x < -100 = empty.
+
     #[uniform(7)]
     debris: [Vec4; MAX_DEBRIS],
     #[texture(8)]
     #[sampler(9)]
     debris_tex: Handle<Image>,
-    /// Vault `sprSpiralProto` (green 64px) for the Proto kind.
+
     #[texture(10)]
     #[sampler(11)]
     spiral_proto_tex: Handle<Image>,
-    /// HQ `sprSpiralIDPD` / `sprSpiralIDPD2` (128px) for the Idpd kind.
+
     #[texture(12)]
     #[sampler(13)]
     spiral_idpd_tex: Handle<Image>,
@@ -606,34 +506,21 @@ impl Material2d for VortexMaterial {
     }
 }
 
-/// Marker for a CPU-rendered Venuz star (index into `SpiralCtl.stars`).
 #[derive(Component)]
 struct VortexStarDot(usize);
 
-/// Marker for a CPU-rendered variant debris (index into `SpiralCtl.vards`).
 #[derive(Component)]
 struct VortexVardDot(usize);
 
-/// Swirl-center crown figure (`scrDrawSpiral` `with SpiralCont` block).
 #[derive(Component)]
 struct SpiralCrownFig;
 
-/// Swirl-center player figure (same block, `spr_hurt` frame 1).
 #[derive(Component)]
 struct SpiralPlayerFig;
 
-/// Marker for the fullscreen vortex quad (despawned with other title art).
 #[derive(Component)]
 pub struct VortexQuad;
 
-/// CPU-rendered swirl layer: Venuz stars, rare variant debris (both need
-/// their own textures, so they ride as sprites), and the swirl-center crown
-/// + player figures from `scrDrawSpiral`'s `with SpiralCont` block.
-///
-/// GML draws the figures whenever SpiralCont exists (never during the
-/// linger: PlayButton destroys it instantly), at the drifting center for
-/// Normal/Proto and the screen center for Idpd/Venuz. Rotations are GML
-/// degrees CCW-visual, used directly as Bevy `rotation.z` (same convention).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sync_spiral_cpu_layer(
     mut commands: Commands,
@@ -703,7 +590,7 @@ fn sync_spiral_cpu_layer(
             continue;
         }
         let (dx, dir) = (s.dist * s.xscale, s.angle.to_radians());
-        // lengthdir in y-down GUI space: x += len*cos, y += -len*sin.
+
         let gx = s.xstart + dx * dir.cos();
         let gy = s.ystart - dx * dir.sin();
         let alpha = s.xscale.clamp(0.0, 1.0);
@@ -774,8 +661,7 @@ fn sync_spiral_cpu_layer(
             Some(e) => {
                 if let Ok((_, dot, mut tf, mut spr)) = vard_q.get_mut(e) {
                     debug_assert_eq!(dot.0, i);
-                    // Frame geometry varies per path; resolve once per frame
-                    // is overkill - paths are fixed per dot, read dims cheap.
+
                     let m = sprite_dims(&catalog, v.path);
                     place_dot(
                         &map,
@@ -815,7 +701,7 @@ fn sync_spiral_cpu_layer(
         catalog.require(crown_path);
         let len = 15.0 + deg_sin(ang / 60.0) * 4.0;
         let dir = (-ang / 5.3).to_radians();
-        // lengthdir in y-down GUI space: x = len*cos, y = -len*sin.
+
         let gx = fx + len * dir.cos();
         let gy = fy - len * dir.sin();
         let sc = 0.6 + deg_sin(ang / 200.0) / 4.0;
@@ -857,8 +743,6 @@ fn sync_spiral_cpu_layer(
     }
 }
 
-/// Reposition/rescale a CPU dot sprite in place (same origin math as
-/// `gm_sprite`, plus a direct rotation which shares GML's CCW convention).
 #[allow(clippy::too_many_arguments)]
 fn place_dot(
     map: &crate::game::ui_art::GuiMap,
@@ -885,15 +769,10 @@ fn place_dot(
     spr.color.set_alpha(alpha);
 }
 
-/// Frame geometry (w, h, xorigin, yorigin) for a catalog strip.
 fn sprite_dims(catalog: &crate::game::content::AssetCatalog, path: &str) -> (f32, f32, f32, f32) {
     crate::game::ui_art::sprite_meta(catalog, path)
 }
 
-/// States where `SpiralCont` exists upstream: created with the Logo
-/// (Vlambeer/Alarm_0 mode >= 3), kept through the main-menu buttons, and
-/// destroyed right before the campfire char-select (PlayButton/Other_10).
-/// Also active during InGame FloorTransition (GenCont loading) spiral.
 fn spiral_states(state: &AppState) -> bool {
     matches!(
         *state,
@@ -901,10 +780,6 @@ fn spiral_states(state: &AppState) -> bool {
     )
 }
 
-/// Background colour behind the swirl: scrDrawSpiral does `draw_clear(c_black)`
-/// for every non-`Menu` caller, and both of our swirl states (Splash logo,
-/// MainMenu buttons) are non-`Menu` - so always black. The campfire blue only
-/// applies to the char-select, where the swirl is destroyed.
 fn background_color(_state: &AppState) -> Color {
     Color::BLACK
 }
@@ -915,17 +790,13 @@ fn vortex_needs_black(
     pending: bool,
 ) -> bool {
     match *state {
-        AppState::Title => false, // transparent over campfire
+        AppState::Title => false,
         AppState::Loading => true,
         AppState::InGame => ft.is_some_and(|f| f.active) || pending,
         AppState::Splash | AppState::MainMenu => true,
     }
 }
 
-/// Advance the controller and mirror its ring into the material. One system,
-/// zero per-wisp entities. Runs in Update with an internal 30 Hz accumulator
-/// (`Time<Virtual>` respects pause/slow-mo), so the tick rate is exact and
-/// independent of both render fps and the gameplay FixedUpdate cadence.
 fn vortex_tick(
     state: Res<State<AppState>>,
     time: Res<Time<Real>>,
@@ -959,16 +830,11 @@ fn vortex_tick(
     } else {
         0.0
     };
-    // Kill plane stays 2.5 alive and dead: post-death ages fast-forward
-    // (birth rewind) so survivors stagger-pop through the table max just
-    // like GML's compounding grow crossing xscale 3. kindpacked selects the
-    // growth table/art and the debris frame size (see glob_b docs).
+
     let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
     mat.glob_a = Vec4::new(ctl.ticks, ctl.drain_bias, r, g);
     mat.glob_b = Vec4::new(b, bg_alpha, 2.5, kindpacked);
-    // Bilinear like GameMaker (app default is nearest): stamp once the
-    // images exist. Handles are shared by path, so the matching CPU debris
-    // sprites go linear too - equally GML-true, and noted in review.
+
     for handle in [
         &mat.spiral_tex,
         &mat.bolt_tex,
@@ -983,7 +849,6 @@ fn vortex_tick(
     }
 }
 
-/// Spawn the vortex quad once; keeps `SpiralCtl` alive alongside it.
 #[allow(clippy::type_complexity)]
 fn ensure_vortex_quad(
     mut commands: Commands,
@@ -1032,10 +897,7 @@ fn ensure_vortex_quad(
 
     let map = gui_map(win.width(), win.height(), o.scale);
     let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
-    // The shader maps uv 0..1 to GUI 0..320 x 0..240, so the mesh must be
-    // exactly the 320x240 GUI surface: anything wider stretches the swirl
-    // (on 16:9 a full-view quad pulls every circle 33% wide). Letterbox
-    // margins stay clear-colour black, exactly like GML's draw_clear + bars.
+
     let mesh = meshes.add(Rectangle::new(GUI_W, GUI_H));
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
     let pending_any = pending.is_some() || pending_ultra.is_some();
@@ -1066,7 +928,7 @@ fn ensure_vortex_quad(
     );
 
     let vortex_z = if *state.get() == AppState::Title {
-        -845.0 // Title: in front of pods/chars (-860..-846) so vortex covers characters during drain – hide_title_during_transition already hides, lingering wisps should be over characters
+        -845.0
     } else {
         -885.0
     };
@@ -1080,7 +942,6 @@ fn ensure_vortex_quad(
     ));
 }
 
-/// Keep the quad glued to the live GUI surface across resizes / zoom.
 fn track_vortex_view(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<&Projection, With<Camera2d>>,
@@ -1108,11 +969,6 @@ fn track_vortex_view(
     tf.scale = Vec3::new(map.s, map.s, 1.0);
 }
 
-/// PlayButton/Other_10: entering the campfire char-select destroys
-/// SpiralCont (and its CleanUp stops sndPortalLoop). Runs on
-/// `OnEnter(AppState::Title)`; despawn_title_art stays as a safety net.
-/// GML Spiral instances linger and grow 1.5x until xscale>3, so we keep the
-/// vortex quad for a brief drain instead of popping.
 pub fn teardown_vortex(
     mut commands: Commands,
     q_quad: Query<Entity, With<VortexQuad>>,
@@ -1168,9 +1024,7 @@ fn despawn_vortex_when_done(
     if ctl.alive {
         return;
     }
-    // GML clears every survivor within ~21 ticks of SpiralCont's death
-    // (compounding grow vs the xscale-3 plane), so the quad only needs a
-    // small margin beyond that before the reveal completes.
+
     let drain = 26.0;
     if let Some(death) = ctl.death_tick {
         if ctl.ticks - death < drain {
@@ -1210,9 +1064,7 @@ mod tests {
 
     #[test]
     fn drain_bias_tracks_rewind_for_realtime_lightning() {
-        // The shader computes bolt `lanim` from (age - drain_bias): bias
-        // must equal the total rewind so the clock stays realtime while
-        // scale fast-forwards, and must be 0 while the spiral is alive.
+
         let mut ctl = SpiralCtl::warmed_up();
         assert_eq!(ctl.drain_bias, 0.0);
         for _ in 0..10 {
@@ -1225,7 +1077,7 @@ mod tests {
             ctl.tick_once();
         }
         assert_eq!(ctl.drain_bias, 4.0 * 5.5);
-        // Realtime age recoverable: (tick - birth) - bias == age at death.
+
         let slot = ctl.ring.iter().find(|s| s[2] >= 0.0).unwrap();
         let realtime_age = (ctl.ticks - slot[2]) - ctl.drain_bias;
         assert!(
@@ -1236,8 +1088,7 @@ mod tests {
 
     #[test]
     fn spiral_cpu_layer_system_params_are_disjoint() {
-        // B0001 (conflicting queries) fires at system init, so initializing
-        // the system on an empty world reproduces the startup panic headless.
+
         let mut world = World::new();
         let mut sys = bevy::ecs::system::IntoSystem::into_system(sync_spiral_cpu_layer);
         bevy::ecs::system::System::initialize(&mut sys, &mut world);
@@ -1370,14 +1221,13 @@ mod tests {
             proto.tick_once();
         }
         let da = proto.angle - a0;
-        // 10 +/- 3 per tick (sin*2 + orandom(1)).
+
         assert!(da > 30.0 * 6.0 && da < 30.0 * 14.0, "proto rate off: {da}");
     }
 
     #[test]
     fn vortex_tick_rate_matches_gml_30hz() {
-        // Exact 30 Hz cadence alive AND dead (post-death acceleration is
-        // per-wisp birth rewind, never a clock overdrive).
+
         let mut ctl = SpiralCtl::warmed_up();
         let t0 = ctl.ticks;
         ctl.step(30.0);
@@ -1391,9 +1241,7 @@ mod tests {
 
     #[test]
     fn vortex_drain_clears_like_gml_compounding() {
-        // GML kills every survivor within ~21 ticks of SpiralCont's death.
-        // Ages must fast-forward (~6.5x) so the youngest wisp (age 0) passes
-        // the shader kill plane (scale 2.5 at table age ~117) by tick ~20.
+
         let mut ctl = SpiralCtl::warmed_up();
         let youngest = ctl
             .ring

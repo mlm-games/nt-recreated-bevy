@@ -7,7 +7,7 @@ use crate::game::content::{
 use crate::game::weapons_data::{AmmoType, WeaponData};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
+#[allow(dead_code)]
 pub enum ProjectileKind {
     Bullet,
     Shell,
@@ -18,21 +18,21 @@ pub enum ProjectileKind {
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
+#[allow(dead_code)]
 pub struct ExplosionSpec {
     pub radius: f32,
     pub damage: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
+#[allow(dead_code)]
 pub struct MeleeSpec {
     pub range: f32,
     pub arc: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // exposed via generated/weapons_runtime; consumed by archetypes
+#[allow(dead_code)]
 pub struct WeaponRuntime {
     pub projectile_kind: ProjectileKind,
     pub pellets: u8,
@@ -47,10 +47,6 @@ pub struct WeaponRuntime {
     pub automatic: bool,
 }
 
-/// Broad runtime class inferred from the generated weapon registry.
-///
-/// This ensures every valid weapon receives a meaningful runtime even when it
-/// does not yet have a bespoke projectile entity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WeaponFamily {
     Empty,
@@ -91,8 +87,6 @@ fn family_for(meta: &WeaponData) -> WeaponFamily {
         return WeaponFamily::Empty;
     }
 
-    // Melee must be checked first because several energy/lightning weapons
-    // are melee weapons despite containing ranged-family words.
     if meta.wep_mele {
         if name.contains("HAMMER")
             || name.contains("SHOVEL")
@@ -206,7 +200,6 @@ fn family_for(meta: &WeaponData) -> WeaponFamily {
     }
 }
 
-/// Upstream Sleep() is frames @30fps. Return seconds for HitStop.
 pub fn weapon_sleep_secs(id: WeaponId) -> f32 {
     let fam = weapon_family(id);
     let meta = weapon_meta(sanitize_weapon_id(id));
@@ -293,9 +286,7 @@ pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
         damage: def.damage,
         recoil: def.recoil,
         explosion: def.explosive.then_some(ExplosionSpec {
-            // The current Projectile component has a boolean explosive flag
-            // and uses the common explosion path. Per-weapon radii belong in
-            // the subsequent projectile-archetype patch.
+
             radius: 130.0,
             damage: def.damage,
         }),
@@ -359,8 +350,6 @@ pub fn weapon_runtime_def(id: WeaponId) -> WeaponDef {
     let mut def = if legacy != WeaponKind::None {
         let mut legacy_def = weapon_def(legacy);
 
-        // The hand-authored legacy runtime owns its actual behavior, but the
-        // generated registry remains authoritative for identity and timing.
         legacy_def.name = meta.wep_name;
         legacy_def.ammo = ammo_kind(meta);
         legacy_def.ammo_cost = i32::from(meta.wep_cost);
@@ -697,8 +686,7 @@ fn apply_family_profile(def: &mut WeaponDef, family: WeaponFamily, meta: &Weapon
         }
 
         WeaponFamily::Deployable => {
-            // Until a dedicated sentry entity is added, represent the 24-ammo
-            // deployment as a rapid stationary-style volley.
+
             set_ranged(
                 def,
                 3,
@@ -808,7 +796,7 @@ fn apply_family_profile(def: &mut WeaponDef, family: WeaponFamily, meta: &Weapon
 }
 
 fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
-    // Golden/Ultra/Cursed weapons inherit the normal family's exact profile.
+
     let name = base_weapon_name(meta.wep_name);
 
     match name {
@@ -897,7 +885,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GRENADE LAUNCHER" => {
-            // GML Grenade/Create_0: damage 15, speed 10 (300 px/s), alarm0 60 (2.0s), friction 0.1→0.4@6f, bounce speed*=0.6
+
             set_explosive(
                 def,
                 15,
@@ -911,7 +899,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 Color::srgb(1.0, 0.58, 0.2),
                 Vec2::splat(6.0),
             );
-            def.bounces = 4; // GML move_bounce_solid(true) repeatedly until fuse
+            def.bounces = 4;
         }
 
         "DOUBLE SHOTGUN" => {
@@ -1003,7 +991,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BAZOOKA" => {
-            // GML Rocket/Create_0: damage 20, speed max 12 (360 px/s)
+
             set_explosive(
                 def,
                 20,
@@ -1071,7 +1059,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "DISC GUN" => {
-            // GML Disc/Create_0: damage 6, speed 5 (150 px/s)
+
             set_ranged(
                 def,
                 6,
@@ -1091,7 +1079,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER DISC GUN" => {
-            // GML Disc damage 6 (5x volley)
+
             set_ranged(
                 def,
                 6,
@@ -1111,7 +1099,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER PISTOL" => {
-            // GML Laser/Create_0: damage 2 (instant hitscan in GML, fast pierce here)
+
             set_ranged(
                 def,
                 2,
@@ -1130,7 +1118,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER RIFLE" => {
-            // GML Laser damage 2
+
             set_ranged(
                 def,
                 2,
@@ -1149,7 +1137,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER MINIGUN" => {
-            // GML Laser damage 2
+
             set_ranged(
                 def,
                 2,
@@ -1168,7 +1156,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SLUGGER" => {
-            // GML Slug/Create_0: damage 22, speed 16 (480 px/s)
+
             set_ranged(
                 def,
                 22,
@@ -1185,7 +1173,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GATLING SLUGGER" => {
-            // GML fires Slug (damage 22) at 18 px/frame
+
             set_ranged(
                 def,
                 22,
@@ -1225,7 +1213,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER SLUGGER" => {
-            // GML SuperSlugger fires 5x Slug (damage 22 each)
+
             set_ranged(
                 def,
                 22,
@@ -1266,7 +1254,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BLOOD LAUNCHER" => {
-            // GML BloodGrenade damage 10
+
             set_explosive(
                 def,
                 10,
@@ -1283,7 +1271,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BLOOD CANNON" => {
-            // GML BloodBall damage 45
+
             set_explosive(
                 def,
                 45,
@@ -1313,7 +1301,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER GUN" => {
-            // GML Splinter damage 4
+
             set_ranged(
                 def,
                 4,
@@ -1330,7 +1318,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER PISTOL" => {
-            // GML Splinter damage 4
+
             set_ranged(
                 def,
                 4,
@@ -1363,7 +1351,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "TOXIC BOW" => {
-            // GML ToxicBolt damage 16
+
             set_ranged(
                 def,
                 16,
@@ -1417,7 +1405,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA GUN" => {
-            // GML PlasmaBall damage 4
+
             set_explosive(
                 def,
                 4,
@@ -1434,7 +1422,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA RIFLE" => {
-            // GML PlasmaBall damage 4
+
             set_explosive(
                 def,
                 4,
@@ -1451,7 +1439,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA MINIGUN" => {
-            // GML PlasmaBall damage 4
+
             set_explosive(
                 def,
                 4,
@@ -1468,7 +1456,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA CANNON" | "DEVASTATOR" => {
-            // GML PlasmaBig damage 15
+
             set_explosive(
                 def,
                 15,
@@ -1567,7 +1555,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "NUKE LAUNCHER" => {
-            // GML Nuke damage 50
+
             set_explosive(
                 def,
                 50,
@@ -1812,8 +1800,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LIGHTNING HAMMER" => {
-            // This exact profile prevents the old numeric-ID error where this
-            // weapon inherited a flamethrower profile.
+
             set_melee(def, 22, 90.0, 2.7, 7.0, Color::srgb(0.65, 0.9, 1.0));
 
             def.pierce = 0;
@@ -2165,8 +2152,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SEEKER SHOTGUN" => {
-            // No homing component yet: long-lived mildly-spread bolt volley
-            // stands in until the projectile-archetype patch.
+
             set_ranged(
                 def,
                 9,
@@ -2201,7 +2187,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY REVOLVER" => {
-            // GML HeavyBullet damage 7
+
             set_ranged(
                 def,
                 7,
@@ -2218,7 +2204,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY MACHINEGUN" => {
-            // GML HeavyBullet damage 7
+
             set_ranged(
                 def,
                 7,
@@ -2235,22 +2221,22 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SLEDGEHAMMER" => {
-            // GML Sledge: Slash damage 24, HeavySlash sprite
+
             set_melee(def, 24, 80.0, 2.45, 6.0, Color::srgb(0.88, 0.78, 0.48));
         }
 
         "GUITAR" | "ELECTRIC GUITAR" => {
-            // GML Guitar: Slash damage 26 (+electric flag for electric)
+
             set_melee(def, 26, 80.0, 2.45, 6.0, Color::srgb(0.9, 0.7, 0.3));
         }
 
         "BLACK SWORD" => {
-            // GML BlackSword: 12 normal, 80 MegaSlash when dying
+
             set_melee(def, 12, 66.0, 2.1, 4.0, Color::srgb(0.2, 0.2, 0.25));
         }
 
         "HEAVY SLUGGER" => {
-            // GML HeavySlug damage 60, speed 13 (390 px/s)
+
             set_ranged(
                 def,
                 60,
@@ -2267,7 +2253,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY CROSSBOW" | "HEAVY AUTO CROSSBOW" => {
-            // GML HeavyBolt damage 50, speed 16 (480 px/s)
+
             set_ranged(
                 def,
                 50,
@@ -2285,7 +2271,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ULTRA REVOLVER" => {
-            // GML UltraBullet damage 18, speed 24 (720 px/s)
+
             set_ranged(
                 def,
                 18,
@@ -2302,7 +2288,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ULTRA SHOTGUN" => {
-            // GML 9x UltraShell damage 6
+
             set_ranged(
                 def,
                 6,
@@ -2319,7 +2305,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER PLASMA CANNON" => {
-            // GML PlasmaHuge damage 25, speed 1.5 (45 px/s)
+
             set_explosive(
                 def,
                 25,
@@ -2346,8 +2332,6 @@ fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
         def.color = Color::srgb(1.0, 0.82, 0.2);
         def.muzzle_burst = def.muzzle_burst.saturating_add(1);
 
-        // The generated registry already owns the faster/slower reload values.
-        // Only family-specific golden projectile differences belong here.
         match base_weapon_name(name) {
             "SHOTGUN" => {
                 def.pellets = def.pellets.saturating_add(1);
@@ -2365,8 +2349,7 @@ fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
 
     if name.starts_with("ULTRA ") {
         def.color = Color::srgb(0.95, 0.4, 1.0);
-        // Explicit ULTRA profiles already carry GML Ultra projectile damages
-        // (UltraBullet 18, UltraShell 6, etc.) - do not re-multiply those.
+
         let explicit_ultra = matches!(
             name,
             "ULTRA REVOLVER" | "ULTRA SHOTGUN" | "ULTRA CROSSBOW" | "ULTRA GRENADE LAUNCHER"
@@ -2870,8 +2853,7 @@ mod tests {
         let nuke = weapon_runtime_def(id_by_name("NUKE LAUNCHER"));
 
         assert!(nuke.explosive);
-        // Legacy GRENADE LAUNCHER keeps its hand-authored damage (15), so
-        // compare with headroom instead of the profile-table value.
+
         assert!(nuke.damage >= 40);
         assert!(nuke.damage > grenade.damage * 2);
         assert!(nuke.projectile_radius > grenade.projectile_radius);
@@ -2929,8 +2911,7 @@ mod tests {
 
     #[test]
     fn shell_weapons_multi_pellet_or_heavy_slug() {
-        // Every Shells-typed weapon either fires a wide volley or a single
-        // heavy slug (Slugger family) - never a lone weak pea.
+
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Shells || meta.wep_mele {
                 continue;
@@ -2938,8 +2919,7 @@ mod tests {
             let def = weapon_runtime_def(WeaponId(meta.id));
             let slug = def.pellets == 1;
             let ok = if slug {
-                // Heavy slug OR a splitting payload (Flak fires one shell that
-                // bursts into shrapnel on death).
+
                 def.damage >= 10 || def.split.is_some()
             } else {
                 def.pellets >= 5
@@ -2954,9 +2934,7 @@ mod tests {
 
     #[test]
     fn explosive_type_weapons_boom_or_burn() {
-        // Every Explosives-ammo weapon is flagged explosive OR carries an
-        // elemental hazard - except the PARTY GUN, which is deliberately inert
-        // confetti.
+
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Explosives {
                 continue;
@@ -2994,8 +2972,7 @@ mod tests {
 
     #[test]
     fn incinerator_is_flame_not_plain_bullet() {
-        // Registry types it as Bullets; the name-based family must override
-        // that into the flame class with fire residue.
+
         let family = weapon_family(id_by_name("INCINERATOR"));
         let def = weapon_runtime_def(id_by_name("INCINERATOR"));
 
@@ -3017,9 +2994,7 @@ mod tests {
 
     #[test]
     fn most_weapons_are_specialized_not_generic() {
-        // The old fixed fallback was damage=3 / pellets=1 / no specials.
-        // After the family+profile pass, only a small minority may remain
-        // fully generic.
+
         let mut genericish = 0;
         for meta in WEAPONS.iter().skip(1) {
             let def = weapon_runtime_def(WeaponId(meta.id));

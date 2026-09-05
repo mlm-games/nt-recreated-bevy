@@ -1,6 +1,3 @@
-//! Pushes live game state into the Repose `SharedUi` so the in-game HUD,
-//! boss bar, mutation picker, and game-over overlay can be composed by the UI.
-
 use bevy::prelude::*;
 
 use crate::game::components::*;
@@ -66,7 +63,7 @@ pub fn sync_hud(
 
     if let Some(character) = character {
         ui.character = character_def(character.0).name.to_string();
-        // nt-rewrite `enum Race` id (Random=0..Cuz=16).
+
         ui.selected_character = character.0 as usize;
     }
 
@@ -81,7 +78,7 @@ pub fn sync_hud(
             .collect();
         ui.current_weapon = inv.current;
         ui.ammo = inv.ammo;
-        // Ammo count of each weapon's own type, for the HUD text pass.
+
         let t1 = crate::game::content::weapon_meta(inv.weapons[0]).wep_type as usize;
         let t2 = if inv.weapon_slots > 1 {
             crate::game::content::weapon_meta(inv.weapons[1]).wep_type as usize
@@ -89,8 +86,7 @@ pub fn sync_hud(
             0
         };
         ui.weapon_ammo = [inv.ammo[t1.min(5)], inv.ammo[t2.min(5)]];
-        // GML scrDrawPlayerHUD draws ammo text only `if _type != Ammo.None`.
-        // Melee shows no count: use -1 sentinel so the HUD skips it.
+
         if t1 == 0 {
             ui.weapon_ammo[0] = -1;
         }
@@ -149,7 +145,7 @@ pub fn sync_hud(
     let prev_len = ui.mutation_choices.len();
     ui.mutation_choices = choices;
     ui.mutation_choice_ids = ids;
-    // GML LevCont recreates SkillIcons anew each level-up; clear stale selection when offers change
+
     if ui.mutation_choices.len() != prev_len {
         ui.mutation_selected = None;
     }
@@ -160,7 +156,7 @@ pub fn sync_hud(
             ui.mutation_selected = None;
         }
     }
-    // Death screen mutations – capture once while Player still alive for 0.85s (PlayerDying)
+
     if run.game_over {
         if let Ok((player, _, _)) = player_q.single() {
             ui.death_mutation_ids = player
@@ -174,8 +170,6 @@ pub fn sync_hud(
     }
 }
 
-/// Reset the HUD when a new run begins (called from OnEnter(InGame) after the
-/// first sync of the frame).
 pub fn reset_hud_flags(bridge: Res<UiBridge>) {
     let mut ui = match bridge.shared.lock() {
         Ok(g) => g,

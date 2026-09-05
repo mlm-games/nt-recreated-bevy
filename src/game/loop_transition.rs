@@ -1,9 +1,3 @@
-//! Throne -> campfire -> Throne II -> loop-portal sequence.
-//!
-//! Loop floor model: global 1-based floors, route = `(floor - 1) % 15 + 1`,
-//! `loop_count = (floor - 1) / 15`. Loop 1 therefore starts at **floor 16**,
-//! not floor 1.
-
 use bevy::prelude::*;
 
 use crate::game::areas::{area_for_floor, route_coordinates};
@@ -14,8 +8,7 @@ use crate::game::reactive_audio::{QueuedReactiveCue, ReactiveCue};
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
-/// Called from `resolve_deaths` when Throne I dies. Starts the interlude and
-/// suppresses normal portal spawning until Throne II is dealt with.
+// Throne death suppresses normal portal.
 pub fn begin_throne_campfire(
     commands: &mut Commands,
     transition: &mut LoopTransition,
@@ -48,16 +41,12 @@ pub fn begin_throne_campfire(
     ScreenEffects::add_trauma(trauma, 0.10);
 }
 
-/// Called from `resolve_deaths` when Throne II dies.
 pub fn mark_throne_ii_defeated(toast: &mut Toast, trauma: &mut Trauma) {
-    // Loop-ready state is set by the caller via LoopTransition; this helper
-    // only handles presentation so the caller owns the resource mutation.
+
     toast.show("THE LOOP OPENS");
     ScreenEffects::add_trauma(trauma, 0.35);
 }
 
-/// The alternate campfire path is active while IDPD are alive or an already
-/// queued raid warning has not spawned yet.
 pub fn campfire_needs_idpd_clear(idpd_alive: usize, raid_pending: bool) -> bool {
     idpd_alive > 0 || raid_pending
 }
@@ -78,13 +67,6 @@ fn start_campfire_rising(campfire: &mut CampfireState, toast: &mut Toast, trauma
     ScreenEffects::add_trauma(trauma, 0.18);
 }
 
-/// Campfire interlude:
-///
-/// - ordinary path: rest timer -> something stirs -> Throne II
-/// - alternate path: pending/living IDPD -> clear all IDPD -> Throne II
-///
-/// A short confirmation timer after the final IDPD disappears protects the
-/// transition from deferred-despawn ordering across fixed-update systems.
 pub fn tick_campfire(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -108,9 +90,7 @@ pub fn tick_campfire(
 
         match campfire.phase {
             CampfirePhase::Sitting => {
-                // A warning that started just before the Throne died - or IDPD
-                // that survived the fight - switches the interlude to the
-                // alternate clear-gated route.
+
                 if needs_idpd_clear {
                     if !campfire.idpd_gate_armed {
                         campfire.arm_idpd_gate();
@@ -138,14 +118,13 @@ pub fn tick_campfire(
             }
 
             CampfirePhase::WaitingForIdpd => {
-                // Deterministic ember pulse; the phase timer stays paused here.
+
                 if rand::random::<f32>() < time.delta_secs() * 5.0 {
                     emit_campfire_embers(&mut commands, campfire_pos, 3);
                 }
 
                 if needs_idpd_clear {
-                    // Any newly observed IDPD - or a warning that has not yet
-                    // spawned - restarts the confirmation interval.
+
                     campfire.reset_idpd_clear_confirmation();
                     continue;
                 }
@@ -224,11 +203,7 @@ pub fn tick_campfire(
     }
 }
 
-/// Applies the loop-portal transition when `loop_ready` is pending.
-///
-/// Loop 1 starts at global floor 16 (= 1*15 + 1), loop 2 at 31, and so on -
-/// this keeps `(floor - 1) / 15`, `route_coordinates`, `area_for_floor`,
-/// boss-floor mapping, and IDPD loop gating coherent.
+// Loop 1 starts at floor 16.
 #[allow(clippy::needless_pass_by_ref_mut)]
 pub fn try_apply_loop_portal_transition(
     run: &mut Run,

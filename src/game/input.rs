@@ -2,9 +2,6 @@ use bevy::input::gamepad::{Gamepad, GamepadAxis, GamepadButton};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-/// Unified gameplay input sampled once per frame from keyboard, mouse,
-/// gamepads, and touch. Pulse-style fields are consumed by FixedUpdate
-/// gameplay systems via `take_*`.
 #[derive(Resource, Debug, Clone)]
 pub struct NtInput {
     pub move_axis: Vec2,
@@ -14,9 +11,7 @@ pub struct NtInput {
     fire_pressed: bool,
     ability_pressed: bool,
     interact_pressed: bool,
-    /// GML Steroids `hold_spec` - second trigger (RMB/LB). Sampled from the
-    /// same physical buttons as ability; kept as independent pulses so
-    /// Steroids second-gun fire doesn't consume the ability press.
+
     pub spec_held: bool,
     spec_pressed: bool,
     weapon_slot: Option<usize>,
@@ -123,17 +118,13 @@ pub fn sample_input(
     let mut move_axis = keyboard_move(&keys);
     let mut aim_axis = Vec2::ZERO;
 
-    // Upstream defaults (`scripts/scrKeymapsSetup/scrKeymapsSetup.gml:7`):
-    // fire = LMB/RB, spec = RMB/LB, pick = E/A, swap = Space/RB-horn=B.
-    // Bevy keeps Shift as keyboard alias for spec (RMB alternative).
     let mut fire_held = mouse.pressed(MouseButton::Left) || keys.pressed(KeyCode::Space);
     let mut fire_pressed =
         mouse.just_pressed(MouseButton::Left) || keys.just_pressed(KeyCode::Space);
     let mut ability_pressed = mouse.just_pressed(MouseButton::Right)
         || keys.just_pressed(KeyCode::ShiftLeft)
         || keys.just_pressed(KeyCode::ShiftRight);
-    // GML Steroids second trigger = spec (RMB/LB). Same physical buttons as
-    // ability; tracked independently so dual fire never eats ability pulses.
+
     let spec_held = mouse.pressed(MouseButton::Right)
         || keys.pressed(KeyCode::ShiftLeft)
         || keys.pressed(KeyCode::ShiftRight);
@@ -201,7 +192,6 @@ pub fn sample_input(
     if let Ok(window) = windows.single() {
         let width = window.width();
 
-        // Top-right touch buttons: [cycle weapon][active ability].
         for touch in touches.iter_just_pressed() {
             let start = touch.start_position();
 
@@ -214,7 +204,6 @@ pub fn sample_input(
             }
         }
 
-        // Left half: movement stick. Right half: aim + fire stick.
         for touch in touches.iter() {
             let start = touch.start_position();
 
@@ -244,7 +233,6 @@ pub fn sample_input(
     output.fire_held = fire_held;
     output.spec_held = spec_held_now;
 
-    // Keep pulses queued until a FixedUpdate gameplay system consumes them.
     output.fire_pressed |= fire_pressed;
     output.ability_pressed |= ability_pressed;
     output.interact_pressed |= interact_pressed;

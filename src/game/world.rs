@@ -1,9 +1,3 @@
-//! World generation - faithful port of the upstream FloorMaker/scrMakeFloor
-//! structure: 32px floor tiles stamped by walkers, 16px wall rings (Bot body
-//! under a Top face drawn 8px up), small interior walls, bone/detail decals,
-//! per-area props, chests on turns/dead-ends, and the scrPopulate/scrPopEnemies
-//! spawn tables. Missing art crashes loudly via AssetCatalog.
-
 use bevy::prelude::*;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -21,12 +15,10 @@ use bevy::ecs::query::QueryFilter;
 
 pub const WALL_PX: f32 = 16.0;
 
-/// One generated level, ready to render/spawn.
 pub struct LevelPlan {
     pub floor_cells: Vec<(i32, i32)>,
     pub wall_cells: std::collections::HashSet<(i32, i32)>,
-    /// Upstream "small walls": extra 16px Wall instances stamped inside floor
-    /// tiles (scrPopProps head). Solid, render like normal walls.
+
     pub small_walls: Vec<(i16, i16)>,
     pub bones: Vec<(Vec2, bool)>,
     pub details: Vec<Vec2>,
@@ -34,16 +26,15 @@ pub struct LevelPlan {
     pub chests: Vec<ChestSpawn>,
     pub enemies: Vec<(EnemyKind, Vec2)>,
     pub boss: Option<EnemyKind>,
-    /// How many of `boss` to spawn (multi-Bandit). Other bosses ignore >1.
+
     pub boss_count: u32,
-    /// GML FloorMaker.styleb (~1/6 on desert): drives BonePile vs Cactus,
-    /// Icicle vs Hydrant, NewsStand vs Soda, maggot nest, RadMaggotChest.
+
     pub styleb: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PropKind {
-    // Existing
+
     Cactus,
     BigSkull,
     GroundDecal,
@@ -51,16 +42,14 @@ pub enum PropKind {
     Pipe,
     Tires,
 
-    // Solid environmental props
     ToxicBarrel,
     Car,
     Cocoon,
     Snowman,
     Torch,
-    /// Gold barrel (Y.V. Mansion): explodes and drops a gold weapon.
+
     GoldBarrel,
 
-    // Additional destructibles (parity with upstream `scrPopProps`)
     BonePile,
     NightBonePile,
     NightCactus,
@@ -83,13 +72,11 @@ pub enum PropKind {
     PizzaBox,
     PlantPot,
 
-    // Functional floor / hazard entities
     Cobweb,
     IcePatch,
     FireTrap,
     Mine,
 
-    // Palace throne-room set pieces
     BigGenerator,
     ThroneStatue,
 }
@@ -101,25 +88,20 @@ pub enum ChestSpawn {
     Rad(Vec2),
 }
 
-/// Upstream `_area` ids for our 15-floor NT route:
-/// 1 Desert, 2 Sewers, 3 Scrapyards, 4 Crystal Caves, 5 Frozen City, 6 Labs, 7 Palace
 fn gml_area(floor: u32) -> i32 {
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
-        1..=3 => 1,   // Desert
-        4 => 2,       // Sewers
-        5..=7 => 3,   // Scrapyards
-        8 => 4,       // Crystal Caves
-        9..=11 => 5,  // Frozen City
-        12 => 6,      // Labs
-        13..=15 => 7, // Palace
+        1..=3 => 1,
+        4 => 2,
+        5..=7 => 3,
+        8 => 4,
+        9..=11 => 5,
+        12 => 6,
+        13..=15 => 7,
         _ => 7,
     }
 }
 
-/// Secret areas keep their own walker/spawn families via GML 100-series ids
-/// (100 vault, 101 oasis, 102 pizza, 103 mansion, 104 cursed, 105 jungle,
-/// 106 hq) so turn/die/shape tables match scrMakeFloor exactly.
 fn gml_area_from_run(run: &Run) -> i32 {
     use crate::game::areas::AreaId;
     match run.area {
@@ -128,7 +110,7 @@ fn gml_area_from_run(run: &Run) -> i32 {
         AreaId::Sewers => 2,
         AreaId::PizzaSewers => 102,
         AreaId::Scrapyards => 3,
-        // Y.V. Mansion uses its own walker family (103), not scrapyards.
+
         AreaId::City => 103,
         AreaId::CrystalCaves => 4,
         AreaId::CursedCaves => 104,
@@ -144,12 +126,10 @@ fn gml_area_from_run(run: &Run) -> i32 {
 
 fn is_boss_subarea(floor: u32) -> bool {
     let rf = ((floor.max(1) - 1) % 15) + 1;
-    // End of each multi-floor world: Desert 3, Scrapyards 7, Frozen 11, Palace 15
+
     matches!(rf, 3 | 7 | 11 | 15)
 }
 
-/// Boss-subarea check that never treats a secret area as the route floor's
-/// boss stage (secrets get their own boss assignment below).
 fn is_boss_subarea_run(run: &Run) -> bool {
     if crate::game::secret_areas::is_secret_area(run.area) {
         return false;
@@ -158,15 +138,11 @@ fn is_boss_subarea_run(run: &Run) -> bool {
 }
 
 pub fn generation_goal(floor: u32) -> usize {
-    // GML scrAreaGetGenerationGoal has no boss-specific goals; boss floors
-    // use the normal 110 (palace-last 420 handled in goal_for_run).
+
     let _ = floor;
     110
 }
 
-/// Secret areas get tighter or roomier layouts per upstream
-/// scrAreaGetGenerationGoal: vault 40, campfire 60, crib 20 (unused),
-/// pizza 70, palace 130 / 420-last, mansion/oasis 130, hq-last 48.
 fn generation_goal_for_run(run: &Run) -> usize {
     use crate::game::areas::AreaId;
     if crate::game::secret_areas::is_secret_area(run.area) {
@@ -176,7 +152,7 @@ fn generation_goal_for_run(run: &Run) -> usize {
             AreaId::City => 130,
             AreaId::Oasis => 130,
             AreaId::HQ => {
-                // hq-last (subarea max) is 48; earlier HQ visits use 110.
+
                 if run.floor_in_area >= 3 { 48 } else { 110 }
             }
             AreaId::CursedCaves => 100,
@@ -184,7 +160,7 @@ fn generation_goal_for_run(run: &Run) -> usize {
             _ => 90,
         };
     }
-    // Palace-last is the 420-floor throne approach; other palace floors 130.
+
     if run.area == AreaId::Palace {
         let rf = ((run.floor.max(1) - 1) % 15) + 1;
         if rf == 15 {
@@ -198,12 +174,6 @@ fn generation_goal_for_run(run: &Run) -> usize {
     generation_goal(run.floor)
 }
 
-// scrMakeFloor port - floor walkers + mcr_floor_make_walls + ScreenEnd outer ring.
-// ScreenEnd marks lattice walls whose owner floor cell is NOT in the floor set
-// (outer ring). Boss intros prefer breaking these (see enemies::tick_delayed_boss_spawns).
-
-/// A wall is a screen-end if it has fewer than 2 orthogonal floor-neighbour
-/// lattice owners (true perimeter), matching upstream ScreenEnd placement.
 pub fn is_screen_end_wall(
     wx: i32,
     wy: i32,
@@ -222,10 +192,10 @@ pub fn is_screen_end_wall(
 
 #[derive(Clone, Copy)]
 struct Maker {
-    // Position in floor-cell units relative to origin cell.
+
     x: i32,
     y: i32,
-    // GML direction quantized: 0=+x, 90=-y(up), 180=-x, 270=+y(down).
+
     dir: i32,
 }
 
@@ -254,9 +224,9 @@ fn turn_table(rng: &mut StdRng, area: i32) -> i32 {
         1 => rng_choose(rng, &[Z, Z, 90, -90, 90, -90, 180]),
         2 | 102 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 90, -90, 180]),
         3 => rng_choose(rng, &[Z, Z, Z, Z, Z, 90, -90]),
-        // GML area 4 has 5 zeros, not 7 (Bevy was too straight).
+
         4 => rng_choose(rng, &[Z, Z, Z, Z, Z, 90, -90, 180]),
-        // GML area 5 ends with nested choose(0,90,-90), not a fixed 0.
+
         5 => {
             let tail = rng_choose(rng, &[Z, 90, -90]);
             rng_choose(
@@ -277,10 +247,7 @@ fn turn_table(rng: &mut StdRng, area: i32) -> i32 {
 
 pub fn generate_level(run: &Run) -> LevelPlan {
     let area = gml_area_from_run(run);
-    // Hardcoded bypasses (GenCont + FloorMaker/Create_0 + Step_0):
-    // palace-last 8x48 rect, campfire 5x3 block + 7 makers.
-    // HQ-last 10x10 is handled as a rect here as well (LastIntro/BigTV
-    // set pieces spawn in spawn_level).
+
     if area == 7 && ((run.floor.max(1) - 1) % 15) + 1 == 15 {
         return generate_palace_last(run);
     }
@@ -292,7 +259,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
     }
     let goal = generation_goal_for_run(run);
     let mut rng = StdRng::seed_from_u64(run.gen_seed);
-    // GML FloorMaker.styleb ~= 1/6 (desert night variant).
+
     let styleb = rng.random::<f32>() * 6.0 < 1.0;
 
     let mut plan = LevelPlan {
@@ -318,7 +285,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
         }
     };
 
-    // GenCont.Create_0: one maker at (10000,10000) heading choose(0,0,90,180,270).
     let mut makers = vec![Maker {
         x: 0,
         y: 0,
@@ -345,8 +311,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
             m.y += dy;
             let (mx, my) = (m.x, m.y);
 
-            // scrMakeFloor shapes (rng_float Generation). Coordinates here
-            // are floor-cell units; GML pixel offsets /32.
             match area {
                 1 => {
                     if rng.random::<f32>() * 2.0 < 1.0 {
@@ -358,8 +322,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 3 => {
-                    // Scrap: 1/8 (or max-subarea always) 3x3-minus-cross
-                    // with random xoff/yoff on max-subarea.
+
                     let is_max = run.floor_in_area >= 3;
                     if rng.random::<f32>() * 8.0 < 1.0 || is_max {
                         let (xoff, yoff) = if is_max {
@@ -369,9 +332,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                         } else {
                             (0, 0)
                         };
-                        // 3x3 minus center-cross: GML creates 9 cells in a
-                        // plus-shaped missing-center pattern; approximate
-                        // with full 3x3 (gameplay-equivalent).
+
                         for dy2 in -1..=1 {
                             for dx2 in -1..=1 {
                                 stamp_cell(
@@ -386,7 +347,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 5 => {
-                    // Frozen City 1/11 large cross (two variants).
+
                     if rng.random::<f32>() * 11.0 < 1.0 {
                         if rng.random::<f32>() * 2.0 < 1.0 {
                             for p in [
@@ -429,7 +390,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 7 => {
-                    // Palace 1/16 4x4 else 2x2.
+
                     if rng.random::<f32>() * 16.0 < 1.0 {
                         for dy2 in -1..=2 {
                             for dx2 in -1..=2 {
@@ -443,7 +404,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 100 => {
-                    // Vault 1/8 5-long H/V line.
+
                     if rng.random::<f32>() * 8.0 < 1.0 {
                         if rng.random_range(0..3) == 1 {
                             for o in [-2, -1, 0, 1, 2] {
@@ -459,7 +420,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 103 | 107 => {
-                    // Mansion/crib: every 12th Floor steps forward + 8-ring.
+
                     if !plan.floor_cells.is_empty() && plan.floor_cells.len() % 12 == 0 {
                         let (dx2, dy2) = m.step_delta();
                         m.x += dx2;
@@ -483,8 +444,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 106 => {
-                    // HQ: every 8th double-64 jump + 16-ring + double-jump,
-                    // else 1/3 8-ring, else repeat4 Floor-step-Floor+AmmoChest.
+
                     if !plan.floor_cells.is_empty() && plan.floor_cells.len() % 8 == 0 {
                         let (dx2, dy2) = m.step_delta();
                         m.x += dx2 * 2;
@@ -551,7 +511,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 104 => {
-                    // Cursed: 8-ring around scattered maker.
+
                     if plan.floor_cells.len() < 4 {
                         for p in [
                             (mx - 1, my),
@@ -600,8 +560,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
             let trn = turn_table(&mut rng, area);
             m.dir = (m.dir + trn).rem_euclid(360);
 
-            // Labs 90-degree Server farm: floors only here (Server cover
-            // props have no Bevy kind; layout impact preserved).
             if area == 6 && trn.abs() == 90 && rng.random::<f32>() * 2.0 < 1.0 {
                 for p in [
                     (mx + 1, my),
@@ -647,18 +605,16 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 106 => false,
                 _ => rng.random::<f32>() * (19.0 + n) > 20.0,
             };
-            // GML area 7 runs a second die check (7/102 shared branch).
+
             if area == 7 && !dies {
                 dies = rng.random::<f32>() * (9.0 + n) > 10.0;
             }
-            // HQ die is handled via the Floors>Makers*28 branch rule below.
 
             if dies && dist_from_spawn > 48.0 * 48.0 {
                 plan.chests.push(ChestSpawn::Ammo(cell_center_px(mx, my)));
                 stamp_cell((mx, my), &mut seen, &mut plan.floor_cells);
             }
 
-            // HQ AmmoChest drip: 1/10 per maker step when far from spawn.
             if area == 106 && dist_from_spawn > 48.0 * 48.0 && rng.random::<f32>() * 10.0 < 1.0 {
                 plan.chests.push(ChestSpawn::Ammo(cell_center_px(mx, my)));
                 stamp_cell((mx, my), &mut seen, &mut plan.floor_cells);
@@ -668,7 +624,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 continue;
             }
 
-            // HQ branch rule: Floors > Makers*28 spawns a new maker.
             if area == 106 {
                 if plan.floor_cells.len() > makers.len() * 28 {
                     new_branches.push(Maker {
@@ -695,7 +650,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 101 | 105 => rng.random::<f32>() * 14.0 < 1.0,
                 _ => false,
             };
-            // GML area 7 runs both its own 1/16 and the shared 7/102 1/5.
+
             let branches = branches || (area == 7 && rng.random::<f32>() * 5.0 < 1.0);
             if branches {
                 new_branches.push(Maker {
@@ -712,7 +667,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
         makers.extend(new_branches);
     }
 
-    // Final floor + RadChest where the furthest floor ended up (stop perk).
     if let Some(&(fx, fy)) = plan
         .floor_cells
         .iter()
@@ -728,9 +682,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
     plan
 }
 
-/// Palace-last hardcoded 8x48 rect (FloorMaker/Step_0 palace-last):
-/// skip corners when diy<-43, ThroneStatue rows + inactive generators
-/// handled in populate_throne_room.
 fn generate_palace_last(run: &Run) -> LevelPlan {
     let mut rng = StdRng::seed_from_u64(run.gen_seed);
     let _ = &mut rng;
@@ -767,7 +718,6 @@ fn generate_palace_last(run: &Run) -> LevelPlan {
     plan
 }
 
-/// Campfire 5x3 block (GenCont/Create_0 campfire).
 fn generate_campfire(run: &Run) -> LevelPlan {
     let mut rng = StdRng::seed_from_u64(run.gen_seed);
     let mut plan = LevelPlan {
@@ -792,7 +742,7 @@ fn generate_campfire(run: &Run) -> LevelPlan {
             }
         }
     }
-    // 7 extra makers worth of sprawl approximated by a few extra rings.
+
     for _ in 0..40 {
         let idx = rng.random_range(0..plan.floor_cells.len());
         let (cx, cy) = plan.floor_cells[idx];
@@ -817,7 +767,6 @@ fn generate_campfire(run: &Run) -> LevelPlan {
     plan
 }
 
-/// HQ-last 10x10 block + side rooms (FloorMaker/Create_0 hq-last).
 fn generate_hq_last(run: &Run) -> LevelPlan {
     let mut rng = StdRng::seed_from_u64(run.gen_seed);
     let _ = &mut rng;
@@ -843,7 +792,7 @@ fn generate_hq_last(run: &Run) -> LevelPlan {
             }
         }
     }
-    // 8x2 top/bottom strips + 2x4 side rooms.
+
     for fx in 0..8 {
         for (sx, sy) in [(fx - 4, 6), (fx - 4, -7)] {
             if seen.insert((sx, sy)) {
@@ -876,7 +825,6 @@ fn cell_center_i(cx: i32, cy: i32) -> (f32, f32) {
     (cx as f32 * TILE + TILE * 0.5, cy as f32 * TILE + TILE * 0.5)
 }
 
-/// Lattice (wx,wy) -> world center of one 16px wall cell.
 fn wall_center(wx: i32, wy: i32) -> Vec2 {
     Vec2::new(
         wx as f32 * WALL_PX + WALL_PX * 0.5,
@@ -884,34 +832,26 @@ fn wall_center(wx: i32, wy: i32) -> Vec2 {
     )
 }
 
-/// Top-left of a 16px wall cell in Bevy y-up lattice space.
-/// Wall instance (x,y) in GM is this point (origin 0,0 on Bot/Top).
 fn wall_top_left(wx: i32, wy: i32) -> Vec2 {
-    // Bevy y-up: cell covers [wx*16, wx*16+16) × [wy*16, wy*16+16).
-    // GM y-down top-left of that cell on screen = top edge = high Bevy y.
+
     Vec2::new(wx as f32 * WALL_PX, (wy as f32 + 1.0) * WALL_PX)
 }
-
-// mcr_floor_make_walls - 12-probe ring on the 16px lattice
 
 fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
     let _ = run;
     let floor_set: std::collections::HashSet<(i32, i32)> = floors.iter().copied().collect();
 
     for &(cx, cy) in floors {
-        // Tile spans lattice cells [2cx..2cx+2) x [2cy..2cy+2).
-        // Probe the 12 surrounding 16px positions (mcr_floor_make_walls).
-        // Single ring only: GML has no extra growth layers. Void beyond
-        // is background color, not walls.
+
         let probes = [
             (-1, -1),
             (0, -1),
             (1, -1),
-            (2, -1), //
+            (2, -1),
             (2, 0),
-            (2, 1), //
+            (2, 1),
             (-1, 0),
-            (-1, 1), //
+            (-1, 1),
             (-1, 2),
             (0, 2),
             (1, 2),
@@ -920,7 +860,7 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
         for (ox, oy) in probes {
             let wx = cx * 2 + ox;
             let wy = cy * 2 + oy;
-            // Skip if this lattice cell lies inside any floor tile.
+
             let owner = (wx.div_euclid(2), wy.div_euclid(2));
             if floor_set.contains(&owner) {
                 continue;
@@ -930,10 +870,8 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
     }
 }
 
-// scrPopulate / scrPopProps / scrPopEnemies
-
 fn side_solid(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: i32, dx: i32) -> bool {
-    // Full 32px side covered by walls: both vertical halves walled.
+
     let wx = cx * 2 + if dx < 0 { -1 } else { 2 };
     walls.contains(&(wx, cy * 2)) && walls.contains(&(wx, cy * 2 + 1))
 }
@@ -948,14 +886,11 @@ fn populate(
     let area = gml_area_from_run(run);
     let boss_sub = is_boss_subarea_run(run);
 
-    // GameCont.hard: +1 per area cleared, +loops. NTT: min enemies = 3 + hard/1.5; per-tile chance = hard / (10 + hard).
     let hard = game_hard(run);
     let enemy_min = (3.0 + hard / 1.5).floor().max(3.0) as usize;
 
     let mut prop_tiles: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
 
-    // Small interior walls (scrPopProps head): 1/5, dist>100, one per Floor,
-    // excluded on HQ/Vault/Labs/boss/palace-last (GML NOWALL rules).
     let small_walls_allowed = !boss_sub
         && !matches!(
             run.area,
@@ -1012,8 +947,6 @@ fn populate(
         let (px, py) = cell_center_i(cx, cy);
         let dist_sq = px * px + py * py;
 
-        // GML scrPopProps head gate: random(unlikeliness)>1 exits, with
-        // unlikeliness jungle 2, campfire 7, else 10.
         let unlikeliness = if run.area == crate::game::areas::AreaId::Jungle {
             2.0
         } else if run.area == crate::game::areas::AreaId::Campfire {
@@ -1021,9 +954,7 @@ fn populate(
         } else {
             10.0
         };
-        // Functional patches use the same gate in GML; Bevy test-parity
-        // kinds keep a slightly higher keep-rate via threshold.
-        // Secret areas keep their own upstream prop families.
+
         let is_secret = crate::game::secret_areas::is_secret_area(run.area);
         let kind = if is_secret {
             match run.area {
@@ -1059,7 +990,7 @@ fn populate(
                 }
                 crate::game::areas::AreaId::CursedCaves => PropKind::GroundDecal,
                 crate::game::areas::AreaId::City => {
-                    // Y.V. Mansion
+
                     let r = rng.random_range(0..10);
                     match r {
                         0..=3 => PropKind::MoneyPile,
@@ -1082,8 +1013,7 @@ fn populate(
             }
         } else {
             match area {
-                // Desert - scrPopProps: 1/60 BigSkull else styleb 1/5
-                // BonePile else Cactus/TopDecal.
+
                 1 => {
                     if rng.random::<f32>() * 60.0 < 1.0 {
                         PropKind::BigSkull
@@ -1100,7 +1030,6 @@ fn populate(
                     }
                 }
 
-                // Sewers - scrPopProps dist>96: Pipex4/ToxicBarrelx2/TopDecal
                 2 => {
                     if dist_sq < 96.0 * 96.0 {
                         PropKind::GroundDecal
@@ -1114,7 +1043,6 @@ fn populate(
                     }
                 }
 
-                // Scrapyards - scrPopProps: Tires/Car/TopDecal
                 3 => {
                     let roll = rng.random_range(0..7);
                     match roll {
@@ -1124,7 +1052,6 @@ fn populate(
                     }
                 }
 
-                // Crystal Caves - scrPopProps: Crystal/Cocoon/BonePile
                 4 => {
                     let r: f32 = rng.random();
                     if r < 0.25 {
@@ -1140,8 +1067,6 @@ fn populate(
                     }
                 }
 
-                // Frozen City - scrPopProps dist>32 SnowMan/Soda, dist>128
-                // Hydrant/Car; StreetLight near wall.
                 5 => {
                     if dist_sq < 32.0 * 32.0 {
                         PropKind::GroundDecal
@@ -1173,7 +1098,6 @@ fn populate(
                     }
                 }
 
-                // Labs - upstream Tube/MutantTube, plus functional hazards; keep ToxicBarrel for Bevy test parity
                 6 => {
                     let r: f32 = rng.random();
                     if r < 0.30 {
@@ -1191,7 +1115,6 @@ fn populate(
                     }
                 }
 
-                // Palace - upstream Pillar/SmallGenerator/Torch plus functional FireTrap/Mine for test parity
                 7 => {
                     let r: f32 = rng.random();
                     if r < 0.20 {
@@ -1213,9 +1136,6 @@ fn populate(
             }
         };
 
-        // Functional floor patches occur more frequently than solid props;
-        // they do not block enemy/chest placement because they never claim
-        // `prop_tiles`.
         let threshold = match kind {
             PropKind::Cobweb | PropKind::IcePatch => 2.6,
             PropKind::FireTrap => 1.35,
@@ -1223,13 +1143,10 @@ fn populate(
             _ => 1.0,
         };
 
-        // Upstream gate: random(unlikeliness) > threshold exits.
         if rng.random::<f32>() * unlikeliness > threshold {
             continue;
         }
 
-        // GML dist guards for secret families (oasis dist>96, mansion
-        // dist>64): force decal when too close to spawn.
         let too_close = match kind {
             PropKind::Anchor => false,
             PropKind::WaterPlant | PropKind::OasisBarrel | PropKind::WaterMine => {
@@ -1249,8 +1166,6 @@ fn populate(
             PropKind::GroundDecal | PropKind::Cobweb | PropKind::IcePatch | PropKind::FireTrap
         );
 
-        // Safespawn reserve (GenCont/Step_0 intent): keep solid props off
-        // the spawn cell so the player never starts stuck inside a prop.
         if claims_tile && dist_sq < 64.0 * 64.0 {
             continue;
         }
@@ -1261,11 +1176,9 @@ fn populate(
         plan.props.push((kind, Vec2::new(px, py)));
     }
 
-    // Boss floors still get trash mobs upstream; only the bare Throne room
-    // (route floor 15) stays sparse so the boss has room.
     let rf_route = ((run.floor.max(1) - 1) % 15) + 1;
     let skip_enemies = boss_sub && rf_route == 15;
-    // GML city-last uses spawndist 150, else 120.
+
     let spawn_dist = if area == 5 && run.floor_in_area >= 3 {
         150.0
     } else {
@@ -1289,8 +1202,7 @@ fn populate(
         {
             continue;
         }
-        // Upstream: if (random(10 + hard) < hard) area_pop_enemies();
-        // GML caps at 3+hard/1.5 total; no soft_max ceiling.
+
         let chance = hard / (10.0 + hard);
         if rng.random::<f32>() >= chance && enemy_tiles.len() >= enemy_min {
             continue;
@@ -1300,13 +1212,11 @@ fn populate(
         let pick_kind = |rng: &mut StdRng, w: &[EnemyKind]| w[rng.random_range(0..w.len())];
         let loop_extras = loop_elite_candidates(area, run.loop_count);
 
-        // Upstream spawns packs per tile (repeat(3)/repeat(5)), so these
-        // produce a Vec of kinds placed around the same cell.
         {
             use crate::game::areas::AreaId;
             let mut secret_kinds: Vec<EnemyKind> = match run.area {
                 AreaId::Oasis => {
-                    // Upstream: Crab (1-in-4), else repeat(3) Bone Fish.
+
                     if rng.random::<f32>() * 4.0 < 1.0 {
                         vec![EnemyKind::Crab]
                     } else if rng.random::<f32>() * 3.0 < 1.0 {
@@ -1321,8 +1231,7 @@ fn populate(
                 }
                 AreaId::PizzaSewers => vec![EnemyKind::Turtle],
                 AreaId::Jungle => {
-                    // Upstream: JungleFly (1-in-8); 1-in-30 barrel ambush
-                    // with three bandits; else bandit packs.
+
                     if rng.random::<f32>() * 8.0 < 1.0 {
                         vec![EnemyKind::JungleFly]
                     } else if rng.random::<f32>() * 30.0 < 1.0 {
@@ -1350,7 +1259,7 @@ fn populate(
                     }
                 }
                 AreaId::CursedCaves => {
-                    // Upstream: invisible spiders + cursed laser crystals.
+
                     if rng.random::<f32>() * 5.0 < 4.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1369,9 +1278,7 @@ fn populate(
                     }
                 }
                 AreaId::City => {
-                    // Y.V. Mansion: 1-in-5 fireballer/jock squads with a
-                    // super fireballer; else 1-in-4 gold barrel + molefish
-                    // patrols (upstream area_mansion).
+
                     if rng.random::<f32>() * 5.0 < 1.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1405,7 +1312,7 @@ fn populate(
                     }
                 }
                 AreaId::Vault | AreaId::CrownVault => {
-                    // Guardians are the boss; keep trash sparse and elite.
+
                     let k = pick_kind(
                         &mut rng,
                         &[
@@ -1417,8 +1324,7 @@ fn populate(
                     vec![k]
                 }
                 AreaId::HQ => {
-                    // Upstream area_hq: elite trio (1-in-7), repeat(5) Grunt
-                    // pack (1-in-4), or a mixed Grunt/Shielder/Inspector squad.
+
                     if rng.random::<f32>() * 7.0 < 1.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1460,7 +1366,7 @@ fn populate(
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
-                    // Upstream 1-in-7: a MaggotSpawn nest or a Scorpion.
+
                     let k = pick_kind(&mut rng, &[EnemyKind::MaggotSpawn, EnemyKind::Scorpion]);
                     enemy_tiles.push((k, center));
                 } else if rng.random::<f32>() * 30.0 < 1.0 {
@@ -1492,8 +1398,7 @@ fn populate(
                 }
             }
             2 => {
-                // Sewers: rats dominate. Style-B swaps fodder for Gators;
-                // loop Sewers mixes Ratkings / BuffGators / Exploders (upstream).
+
                 if run.loop_count > 0 && rng.random::<f32>() * 3.0 >= 1.0 {
                     let mut cands = vec![
                         EnemyKind::Ratking,
@@ -1533,11 +1438,10 @@ fn populate(
                 }
             }
             3 => {
-                // Scrapyards: Ravens rule the skies, with bandit packs, snipers
-                // and exploders below (upstream scrPopEnemies area_scrapyards).
+
                 let roll: f32 = rng.random();
                 let mut cands = if roll * 4.0 < 1.0 {
-                    // 1-in-4: sniper / melee-bandit skirmish pack.
+
                     vec![
                         EnemyKind::MeleeBandit,
                         EnemyKind::Sniper,
@@ -1546,7 +1450,7 @@ fn populate(
                         EnemyKind::Ballguy,
                     ]
                 } else if roll * 10.0 < 1.0 {
-                    // Rare raven flock.
+
                     vec![
                         EnemyKind::Raven,
                         EnemyKind::Raven,
@@ -1568,8 +1472,7 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             4 => {
-                // Crystal Caves: spider nests; loops bring freaks + lightning
-                // crystals (upstream scrPopEnemies area_caves).
+
                 let mut cands = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::LaserCrystal,
@@ -1596,8 +1499,7 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             5 => {
-                // Frozen City: snowbot garrison with tanks and wolves
-                // (upstream scrPopEnemies area_city).
+
                 let mut frozen = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::RobotGuard,
@@ -1623,8 +1525,7 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             6 => {
-                // Labs: freak swarms under necromancer supervision; rhino and
-                // explo freaks patrol (upstream area_labs).
+
                 let mut late = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::Ratking,
@@ -1653,8 +1554,7 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             7 => {
-                // Palace: guardian squads (orb / explo / dog variants);
-                // loops leak snipers, explo freaks and jungle bandits.
+
                 let mut palace = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::ExploGuardian,
@@ -1687,7 +1587,6 @@ fn populate(
         }
     }
 
-    // Guarantee minimum enemy count by filling from distant floor cells.
     if !skip_enemies {
         let mut extras = floors
             .iter()
@@ -1720,9 +1619,6 @@ fn populate(
     }
     plan.enemies = enemy_tiles;
 
-    // Bosses. Looped Crystal Caves visits get the Hyper Crystal instead of a
-    // quiet single-floor stop. Loop Sewers gets Mom, loop Labs the
-    // Technomancer; HQ runs and the Crown Vault host their own bosses.
     if boss_sub {
         let kind = boss_for_floor_and_loop(run.floor, run.loop_count);
         plan.boss = Some(kind);
@@ -1731,8 +1627,7 @@ fn populate(
         }
     } else {
         match run.area {
-            // Upstream: the Pizza Sewers dead-end room is guarded by the
-            // Frog Queen (secret visits are single-floor here).
+
             AreaId::PizzaSewers => plan.boss = Some(EnemyKind::FrogQueen),
             AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
             AreaId::Labs if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Technomancer),
@@ -1743,15 +1638,11 @@ fn populate(
         }
     }
 
-    // Palace throne room set piece (route floor 15)
     let rf = ((run.floor.max(1) - 1) % 15) + 1;
     if rf == 15 && !crate::game::secret_areas::is_secret_area(run.area) {
         populate_throne_room(run, plan);
     }
 
-    // scrReplacePropWithChest fallback: if walker produced no Weapon/Ammo,
-    // convert the furthest solid prop dist>160px into that chest kind.
-    // Skipped on campfire/vault/HQ-last where GML spawns zero chests.
     let is_no_chest_area = matches!(
         run.area,
         crate::game::areas::AreaId::Campfire
@@ -1766,7 +1657,7 @@ fn populate(
             .any(|c| matches!(c, ChestSpawn::Weapon(_)));
         let has_ammo = plan.chests.iter().any(|c| matches!(c, ChestSpawn::Ammo(_)));
         if !has_weapon || !has_ammo {
-            // Furthest solid prop beyond 160px.
+
             let mut best: Option<(f32, usize)> = None;
             for (i, (_, p)) in plan.props.iter().enumerate() {
                 let d2 = p.length_squared();
@@ -1789,14 +1680,9 @@ fn populate(
         }
     }
 
-    // Chest trimming (scrPopChests): keep the furthest of each kind.
     trim_chests(&mut plan.chests);
 }
 
-/// Loop-only elite substitutions appended to an area's spawn table.
-///
-/// Weighted entries (`kind, weight`) are expanded into repeated pick
-/// candidates by the enemy pass.
 fn apply_loop_elite_substitutions(
     table: &mut Vec<(EnemyKind, usize)>,
     area: AreaId,
@@ -1810,7 +1696,7 @@ fn apply_loop_elite_substitutions(
 
     match area {
         AreaId::Desert => {
-            // Upstream loop Desert: scorpions, jungle flies, melee bandits, snipers.
+
             table.push((EnemyKind::Scorpion, 4 + l * 2));
             table.push((EnemyKind::JungleFly, 3 + l));
             table.push((EnemyKind::MeleeBandit, 3 + l));
@@ -1820,13 +1706,13 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Sewers => {
-            // Upstream loop Sewers: ratkings and buff gators move in.
+
             table.push((EnemyKind::Ratking, 4 + l * 2));
             table.push((EnemyKind::BuffGator, 3 + l));
             table.push((EnemyKind::IdpdShield, 2 + l));
         }
         AreaId::Scrapyards => {
-            // Upstream loop Scrapyards: snipers, salamanders, buff gators.
+
             table.push((EnemyKind::Sniper, 4 + l * 2));
             table.push((EnemyKind::MeleeBandit, 3 + l));
             table.push((EnemyKind::Salamander, 2 + l));
@@ -1836,7 +1722,7 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::CrystalCaves => {
-            // Upstream loop Caves: freaks + lightning crystals join the nests.
+
             table.push((EnemyKind::RhinoFreak, 4 + l * 2));
             table.push((EnemyKind::ExploFreak, 3 + l));
             table.push((EnemyKind::LightningCrystal, 3 + l));
@@ -1845,7 +1731,7 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::FrozenCity => {
-            // Upstream loop City: tanks, dog/explo guardians, necromancers.
+
             table.push((EnemyKind::SnowTank, 4 + l));
             table.push((EnemyKind::DogGuardian, 3 + l));
             table.push((EnemyKind::ExploGuardian, 3 + l));
@@ -1855,7 +1741,7 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Labs => {
-            // Upstream loop Labs: ratkings, rhino/explo freak packs.
+
             table.push((EnemyKind::Ratking, 4 + l));
             table.push((EnemyKind::RhinoFreak, 4 + l * 2));
             table.push((EnemyKind::ExploFreak, 4 + l));
@@ -1864,8 +1750,7 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Palace => {
-            // Upstream loop Palace: snipers, explo freaks, jungle bandits,
-            // and rare IDPD popo-freak portal squads (IDPDSpawn).
+
             table.push((EnemyKind::Sniper, 3 + l));
             table.push((EnemyKind::ExploFreak, 3 + l));
             table.push((EnemyKind::JungleBandit, 3 + l * 2));
@@ -1880,7 +1765,6 @@ fn apply_loop_elite_substitutions(
     }
 }
 
-/// Expanded pick candidates for the current floor's route area.
 fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
     let area = match area_num {
         1 => AreaId::Desert,
@@ -1905,10 +1789,8 @@ fn loop_elite_candidates(area_num: i32, loop_count: u32) -> Vec<EnemyKind> {
     out
 }
 
-/// Upstream GameCont.hard (GameCont/Create_0 hard=0, Other_5 hard+=1 per area clear, loops>=2 hardgot).
-/// GML scrAreaGetDifficulty: sub + loops*16 + sum(maxsub); loop term is 16.
 pub fn game_hard(run: &Run) -> f32 {
-    let floors_cleared = run.floor.saturating_sub(1) as f32; // areas cleared before current floor
+    let floors_cleared = run.floor.saturating_sub(1) as f32;
     let loops = run.loop_count as f32;
     (floors_cleared + loops * 16.0).max(1.0)
 }
@@ -1989,14 +1871,11 @@ fn walls_cover_tile(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: 
 }
 
 fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
-    // Palace-last: GML hardcoded rect already in floor_cells. Keep sparse:
-    // remove clutter traps/mines, clear trash, place inactive generators +
-    // ThroneStatue rows + Throne boss.
+
     plan.props
         .retain(|(k, _)| !matches!(k, PropKind::Mine | PropKind::FireTrap));
     plan.enemies.clear();
 
-    // 4x generators near the throne end (gameplay-equivalent positions).
     let gens = [
         Vec2::new(-220.0, 120.0),
         Vec2::new(220.0, 120.0),
@@ -2006,7 +1885,7 @@ fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
     for p in gens {
         plan.props.push((PropKind::BigGenerator, p));
     }
-    // ThroneStatue every ~5 rows along the hall (GML palace-last).
+
     for i in 0..9 {
         let y = -320.0 + i as f32 * 80.0;
         plan.props.push((PropKind::ThroneStatue, Vec2::new(0.0, y)));
@@ -2015,10 +1894,6 @@ fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
     plan.boss_count = 1;
 }
 
-/// GML scrPopChests Open Mind bonus: `repeat (open_mind * 2)` extra chests
-/// of random kind. Applied AFTER trim (which keeps one of each kind) at the
-/// two production gen sites - never on portal open. Skipped where GML spawns
-/// zero chests (campfire/vault/HQ-last).
 pub fn apply_open_mind_bonus(
     plan: &mut LevelPlan,
     area: crate::game::areas::AreaId,
@@ -2035,7 +1910,7 @@ pub fn apply_open_mind_bonus(
         let idx = rng.random_range(0..plan.floor_cells.len());
         let (cx, cy) = plan.floor_cells[idx];
         let pos = cell_center_px(cx, cy);
-        // GML choose(1, 2, 3): weapon / ammo / rad.
+
         match rng.random_range(0..3) {
             0 => plan.chests.push(ChestSpawn::Weapon(pos)),
             1 => plan.chests.push(ChestSpawn::Ammo(pos)),
@@ -2077,8 +1952,6 @@ fn trim_chests(chests: &mut Vec<ChestSpawn>) {
     }
 }
 
-// Spawning
-
 fn sprite_frames(catalog: &AssetCatalog, path: &str) -> usize {
     catalog
         .anims
@@ -2099,9 +1972,6 @@ fn wall_hash(seed: u64, wx: i32, wy: i32, salt: u64) -> u64 {
     x ^ (x >> 31)
 }
 
-/// Deterministic per-floor seed chain (gameplay-equivalent): each floor's
-/// gen_seed derives from the previous seed + floor + area, so re-entering
-/// the same floor/area replays the same layout instead of fresh random.
 pub fn derive_floor_seed(prev: u64, floor: u32, area: u8, loop_count: u32) -> u64 {
     let mut x = prev
         .wrapping_add(floor as u64)
@@ -2116,8 +1986,6 @@ pub fn derive_floor_seed(prev: u64, floor: u32, area: u8, loop_count: u32) -> u6
     x ^ (x >> 31)
 }
 
-/// Seed-stable prop variant/flip from gen_seed + position (replaces
-/// non-deterministic rand::rng() so the same gen_seed replays same props).
 fn prop_hash_pick(seed: u64, pos: Vec2, salt: u64, n: usize) -> usize {
     if n <= 1 {
         return 0;
@@ -2140,7 +2008,7 @@ fn wy_of(pos: Vec2) -> i32 {
 }
 
 fn wall_body_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &str) -> usize {
-    // Wall/Create_0 image_index
+
     let raw = if wall_hash(seed, wx, wy, 0x11) % 150 == 0 {
         3
     } else {
@@ -2176,8 +2044,7 @@ fn area_sprites(
     &'static str,
     &'static str,
 ) {
-    // (floor, bot, top, out, trans, ground decal)
-    // Upstream sprite families are named by _area id.
+
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
         3 => (
@@ -2247,9 +2114,6 @@ fn area_sprites(
     }
 }
 
-/// Secret areas use their own tile families (100-series art); any slot whose
-/// PNG was not imported falls back to the route family so `sprite_exact`
-/// never hits its missing-asset panic.
 pub(crate) fn area_sprites_for_run(
     run: &Run,
     catalog: &AssetCatalog,
@@ -2355,16 +2219,12 @@ pub fn spawn_level(
     let cols = (ARENA_W / TILE) as i32;
     let rows = (ARENA_H / TILE) as i32;
 
-    // Publish walkable mask.
     *mask = FloorMask {
         cells: plan.floor_cells.iter().copied().collect(),
         cols,
         rows,
     };
 
-    // Outside / void ring beyond walls (upstream Outside + floorex).
-    // Fill a bounding pad around the level with dark exterior tiles so the
-    // area beyond walls matches the GM rewrite instead of empty camera void.
     {
         let (min_c, max_c) = {
             let mut minx = i32::MAX;
@@ -2391,7 +2251,7 @@ pub fn spawn_level(
             3 => "images/sprFloor0.png",
             _ => "images/sprFloor1.png",
         };
-        // Prefer dedicated exterior if imported.
+
         let outside_png = if catalog.has("images/sprFloorEx1.png") {
             "images/sprFloorEx1.png"
         } else {
@@ -2404,7 +2264,7 @@ pub fn spawn_level(
                 }
                 let (wx, wy) = cell_center_i(cx, cy);
                 let mut spr = sprite_exact(catalog, asset_server, outside_png);
-                // Dim exterior so walls read clearly (GM draws Outside darker).
+
                 spr.color = Color::srgb(0.45, 0.45, 0.48);
                 commands.spawn((
                     GameCleanup,
@@ -2416,7 +2276,6 @@ pub fn spawn_level(
         }
     }
 
-    // Floors.
     for &(cx, cy) in &plan.floor_cells {
         let (wx, wy) = cell_center_i(cx, cy);
         commands.spawn((
@@ -2427,7 +2286,6 @@ pub fn spawn_level(
         ));
     }
 
-    // Detail decals.
     for pos in &plan.details {
         commands.spawn((
             GameCleanup,
@@ -2437,7 +2295,6 @@ pub fn spawn_level(
         ));
     }
 
-    // Bones strips (16px pieces, mirrored halves).
     for (pos, flip) in &plan.bones {
         commands.spawn((
             GameCleanup,
@@ -2450,15 +2307,6 @@ pub fn spawn_level(
         ));
     }
 
-    // Walls - faithful to objects/Wall/Create_0 + Top draw:
-    //
-    // GM instance (x,y) = top-left of 16×16 (mskWall).
-    // - sprWallNOut @ (x,y) origin (4,12)  → extends past the ground edge
-    // - sprWallNBot @ (x,y) origin (0,0)   → only if place_meeting(x, y+16, Floor)
-    // - sprWallNTop @ (x, y-8) origin (0,0)→ always, 8px "up" the screen
-    //
-    // Bevy lattice is y-up; screen-south (GM +y) is −Bevy y.
-
     let floor_set: std::collections::HashSet<(i32, i32)> =
         plan.floor_cells.iter().copied().collect();
     let wall_set: std::collections::HashSet<(i32, i32)> = {
@@ -2470,23 +2318,20 @@ pub fn spawn_level(
     };
 
     let mut all_walls: Vec<(i32, i32)> = wall_set.iter().copied().collect();
-    // Stable order for determinism
+
     all_walls.sort_unstable();
 
     for (wx, wy) in all_walls {
         let c = wall_center(wx, wy);
-        // GM draw point (top-left of 16×16), mapped into Bevy y-up.
-        // Top edge of cell = high Bevy y.
+
         let gm_draw = wall_top_left(wx, wy);
 
         let body_frame = wall_body_frame(catalog, run.gen_seed, wx, wy, wall_bot_png);
         let top_frame = wall_top_frame(catalog, run.gen_seed, wx, wy, wall_top_png);
         let out_frame = wall_out_frame(catalog, run.gen_seed, wx, wy, wall_out_png);
 
-        // place_meeting(x, y+16, Floor) in GM y-down = one lattice step
-        // screen-south = Bevy wy - 1.
         let floor_south = {
-            // Probe center of the 16px cell immediately south on screen.
+
             let probe = Vec2::new(c.x, c.y - WALL_PX);
             let owner = (
                 (probe.x / TILE).floor() as i32,
@@ -2495,11 +2340,8 @@ pub fn spawn_level(
             floor_set.contains(&owner)
         };
 
-        // Visuals first so they can be linked to the solid via WallVisuals.
         let mut parts: Vec<Entity> = Vec::with_capacity(3);
 
-        // sprWall*Out is 24×32, origin (4,12). Drawing at GM (x,y) makes it
-        // hang 4px past each side and 12px "above" the wall top-left.
         if catalog.has(wall_out_png) {
             let (spr, tf) = sprite_at_gm_origin(
                 catalog,
@@ -2526,7 +2368,6 @@ pub fn spawn_level(
             parts.push(e);
         }
 
-        // Bevy y-up: screen-north = +y → gm_draw + (0, +8).
         if catalog.has(wall_top_png) {
             let top_draw = gm_draw + Vec2::new(0.0, 8.0);
             let (spr, tf) = sprite_at_gm_origin(
@@ -2541,7 +2382,6 @@ pub fn spawn_level(
             parts.push(e);
         }
 
-        // Collision body (16px solid) at cell center.
         let wall_e = commands
             .spawn((
                 GameCleanup,
@@ -2558,20 +2398,15 @@ pub fn spawn_level(
                 Transform::from_xyz(c.x, c.y, -30.0),
             ))
             .id();
-        // Outer ring walls preferentially break for boss intros / generators.
+
         if is_screen_end_wall(wx, wy, &floor_set) {
             commands.entity(wall_e).insert(ScreenEnd);
         }
     }
 
-    // TopSmall / Trans fill (objects/Top + TopSmall):
-    // For each floor tile, stamp 4× 16px candidates; keep only cells that are
-    // neither Floor nor Wall. Upstream sprite = sprWallNTrans (often invisible
-    // collision / soft top - draw when art exists so the rim reads solid).
-
     if catalog.has(wall_trans_png) {
         for &(cx, cy) in &plan.floor_cells {
-            // Floor top-left in Bevy y-up.
+
             let ftl = Vec2::new(cx as f32 * TILE, (cy as f32 + 1.0) * TILE);
             for (ox, oy) in [(0.0, 0.0), (16.0, 0.0), (0.0, -16.0), (16.0, -16.0)] {
                 let p = ftl + Vec2::new(ox, oy);
@@ -2594,7 +2429,6 @@ pub fn spawn_level(
         }
     }
 
-    // Props.
     for (kind, pos) in &plan.props {
         spawn_prop(
             commands,
@@ -2607,11 +2441,8 @@ pub fn spawn_level(
         );
     }
 
-    // Secret entrances (destructible markers; destroying one queues the
-    // secret via the SecretEntrance component).
     spawn_secret_entrances(commands, catalog, asset_server, run);
 
-    // Chests.
     for chest in &plan.chests {
         let (kind, pos) = match *chest {
             ChestSpawn::Weapon(p) => (ChestKind::Weapon, p),
@@ -2625,7 +2456,6 @@ pub fn spawn_level(
         }
     }
 
-    // Enemies.
     for (kind, pos) in &plan.enemies {
         crate::game::enemies::spawn_enemy_at(
             commands,
@@ -2641,8 +2471,7 @@ pub fn spawn_level(
     if let Some(kind) = plan.boss {
         match kind {
             EnemyKind::BigBandit | EnemyKind::BigBanditLoop => {
-                // Upstream: loop_count *2 simultaneous (L1→2, L2→4…); each
-                // bursts from a wall after a staggered kill fraction.
+
                 let n = plan.boss_count.max(1);
                 for i in 0..n {
                     commands.spawn((
@@ -2658,7 +2487,7 @@ pub fn spawn_level(
                 }
             }
             EnemyKind::BigDog | EnemyKind::BigDogLoop => {
-                // Sleeping opposite side of the map.
+
                 crate::game::enemies::spawn_enemy_at(
                     commands,
                     catalog,
@@ -2694,7 +2523,6 @@ pub fn spawn_level(
         }
     }
 
-    // Throne carpet (visual + laser trigger volume) when Throne is the boss.
     if matches!(plan.boss, Some(EnemyKind::Throne)) {
         commands.spawn((
             GameCleanup,
@@ -2711,7 +2539,6 @@ pub fn spawn_level(
         ));
     }
 
-    // Crown Vault: a crown pedestal near the center (pick on contact).
     if run.area == AreaId::CrownVault {
         let pool = [
             CrownKind::Life,
@@ -2741,8 +2568,6 @@ pub fn spawn_level(
     }
 }
 
-/// Destructible secret-entrance markers for the current area/floor.
-/// Destroying one queues its secret target (see combat's prop-death hook).
 fn spawn_secret_entrances(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -2750,28 +2575,28 @@ fn spawn_secret_entrances(
     run: &Run,
 ) {
     let maybe = match (run.area, run.floor_in_area) {
-        // Sewers manhole.
+
         (AreaId::Sewers, _) => Some((
             SecretTarget::PizzaSewers,
             "images/sprPipe.png",
             Vec2::new(220.0, -120.0),
             28.0,
         )),
-        // Proto/crown statue appears on the stage before each boss floor.
+
         (AreaId::Desert, 2) | (AreaId::Scrapyards, 2) | (AreaId::FrozenCity, 2) => Some((
             SecretTarget::CrownVault,
             "images/sprOldGuardianStatue.png",
             Vec2::new(-240.0, 160.0),
             34.0,
         )),
-        // Y.V. Mansion hook in Scrapyards.
+
         (AreaId::Scrapyards, 1) => Some((
             SecretTarget::YvMansion,
             "images/sprCarIdle.png",
             Vec2::new(260.0, 140.0),
             36.0,
         )),
-        // Jungle hook in Frozen City.
+
         (AreaId::FrozenCity, 1) => Some((
             SecretTarget::Jungle,
             "images/sprBushIdle.png",
@@ -2785,7 +2610,6 @@ fn spawn_secret_entrances(
         return;
     };
 
-    // HP scales with loop (upstream proto statue tanks).
     let hp = if matches!(target, SecretTarget::CrownVault | SecretTarget::Vault) {
         120 + run.loop_count as i32 * 12
     } else {
@@ -2811,7 +2635,7 @@ fn spawn_secret_entrances(
         }
         SecretTarget::CrownVault | SecretTarget::Vault => {
             ec.insert(ProtoStatue);
-            // Four guards around the statue (upstream vault entrance).
+
             let guard = if run.area == AreaId::FrozenCity {
                 EnemyKind::SnowBandit
             } else {
@@ -2917,7 +2741,7 @@ fn spawn_prop(
                         "images/sprFireTrap.png",
                         "images/sprFireTrapIdle.png",
                         "images/sprTorchFire.png",
-                        // Fix: fallback to existing Torch and Flame assets (WAD has sprTorch but not FireTrap)
+
                         "images/sprTorch.png",
                         "images/sprFlameBall.png",
                     ],
@@ -3074,7 +2898,7 @@ fn spawn_prop(
             Vec2::splat(24.0),
             24.0,
             1,
-            // Upstream inherits Barrel: hp=1, explodes on death.
+
             true,
             false,
             Some(PropDeathEffect::legacy_barrel()),
@@ -3148,7 +2972,7 @@ fn spawn_prop(
         ),
 
         PropKind::BigGenerator => {
-            // Upstream: max_hp 230, or 50 if loops>0 (Create_0.gml)
+
             let hp = if run.loop_count == 0 { 230 } else { 50 };
             (
                 &["images/sprBigGenerator.png"],
@@ -3466,7 +3290,7 @@ fn spawn_prop(
             .find(|p| catalog.has(p))
             .unwrap_or(candidates[0])
     } else {
-        // Seed-stable variant pick (was rand::rng, broke seed lock).
+
         let idx = prop_hash_pick(run.gen_seed, pos, 0x52, existing_idles.len());
         existing_idles[idx]
     };
@@ -3598,9 +3422,6 @@ pub fn is_boss_floor(floor: u32) -> bool {
     is_boss_subarea(floor)
 }
 
-/// Loop-aware boss selection: floors 3/7/11 use stronger variants from
-/// loop 1 onward; 15 stays Throne because the campfire/Throne II path owns
-/// the loop gate.
 pub fn boss_for_floor_and_loop(floor: u32, loop_count: u32) -> EnemyKind {
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
@@ -3615,7 +3436,6 @@ pub fn boss_for_floor_and_loop(floor: u32, loop_count: u32) -> EnemyKind {
     }
 }
 
-/// Upstream: Big Bandits on loop = loop_count * 2 (L1→2, L2→4, …). Pre-loop = 1.
 pub fn big_bandit_count(loop_count: u32) -> u32 {
     if loop_count == 0 {
         1
@@ -3624,7 +3444,6 @@ pub fn big_bandit_count(loop_count: u32) -> u32 {
     }
 }
 
-/// Floor-only convenience wrapper (loop derived from global floor).
 #[allow(dead_code)]
 pub fn boss_for_floor(floor: u32) -> EnemyKind {
     boss_for_floor_and_loop(floor, (floor.max(1) - 1) / 15)
@@ -3659,29 +3478,25 @@ pub fn world_of(floor: u32) -> u32 {
 }
 
 pub fn difficulty_multiplier(floor: u32) -> f32 {
-    // GML enemy/Create_0: max_hp *= 1 + loops/20. Keep tiny intra-area ramp.
+
     let loop_n = ((floor.max(1) - 1) / 15) as f32;
     let rf = ((floor.max(1) - 1) % 15) as f32;
     1.0 + loop_n * 0.05 + rf * 0.015
 }
 
-/// Clamp into the generated mask bounds (secondary safety net).
 pub fn clamp_to_arena(pos: &mut Vec3, radius: f32) {
     pos.x = pos.x.clamp(-ARENA_W / 2.0 + radius, ARENA_W / 2.0 - radius);
     pos.y = pos.y.clamp(-ARENA_H / 2.0 + radius, ARENA_H / 2.0 - radius);
 }
 
-/// Convert a broken 16px wall lattice cell into walkable floor (32px owner).
 pub fn floor_cell_for_wall(wx: i32, wy: i32) -> (i32, i32) {
     (wx.div_euclid(2), wy.div_euclid(2))
 }
 
-/// Make a broken wall's owner tile walkable in the floor mask.
 pub fn expand_floor_for_wall(mask: &mut FloorMask, wx: i32, wy: i32) {
     mask.cells.insert(floor_cell_for_wall(wx, wy));
 }
 
-/// World position -> wall lattice cell.
 pub fn wall_cell_at(pos: Vec2) -> (i32, i32) {
     (
         (pos.x / WALL_PX).floor() as i32,
@@ -3689,9 +3504,6 @@ pub fn wall_cell_at(pos: Vec2) -> (i32, i32) {
     )
 }
 
-/// Generic over the caller's prop-query filter so systems that must be
-/// statically disjoint from an `&mut Transform` enemy/player query (boss AI,
-/// etc.) can pass extra `Without<T>` filters.
 pub fn resolve_prop_collision<F>(
     pos: &mut Vec3,
     radius: f32,
@@ -3724,7 +3536,7 @@ pub fn circle_hits_prop(
 ) -> bool {
     for (_, prop, tf, _) in props.iter() {
         if !prop.destructible && prop.hp >= 9999 {
-            // Indestructible decor still blocks bullets.
+
         }
         let center = tf.translation.truncate();
         let half = prop.size / 2.0;
@@ -3774,7 +3586,7 @@ mod tests {
 
     #[test]
     fn bosses_map_to_area_ends() {
-        // First cycle uses base bosses.
+
         assert_eq!(boss_for_floor_and_loop(3, 0), EnemyKind::BigBandit);
         assert_eq!(boss_for_floor_and_loop(7, 0), EnemyKind::BigDog);
         assert_eq!(boss_for_floor_and_loop(11, 0), EnemyKind::LilHunter);
@@ -3795,7 +3607,7 @@ mod tests {
 
     #[test]
     fn floor_derived_boss_selection_stays_consistent() {
-        // boss_for_floor derives loop from global floor.
+
         assert_eq!(boss_for_floor(3), EnemyKind::BigBandit);
         assert_eq!(boss_for_floor(18), EnemyKind::BigBanditLoop);
         assert_eq!(boss_for_floor(22), EnemyKind::BigDogLoop);
@@ -3805,12 +3617,12 @@ mod tests {
 
     #[test]
     fn loop_sewers_and_labs_get_exclusive_bosses() {
-        let mut run = run_for(4); // Sewers 2-1
+        let mut run = run_for(4);
         run.loop_count = 1;
         let plan = generate_level(&run);
         assert_eq!(plan.boss, Some(EnemyKind::Mom));
 
-        let mut run = run_for(12); // Labs 6-1
+        let mut run = run_for(12);
         run.loop_count = 1;
         let plan = generate_level(&run);
         assert_eq!(plan.boss, Some(EnemyKind::Technomancer));
@@ -3853,9 +3665,8 @@ mod tests {
 
     #[test]
     fn pizza_sewers_boss_floor_hosts_frog_queen() {
-        // Upstream: the Pizza Sewers dead-end is guarded by FrogQueen,
-        // regardless of which route boss the floor number maps to.
-        let mut run = run_for(6); // route floor 6 → sewers boss sub-area
+
+        let mut run = run_for(6);
         run.area = crate::game::areas::AreaId::PizzaSewers;
         let plan = generate_level(&run);
         assert_eq!(plan.boss, Some(EnemyKind::FrogQueen));
@@ -3885,7 +3696,7 @@ mod tests {
         let mut spiders = false;
         let mut crystals = false;
         for seed in 0..64u64 {
-            let mut run = run_for(8); // Crystal Caves
+            let mut run = run_for(8);
             run.gen_seed = seed;
             let plan = generate_level(&run);
             for (kind, _) in &plan.enemies {
@@ -3923,17 +3734,16 @@ mod tests {
             } else {
                 assert!(plan.boss.is_some(), "floor {floor}: expected boss");
             }
-            // Walls never overlap floors, and every tile's 12-cell ring is
-            // sealed (no dark gaps between wall masses and floors).
+
             const RING: [(i32, i32); 12] = [
                 (-1, -1),
                 (0, -1),
                 (1, -1),
-                (2, -1), //
+                (2, -1),
                 (2, 0),
-                (2, 1), //
+                (2, 1),
                 (-1, 0),
-                (-1, 1), //
+                (-1, 1),
                 (-1, 2),
                 (0, 2),
                 (1, 2),
@@ -3983,7 +3793,7 @@ mod loop_boss_spawn_tests {
     fn desert_loop_gets_pressure_units() {
         let mut table = vec![(EnemyKind::Bandit, 10)];
         apply_loop_elite_substitutions(&mut table, AreaId::Desert, 1);
-        // Upstream loop Desert: scorpions, melee bandits and snipers.
+
         assert!(table.iter().any(|(k, _)| *k == EnemyKind::Scorpion));
         assert!(table.iter().any(|(k, _)| *k == EnemyKind::MeleeBandit));
         assert!(table.iter().any(|(k, _)| *k == EnemyKind::Sniper));
@@ -3998,7 +3808,7 @@ mod loop_boss_spawn_tests {
 
     #[test]
     fn hyper_applies_to_looped_crystal_caves_only() {
-        // gml_area(floor)==4 corresponds to route floor 8 (+15 per loop).
+
         assert_eq!(gml_area(8), 4);
         assert_eq!(gml_area(23), 4);
         assert_ne!(gml_area(7), 4);
@@ -4024,7 +3834,7 @@ mod environment_gen_tests {
 
     #[test]
     fn functional_environment_kinds_are_non_claiming() {
-        // These never claim prop_tiles, so enemies/chests can share the cell.
+
         for kind in [
             PropKind::Cobweb,
             PropKind::IcePatch,

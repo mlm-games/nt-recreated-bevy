@@ -40,7 +40,7 @@ fn t(translations: &HashMap<String, String>, key: &str, fallback: &str) -> Strin
 #[derive(Clone, Debug)]
 pub enum UiAction {
     StartGame,
-    /// Main-menu PLAY: into the char-select campfire.
+
     MainMenuPlay,
     OpenSettings,
     OpenCredits,
@@ -55,42 +55,42 @@ pub enum UiAction {
     SaveSettings,
     NextLanguage,
     SetLanguage(String),
-    /// MenuOptions navigation: 0 Main, 1 Audio, 2 Video, 3 Game, 4 Controls, 5 Language
+
     SettingsCategory(u8),
     SettingsBack,
-    /// Pause confirmation: 0 MENU -> QuitToTitle, 1 RETRY -> Restart
+
     ShowPauseConfirm(u8),
     CancelPauseConfirm,
     ConfirmPause(u8),
     SelectCharacter(usize),
     SelectSkin(u8),
-    /// Toggle the char-select loadout panel (Menu.loadout_open).
+
     ToggleLoadout,
     CycleStartWeapon(i8),
     CycleStoredWeapon(i8),
     CycleCrown(i8),
-    /// Pick a specific crown slot in the open loadout grid.
+
     SelectCrown(u8),
     SelectMutation(usize),
     PickMutation(usize),
-    /// Toggle boolean setting by GML save key (e.g. "volume_3dsound", "visual_bloom")
+
     SettingToggle(String),
-    /// Set slider 0.0..1.0 (or 0..2 for screenshake) for key
+
     SettingSlider {
         key: String,
         value: f32,
     },
-    /// Cycle list setting (-1/1) for key
+
     SettingCycle {
         key: String,
         dir: i8,
     },
-    /// Direct input string commit (e.g. profile_name, player_color)
+
     SettingInput {
         key: String,
         value: String,
     },
-    /// Reset all options / erase progress disclaimers (from Game_Data)
+
     SettingResetOptions,
     SettingEraseProgress,
     SettingViewCredits,
@@ -157,8 +157,7 @@ pub fn compose_root(
             ZStack(Modifier::new().fill_max_size()).child(layers)
         }
         AppState::InGame => {
-            // GenCont / between-floor loading owns the screen completely.
-            // Do not draw HUD, pause, mutation, or death UI over it.
+
             if st.gen_active {
                 gen_cont_overlay(&st)
             } else {
@@ -225,8 +224,6 @@ pub fn compose_root(
     }
 }
 
-/// Wrap a panel so it sits centred inside the letterboxed NT GUI surface,
-/// matching sprite art placement across window sizes.
 fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
     let v = nt_view(st);
     Column(
@@ -252,9 +249,6 @@ fn nt_surface_wrap(st: &SharedUi, panel: View) -> View {
     )
 }
 
-/// Boot screen: ALL splash content (saving icon, Vlambeer card, logo AND the
-/// per-card text lines) is rendered Bevy-side in ui_art.rs so sprites and text
-/// share one visibility timeline. Repose renders nothing during Splash.
 fn splash_ui(_st: &SharedUi) -> View {
     ZStack(Modifier::new().fill_max_size())
 }
@@ -270,11 +264,7 @@ fn loading_ui(st: &SharedUi) -> View {
 }
 
 fn gen_cont_overlay(st: &SharedUi) -> View {
-    // GML GenCont/Draw_0 exact:
-    //   scrDrawSpiral() is WGSL vortex (already behind)
-    //   _progress = instance_number(Floor)/goal
-    //   _percentage = string_pad_zeroes(round(progress*100),2)+"%"
-    //   _text = loc_fmt("GenCont:Generating","GENERATING... %",pct) or Venuz "VERIFYING... %"
+
     let v = nt_view(st);
     let pct = st.gen_progress.clamp(0.0, 1.0);
     let pct_text = format!("GENERATING... {}%", (pct * 100.0).round() as u32);
@@ -315,7 +305,7 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                         .color(col(125, 131, 141))
                         .single_line(),
                 ),
-                // GML: draw_text_nt(_cx, _cy+24, "@s"+tip) => 144
+
                 Column(
                     Modifier::new()
                         .fill_max_size()
@@ -364,10 +354,6 @@ fn roadmap_text(st: &SharedUi) -> String {
     format!("{}-{}  LOOP {}", st.world, st.floor_in_world, st.loop_count)
 }
 
-/// Full-screen scrim (~/temp Dialog scrim pattern): rendered as a direct
-/// child of the root `ZStack` (definite 800x600), OUTSIDE `AnimatedVisibility`.
-/// The inflow wrapper (`fill_max_width`, auto height) collapses `fill_max_size`
-/// percent children to h=0, so a dim inside the animated content never paints.
 fn scrim() -> View {
     Column(
         Modifier::new()
@@ -392,7 +378,7 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         ));
     }
     if let Some(confirm) = st.pause_confirm {
-        // GML confirmation: left=52 right=268 y=192 (bottom-48)
+
         let left_label = "BACK";
         let right_label = if confirm == 0 { "QUIT" } else { "RETRY" };
         let a_back = actions.clone();
@@ -427,7 +413,7 @@ fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
             true,
         ));
     } else {
-        // scrMakePauseButtons: left+45 topRow, left+60 bottomRow, right-68 topRow, right-78 bottomRow
+
         let a_menu = actions.clone();
         layers.push(bigname_button_at(
             "MENU".to_string(),
@@ -503,9 +489,7 @@ fn pause_panel(
 }
 
 fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML MenuOptions full fidelity: mirrors Other_20 category definitions.
-    // Categories: 0 Main, 1 Audio, 2 Video, 3 Video_Display, 4 Game, 5 Game_Profile, 6 Game_Color, 7 Game_Data, 8 Controls, 9 Controls_Remapping, 10 Controls_Prefs, 11 Controls_Experimental, 12 Language
-    // Draw mirrors Other_10 generic item loop (slider/switch/list/category/button).
+
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
     match st.settings_page {
@@ -550,7 +534,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         1 => {
-            // Audio: GML Audio category exact: Master/Music/Ambience/Sfx + 3dSound
+
             layers.push(nt_text_at(
                 "AUDIO".to_string(),
                 160.0,
@@ -635,7 +619,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         2 => {
-            // VIDEO: Crosshair(list), SideArt(list), Screenshake(slider), FreezeFrames(slider), Bloom(switch), Particles(switch), HideHUD(switch), PixelMode(list), DISPLAY category
+
             layers.push(nt_text_at(
                 "VIDEO".to_string(),
                 160.0,
@@ -645,7 +629,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 true,
             ));
             let mut y = 48.0;
-            // Crosshair list – values 0..3 placeholder (real sprCrosshair count)
+
             let cross = st.crosshair;
             layers.push(nt_text_at(
                 "CROSSHAIR".to_string(),
@@ -854,7 +838,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 )
             }));
             y += 18.0;
-            // DISPLAY SETTINGS category button
+
             let a_cat = actions.clone();
             layers.push(bigname_button_at(
                 "DISPLAY SETTINGS".to_string(),
@@ -876,7 +860,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         3 => {
-            // Video_Display
+
             layers.push(nt_text_at(
                 "DISPLAY".to_string(),
                 160.0,
@@ -929,7 +913,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         4 => {
-            // GAME
+
             layers.push(nt_text_at(
                 "GAME".to_string(),
                 160.0,
@@ -979,7 +963,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 }));
                 y += 18.0;
             }
-            // VIEW CREDITS button
+
             let a_cred = actions.clone();
             layers.push(bigname_button_at(
                 "VIEW CREDITS".to_string(),
@@ -990,7 +974,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 move || push(&a_cred, UiAction::SettingViewCredits),
             ));
             y += 20.0;
-            // subcategories
+
             let a_prof = actions.clone();
             layers.push(bigname_button_at(
                 "PROFILE".to_string(),
@@ -1032,7 +1016,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         8 => {
-            // CONTROLS (main)
+
             layers.push(nt_text_at(
                 "CONTROLS".to_string(),
                 160.0,
@@ -1077,7 +1061,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 }));
                 y += 18.0;
             }
-            // Gamepad type list
+
             let gt = st.gamepad_type;
             layers.push(nt_text_at(
                 "GAMEPAD STYLE".to_string(),
@@ -1198,7 +1182,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         5 => {
-            // Game_Profile
+
             layers.push(nt_text_at(
                 "PROFILE".to_string(),
                 160.0,
@@ -1263,7 +1247,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         6 => {
-            // Game_Color – RGB sliders via hex input stub + color preview
+
             layers.push(nt_text_at(
                 "COLOR".to_string(),
                 160.0,
@@ -1287,7 +1271,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 col(238, 239, 225),
                 true,
             ));
-            // For demo: tapping cycles a preset list via SettingInput
+
             let presets = ["FF0000", "00FF00", "0000FF", "", "FF00FF"];
             let cur = st.player_color_hex.clone();
             let idx = presets.iter().position(|p| *p == cur).unwrap_or(3);
@@ -1320,7 +1304,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         7 => {
-            // Game_Data
+
             layers.push(nt_text_at(
                 "DATA".to_string(),
                 160.0,
@@ -1358,7 +1342,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         9 => {
-            // Controls_Remapping_Keys – list keybinds (stub – GML has input capturing)
+
             layers.push(nt_text_at(
                 "REMAP".to_string(),
                 160.0,
@@ -1386,7 +1370,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 y += 18.0;
             }
             layers.push(nt_text_at(
-                "PRESS ANY KEY – WIP".to_string(),
+                "PRESS ANY KEY - WIP".to_string(),
                 160.0,
                 y,
                 &v,
@@ -1404,7 +1388,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         10 => {
-            // Controls_Preferences – 8 cprefs switches
+
             layers.push(nt_text_at(
                 "CHAR PREFS".to_string(),
                 160.0,
@@ -1456,7 +1440,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         11 => {
-            // Controls_Experimental
+
             layers.push(nt_text_at(
                 "EXPERIMENTAL".to_string(),
                 160.0,
@@ -1466,7 +1450,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 true,
             ));
             layers.push(nt_text_at(
-                "KEYBOARD MODE – WIP".to_string(),
+                "KEYBOARD MODE - WIP".to_string(),
                 160.0,
                 80.0,
                 &v,
@@ -1484,7 +1468,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         12 => {
-            // LANGUAGE full from earlier
+
             layers.push(nt_text_at(
                 "LANGUAGE".to_string(),
                 160.0,
@@ -1525,8 +1509,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
         }
         _ => {}
     }
-    // SAVE hint only on Audio where values changed? original saves on Back via scrOptionsUpdate.
-    // We keep explicit SAVE at bottom for Main? Use existing SaveSettings on Audio BACK? Keep implicit.
+
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
@@ -1538,7 +1521,7 @@ fn bigname_button_at(
     color: RColor,
     on_click: impl Fn() + 'static,
 ) -> View {
-    // GML draw_text_bigname with scale 0.65 – we use Silkscreen at ~10*s for bigname vs 7*s for normal
+
     let font_px = (10.0 * v.s).clamp(10.0, 140.0);
     let gw = 120.0;
     let gh = 22.0;
@@ -1634,7 +1617,7 @@ fn hitbox_at(x: f32, y: f32, w: f32, h: f32, v: &NtView, on_click: impl Fn() + '
 }
 
 fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML Credits object draws centered text at 320×240; we mirror with nt_text_at
+
     let v = nt_view(st);
     let a = actions.clone();
     let tr = &st.translations;
@@ -1694,11 +1677,11 @@ static NT_GOLD: RColor = RColor(245, 210, 92, 255);
 static NT_RED: RColor = RColor(221, 56, 45, 255);
 static NT_GREEN: RColor = RColor(72, 202, 96, 255);
 static NT_PURPLE: RColor = RColor(181, 86, 229, 255);
-#[allow(dead_code)] // palette completeness
+#[allow(dead_code)]
 static NT_BLUE: RColor = RColor(77, 151, 230, 255);
 
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // some fields only exercised by tests
+#[allow(dead_code)]
 struct HudMetrics {
     margin: f32,
     player_width: f32,
@@ -1796,7 +1779,7 @@ fn hp_fill_color(hp: i32, max_hp: i32) -> RColor {
     }
 }
 
-#[allow(dead_code)] // tested
+#[allow(dead_code)]
 fn boss_display_name(name: &str) -> String {
     if name.trim().is_empty() {
         "BOSS".to_string()
@@ -1891,16 +1874,7 @@ fn mutation_choice_card(
 }
 
 fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML LevCont/Draw_64 + Other_10 exact:
-    // - scrDrawSpiral() is the WGSL vortex quad (no dim)
-    // - bigname at (160,48) + appear slide, subtitle at (160,75) "@s" text
-    // - icons at y = view_height-21 = 219, x = center-(n-1)*half+idx*step
-    //   step = min(32, floor(320/(n+1))), half = step/2, scale = max(0.65, step/32)
-    // - SkillIcon draws sprSkillIcon[skill] at x,y+appeary-sign(selected) c_gray/c_white
-    // - selected description at (160,179) = view_height-61 (center middle)
-    // Bevy: vortex is separate quad; this layer provides text+hitboxes only;
-    // icons themselves are camera-anchored gm_sprite in ui_art::sync_mutation_icons
-    // at identical gui_x/y so Repose hitbox and sprite stay pixel-locked.
+
     let v = nt_view(st);
     let is_ultra = st
         .mutation_choices
@@ -1926,31 +1900,25 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     };
 
     let n = st.mutation_choices.len().max(1).min(8);
-    // LevCont/Other_10: step_size = min(32, floor(view_width/(num+1)))
-    // scale = max(0.65, step/32) – matches ui_art sync_mutation_icons
+
     let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
     let scale = (step / 32.0).max(0.65);
     let half = step * 0.5;
     let start_x = 160.0 - (n as f32 - 1.0) * half;
-    // GML icons at y = view_height-21 = 219, origin (12,16), 24x32 * scale
-    let icon_y = 219.0; // view_height -21
+
+    let icon_y = 219.0;
     let hit_w = 24.0 * scale;
     let hit_h = 32.0 * scale;
     let hit_y = icon_y - 16.0 * scale;
 
     let mut layers: Vec<View> = Vec::new();
 
-    // No dim – GML draws spiral over the paused view, not a black rect.
     layers.push(Column(
         Modifier::new()
             .fill_max_size()
             .background(RColor::from_rgba(0, 0, 0, 0)),
     ));
 
-    // GML LevCont/Draw_0: draw_text_bigname at (160,48) + appear, draw_text_nt at (160,75)
-    // after appear settles. Original uses sprLevelUpText/sprLevelUltraText bigname
-    // and loc'd subtitle (SELECT % MUTATIONS / PICK YOUR ULTRA MUTATION).
-    // We render at appear==0 so positions are exact final frame.
     layers.push(nt_text_at(title.to_string(), 160.0, 48.0, &v, accent, true));
     layers.push(nt_text_at(
         subtitle.to_string(),
@@ -1978,8 +1946,7 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         let a = actions.clone();
         let idx = i;
         let is_selected = st.mutation_selected == Some(i);
-        // GML SkillIcon/Mouse_4: first press selects (c_gray->c_white, sndHover), second press confirms
-        // No numbers, no border – just invisible hitbox matching sprite bbox scaled.
+
         let a2 = actions.clone();
         layers.push(
             Column(
@@ -2010,16 +1977,12 @@ fn mutation_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         );
     }
 
-    // GML SkillIcon/Draw_0 selected draws txt2 = "@wNAME#@sDESC" at
-    // (view_width/2, view_height-61) = (160,179) with fa_center/fa_middle,
-    // two lines (name white, desc small gray). Only when selected & appeary==0.
-    // Original shows nothing when nothing selected (icons just gray).
     if let Some(sel) = st
         .mutation_selected
         .and_then(|i| st.mutation_choices.get(i))
     {
         let (_, name, desc) = mutation_choice_parts(sel);
-        // Name white, desc gray – two separate centered lines as in GML # newline
+
         layers.push(nt_text_at(
             name.to_ascii_uppercase(),
             160.0,
@@ -2110,10 +2073,8 @@ fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         true,
     ));
 
-    // Mutations row – text fallback; sprite icons drawn in ui_art via death_mutation_ids if available
     if !st.death_mutation_ids.is_empty() {
-        // GML draws sprSkillIconHUD row; Bevy ui_art will handle icons if desired.
-        // Keep a subtle text fallback at 160,160 so Repose-only builds still show count.
+
         layers.push(nt_text_at(
             format!("MUTATIONS {}", st.death_mutation_ids.len()),
             160.0,
@@ -2141,7 +2102,6 @@ fn game_over_panel(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         true,
     ));
 
-    // Invisible full-screen click → QuitToTitle; keyboard R → StartGame handled in process_ui_actions
     layers.push(Column(
         Modifier::new().fill_max_size().clickable().on_click({
             let a = quit_actions.clone();
@@ -2161,7 +2121,7 @@ fn mk_button(label: &str, _bg: RColor, on_click: impl Fn() + 'static) -> View {
     )
 }
 
-#[allow(dead_code)] // retained for menu submodules / future panels
+#[allow(dead_code)]
 fn mk_button_colored(label: &str, bg: RColor, on_click: impl Fn() + 'static) -> View {
     FilledTonalButton(
         Modifier::new()
@@ -2188,8 +2148,7 @@ fn col(r: u8, g: u8, b: u8) -> RColor {
     RColor::from_rgba(r, g, b, 255)
 }
 
-/// Pill chip label (Floppy-Warriors reward_chip style).
-#[allow(dead_code)] // retained for title/settings/game-over panels
+#[allow(dead_code)]
 pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> View {
     Column(
         Modifier::new()
@@ -2213,8 +2172,7 @@ pub(crate) fn reward_chip(label: impl Into<String>, bg: RColor, fg: RColor) -> V
     )
 }
 
-/// Pill stat bar (Floppy-Warriors hud_stat_bar style).
-#[allow(dead_code)] // retained for title/settings/game-over panels
+#[allow(dead_code)]
 pub(crate) fn hud_stat_bar(width: f32, height: f32, frac: f32, fill: RColor) -> View {
     let f = frac.clamp(0.0, 1.0);
     let inner_w = if f <= 0.0 {
@@ -2248,9 +2206,6 @@ pub(crate) fn push(actions: &Arc<Mutex<Vec<UiAction>>>, a: UiAction) {
     }
 }
 
-/// The five big main-menu buttons (nt-rewrite `MainMenuButton`): PLAY,
-/// CO-OP, SETTINGS, STATS, QUIT - big pixel text centred at gui x=160,
-/// stacked 24 px apart from y=72. Hover tints c_uigray -> white.
 fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let v = nt_view(st);
     const LABELS: [(&str, i32); 5] = [
@@ -2271,7 +2226,7 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
 
     for (label, index) in LABELS {
         let gy = 72.0 + index as f32 * 24.0;
-        // CO-OP and STATS have no backend in this port yet: c_uidark, inert.
+
         let available = matches!(index, 0 | 2 | 4);
         let hovered = st.main_menu_hover == index;
         let color = if !available {
@@ -2281,7 +2236,7 @@ fn main_menu_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
         } else {
             col(153, 153, 153)
         };
-        // Hover lifts the row by 1 NT px (MainMenuButton/Draw_0).
+
         let lift = if hovered && available { 1.0 } else { 0.0 };
 
         let a = actions.clone();
@@ -2336,30 +2291,30 @@ fn hud_weapon_ammo(st: &SharedUi, slot: usize) -> i32 {
         || n.contains("sawed")
         || n.contains("flak")
     {
-        2 // shells
+        2
     } else if n.contains("crossbow")
         || n.contains("splinter")
         || n.contains("disc")
         || n.contains("seeker")
         || n.contains("bolt")
     {
-        3 // bolts
+        3
     } else if n.contains("grenade")
         || n.contains("bazooka")
         || n.contains("missile")
         || n.contains("launcher")
         || n.contains("nuke")
     {
-        4 // explosives
+        4
     } else if n.contains("laser")
         || n.contains("plasma")
         || n.contains("lightning")
         || n.contains("energy")
         || n.contains("flame")
     {
-        5 // energy
+        5
     } else {
-        1 // bullets
+        1
     };
 
     if ammo_index == 0 {
@@ -2369,14 +2324,10 @@ fn hud_weapon_ammo(st: &SharedUi, slot: usize) -> i32 {
     }
 }
 
-/// Original HUD text pass - everything scrDrawPlayerHUD draws as text,
-/// placed in NT GUI coordinates scaled into window space. Sprite art
-/// (health bar, fills, rad meter, ammo/weapon icons) lives in ui_art.rs.
 fn nt_hud_overlay(st: &SharedUi) -> View {
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
 
-    // Health string, centred at gui (67, 7).
     layers.push(nt_text_at(
         format!("{}/{}", st.hp.max(0), st.max_hp.max(0)),
         67.0,
@@ -2386,7 +2337,6 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
         true,
     ));
 
-    // Level number centred at gui (11, 16) with fa_middle until ultra.
     if st.level < 99 {
         layers.push(nt_text_at_ex(
             st.level.to_string(),
@@ -2395,14 +2345,10 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
             &v,
             col(255, 255, 255),
             true,
-            true, // middle_y
+            true,
         ));
     }
 
-    // Ammo counts left-aligned at (dx + 18, dy + 5) per weapon slot; the
-    // stored weapon renders in silver (c_silver) like upstream.
-    // GML scrDrawPlayerHUD draws this only `if _type != Ammo.None` -
-    // melee weapons show no count at all (not "0").
     for slot in 0..2usize {
         let amount = st.weapon_ammo.get(slot).copied().unwrap_or(-1);
         if amount < 0 {
@@ -2423,7 +2369,6 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
         ));
     }
 
-    // LOW HP warning at gui (110, 7), red.
     if st.hp <= 4 && st.hp != st.max_hp {
         layers.push(nt_text_at(
             "LOW HP".to_string(),
@@ -2438,9 +2383,6 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
-/// Window-space mapping of the 320x240 NT GUI surface: uniform pixel scale
-/// plus centered letterbox offsets. Matches ui_art::GuiMap exactly and, like
-/// GameMaker's GUI layer, is independent of gameplay camera zoom.
 pub(crate) struct NtView {
     pub s: f32,
     pub ox: f32,
@@ -2466,10 +2408,6 @@ pub(crate) fn nt_view(st: &SharedUi) -> NtView {
     }
 }
 
-/// Anchor text at NT GUI coords.
-/// - `centered`: fa_center / horizontal centre on `gx` (fa_top vertically
-///   unless `middle_y`)
-/// - `middle_y`: fa_middle vertical (used for the level number at (11,16))
 fn nt_text_at(text: String, gx: f32, gy: f32, v: &NtView, color: RColor, centered: bool) -> View {
     nt_text_at_ex(text, gx, gy, v, color, centered, false)
 }
@@ -2484,7 +2422,7 @@ fn nt_text_at_ex(
     middle_y: bool,
 ) -> View {
     let font_px = (7.0 * v.s).clamp(8.0, 96.0);
-    // Approximate fntM1 glyph box; Silkscreen ~1 em tall.
+
     let half_h = font_px * 0.5;
     let top = if middle_y {
         v.oy + gy * v.s - half_h
@@ -2493,12 +2431,11 @@ fn nt_text_at_ex(
     };
 
     let (left, box_w, align) = if centered {
-        // Width 2*gx so the box centre sits on gx (same trick as before),
-        // but clamp so very-left anchors still work.
+
         let w = (2.0 * gx * v.s).max(font_px);
         (v.ox + gx * v.s - w * 0.5, w, AlignItems::CENTER)
     } else {
-        // LEFT-ALIGNED: must start at gx (this was the HUD bug).
+
         (v.ox + gx * v.s, 200.0 * v.s, AlignItems::FLEX_START)
     };
 

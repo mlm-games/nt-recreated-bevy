@@ -27,7 +27,7 @@ impl Plugin for ScreensPlugin {
                         ];
                         c.insert_resource(AssetsLoading(handles));
                         progress.0 = 0.0;
-                        // Modular tip pool (game-utils LoadingTip) - mimics GenCont tip
+
                         tip.0 = "GENERATING... 0%".to_string();
                     },
                 )
@@ -54,17 +54,17 @@ fn tick_loading(
     mut tip: ResMut<LoadingTip>,
 ) {
     let Some(mut timer) = timer else { return };
-    // Modular progress via game-utils helper
+
     let prog = assets
         .as_ref()
         .map(|a| assets_progress(&a.0, &asset_server))
         .unwrap_or(1.0);
     progress.0 = prog;
-    // Update tip like GenCont: "GENERATING... XX%"
+
     tip.0 = format!("GENERATING... {}%", (prog * 100.0).round() as u32);
 
     if prog >= 1.0 && timer.0.tick(time.delta()).just_finished() {
-        // Loading -> InGame: simple fade, spiral stays via Loading state
+
         tr.begin_to_state(AppState::InGame);
     }
 }

@@ -1,12 +1,6 @@
-//! Authentic Repose title interface translated from the nt-rewrite objects
-//! (`Menu`, `CharSelect`, `GoButton`). Sprite pods live in `game/ui_art.rs`;
-//! this module owns input hitboxes and text overlays, placed on the same
-//! centered 320x240 NT GUI surface (`menus::nt_view`) that the sprites use.
-
 use super::*;
 use crate::game::content::{CHAR_SELECT_RACES, race_from_gml_id};
 
-/// Slot geometry mirrors Menu/Create_0; must agree with ui_art.rs.
 const POD_W: f32 = 16.0;
 const POD_H: f32 = 24.0;
 const SLOT_XSTART: f32 = 8.0;
@@ -53,8 +47,7 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
     };
 
     if st.loadout_open {
-        // Per-crown 28px hitboxes at the exact scrMenuDrawLoadout grid slots
-        // (point_in_circle r14 approximated as a square).
+
         let mut children = vec![
             zone(
                 238.0,
@@ -83,7 +76,7 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
                 UiAction::SelectCrown(crown_id),
             ));
         }
-        // Skin column: point_in_circle r10 per entry, count = live race.
+
         let skin_race = race_from_gml_id(st.selected_character)
             .map(|r| r as usize)
             .unwrap_or(0);
@@ -127,8 +120,6 @@ fn loadout_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) 
     }
 }
 
-/// scrCampfireMenuDrawCharText: the chosen mutant's big name plus their
-/// passive/active skill lines, anchored to the bottom-left letterbox.
 fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
     let race = crate::game::content::race_from_gml_id(st.selected_character);
     let Some(race) = race.filter(|r| *r != crate::game::content::RaceId::Random) else {
@@ -140,7 +131,6 @@ fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
     let active =
         crate::game::content::ability_name(crate::game::content::character_def(race).ability);
 
-    // text_appear: 2 hides skill lines until it decays (upstream textappear)
     if st.text_appear >= 2.0 {
         return Row(Modifier::new()
             .fill_max_size()
@@ -190,7 +180,6 @@ fn char_text_layer(st: &SharedUi, v: &NtView) -> View {
     )
 }
 
-/// One invisible click target per `CharSelect` instance (CharSelect/Mouse_4).
 fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) -> View {
     let count = CHAR_SELECT_RACES.len();
     let step = slot_step(count);
@@ -202,7 +191,7 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
         let a = actions.clone();
         cells.push(Column(
             Modifier::new()
-                .width(step * v.s) // match the sprite pitch, not just POD_W
+                .width(step * v.s)
                 .height(POD_H * v.s)
                 .clickable_ext(true, None, None, move || {
                     push(&a, UiAction::SelectCharacter(race_id));
@@ -210,7 +199,6 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
         ));
     }
 
-    // The whole strip is one row; every pod rect forwards its own race id.
     let _selected = st.selected_character;
     Row(Modifier::new()
         .fill_max_size()
@@ -225,12 +213,11 @@ fn char_select_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtVi
     .child(cells)
 }
 
-/// GoButton/Mouse_4: clicking the visible button starts the run.
 fn go_button_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView) -> View {
     let count = CHAR_SELECT_RACES.len();
     let step = slot_step(count);
     let last_x = SLOT_XSTART + step * (count - 1) as f32;
-    // Menu/Create_0 placement.
+
     let gx = last_x + step + 2.0;
     let gy = 240.0 - 36.0 + (19.0_f32 / 2.0).floor() - 2.0;
     const GO_W: f32 = 31.0;
@@ -262,7 +249,6 @@ fn go_button_layer(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>, v: &NtView
     ))
 }
 
-/// Menu/Draw_74 tooltip: race name above the pointed pod.
 fn tooltip_layer(st: &SharedUi, v: &NtView) -> View {
     let hover = st.title_hover_race;
     if hover < 0 || hover == st.selected_character as i32 {
@@ -275,7 +261,6 @@ fn tooltip_layer(st: &SharedUi, v: &NtView) -> View {
         None => return Column(Modifier::new().width(0.001).height(0.001)),
     };
 
-    // Center the pill over the pointed pod's bbox centre.
     let step = slot_step(CHAR_SELECT_RACES.len());
     let pod_cx_nt = SLOT_XSTART + hover as f32 * step + POD_W / 2.0;
     let pill_w = 120.0 * v.s;

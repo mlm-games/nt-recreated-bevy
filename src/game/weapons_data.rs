@@ -1,17 +1,3 @@
-//! Weapons registry extracted from `scrWeapons.gml` (maxwep = 128)
-//! Source: /home/ymsr/Downloads/nt-recreated-public-rewrite/scripts/scrWeapons/scrWeapons.gml
-//!
-//! This file defines a const array of all 128 weapons (+ index 0 empty) with
-//! exact `wep_load`, `wep_type`, `wep_cost`, `wep_area`, `wep_auto`, `wep_name`,
-//! `wep_text`, `wep_gold`, `wep_rads`, `wep_mele`, `wep_naim`, `wep_sprt`, `wep_swap`, `wep_lout`
-//! for direct use in Bevy `src/game/content.rs`.
-//! Index matches GML id (WEAPONS[0] is empty placeholder, WEAPONS[1] is REVOLVER, ... WEAPONS[128] is ELECTRIC GUITAR).
-//! All values were verified byte-for-byte against the GML file on 2026-08-21.
-//! `wep_load` is firing delay in frames, `wep_area` = -1 means never random-dropped.
-//! `wep_type` maps to Ammo enum (0=None/melee, 1=Bullets, 2=Shells, 3=Bolts, 4=Explosives, 5=Energy).
-//! `wep_mele` final value reflects the post-init loop `if wep_type==0 then mele=true` (lines 1409-1411).
-//! `wep_naim` final value includes the bulk assignments at lines 1385-1406.
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AmmoType {
     None = 0,
@@ -46,33 +32,29 @@ impl AmmoType {
     }
 }
 
-/// Complete weapon descriptor. Field names preserve original GML `wep_*` naming.
-/// Generated registry: several fields exist for reference parity and future
-/// consumers (pickup sprites/sounds, ultra rad gating) and are not all read yet.
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub struct WeaponData {
-    pub id: u8, // GML index 0..128
+    pub id: u8,
     pub wep_name: &'static str,
-    pub wep_type: AmmoType, // 0=None,1=Bullets,2=Shells,3=Bolts,4=Explosives,5=Energy
+    pub wep_type: AmmoType,
     pub wep_auto: bool,
-    pub wep_cost: u8,           // ammo consumed per shot
-    pub wep_area: i8,           // starting area level where it can drop, -1 = never
-    pub wep_load: u16,          // firing delay / reload frames
-    pub wep_text: &'static str, // pickup flavour text (with @ color codes)
+    pub wep_cost: u8,
+    pub wep_area: i8,
+    pub wep_load: u16,
+    pub wep_text: &'static str,
     pub wep_gold: bool,
-    pub wep_rads: u8,                   // rads required (ultra weapons)
-    pub wep_mele: bool,                 // melee flip (true for all type 0 after init loop)
-    pub wep_naim: bool,                 // aim assist ignored
-    pub wep_sprt: &'static str,         // sprite name (e.g. sprRevolver)
-    pub wep_swap: &'static str,         // swap sound (e.g. sndSwapPistol)
-    pub wep_lout: Option<&'static str>, // loadout sprite or None (= -1)
+    pub wep_rads: u8,
+    pub wep_mele: bool,
+    pub wep_naim: bool,
+    pub wep_sprt: &'static str,
+    pub wep_swap: &'static str,
+    pub wep_lout: Option<&'static str>,
 }
 
 pub const MAXWEP: usize = 128;
-pub const WEAPON_COUNT: usize = 129; // includes 0 placeholder for direct indexing
+pub const WEAPON_COUNT: usize = 129;
 
-/// Const array of all weapons. Index == GML weapon id.
 pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
     WeaponData {
         id: 0,
@@ -90,7 +72,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "mskNone",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, //   0: (empty)
+    },
     WeaponData {
         id: 1,
         wep_name: "REVOLVER",
@@ -107,7 +89,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprRevolver",
         wep_swap: "sndSwapPistol",
         wep_lout: Some("sprRevolverLoadout"),
-    }, //   1: REVOLVER
+    },
     WeaponData {
         id: 2,
         wep_name: "TRIPLE MACHINEGUN",
@@ -124,7 +106,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprTripleMachinegun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //   2: TRIPLE MACHINEGUN
+    },
     WeaponData {
         id: 3,
         wep_name: "WRENCH",
@@ -141,7 +123,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprWrench",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //   3: WRENCH
+    },
     WeaponData {
         id: 4,
         wep_name: "MACHINEGUN",
@@ -158,7 +140,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprMachinegun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //   4: MACHINEGUN
+    },
     WeaponData {
         id: 5,
         wep_name: "SHOTGUN",
@@ -175,7 +157,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //   5: SHOTGUN
+    },
     WeaponData {
         id: 6,
         wep_name: "CROSSBOW",
@@ -192,7 +174,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //   6: CROSSBOW
+    },
     WeaponData {
         id: 7,
         wep_name: "GRENADE LAUNCHER",
@@ -209,7 +191,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //   7: GRENADE LAUNCHER
+    },
     WeaponData {
         id: 8,
         wep_name: "DOUBLE SHOTGUN",
@@ -226,7 +208,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //   8: DOUBLE SHOTGUN
+    },
     WeaponData {
         id: 9,
         wep_name: "MINIGUN",
@@ -243,7 +225,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprMinigun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //   9: MINIGUN
+    },
     WeaponData {
         id: 10,
         wep_name: "AUTO SHOTGUN",
@@ -260,7 +242,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprAutoShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  10: AUTO SHOTGUN
+    },
     WeaponData {
         id: 11,
         wep_name: "AUTO CROSSBOW",
@@ -277,7 +259,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprAutoCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  11: AUTO CROSSBOW
+    },
     WeaponData {
         id: 12,
         wep_name: "SUPER CROSSBOW",
@@ -294,7 +276,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  12: SUPER CROSSBOW
+    },
     WeaponData {
         id: 13,
         wep_name: "SHOVEL",
@@ -311,7 +293,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprShovel",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  13: SHOVEL
+    },
     WeaponData {
         id: 14,
         wep_name: "BAZOOKA",
@@ -328,7 +310,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBazooka",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  14: BAZOOKA
+    },
     WeaponData {
         id: 15,
         wep_name: "STICKY LAUNCHER",
@@ -345,7 +327,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprStickyNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  15: STICKY LAUNCHER
+    },
     WeaponData {
         id: 16,
         wep_name: "SMG",
@@ -362,7 +344,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSmg",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, //  16: SMG
+    },
     WeaponData {
         id: 17,
         wep_name: "ASSAULT RIFLE",
@@ -379,7 +361,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprARifle",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  17: ASSAULT RIFLE
+    },
     WeaponData {
         id: 18,
         wep_name: "DISC GUN",
@@ -396,7 +378,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprDiscGun",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  18: DISC GUN
+    },
     WeaponData {
         id: 19,
         wep_name: "LASER PISTOL",
@@ -413,7 +395,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLaserGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  19: LASER PISTOL
+    },
     WeaponData {
         id: 20,
         wep_name: "LASER RIFLE",
@@ -430,7 +412,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLaserRifle",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  20: LASER RIFLE
+    },
     WeaponData {
         id: 21,
         wep_name: "SLUGGER",
@@ -447,7 +429,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  21: SLUGGER
+    },
     WeaponData {
         id: 22,
         wep_name: "GATLING SLUGGER",
@@ -464,7 +446,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGatlingSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  22: GATLING SLUGGER
+    },
     WeaponData {
         id: 23,
         wep_name: "ASSAULT SLUGGER",
@@ -481,7 +463,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprAssaultSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  23: ASSAULT SLUGGER
+    },
     WeaponData {
         id: 24,
         wep_name: "ENERGY SWORD",
@@ -498,7 +480,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprEnergySword",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  24: ENERGY SWORD
+    },
     WeaponData {
         id: 25,
         wep_name: "SUPER SLUGGER",
@@ -515,7 +497,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  25: SUPER SLUGGER
+    },
     WeaponData {
         id: 26,
         wep_name: "HYPER RIFLE",
@@ -532,7 +514,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHyperRifle",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  26: HYPER RIFLE
+    },
     WeaponData {
         id: 27,
         wep_name: "SCREWDRIVER",
@@ -549,7 +531,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprScrewDriver",
         wep_swap: "sndSwapSword",
         wep_lout: None,
-    }, //  27: SCREWDRIVER
+    },
     WeaponData {
         id: 28,
         wep_name: "LASER MINIGUN",
@@ -566,7 +548,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLaserMinigun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  28: LASER MINIGUN
+    },
     WeaponData {
         id: 29,
         wep_name: "BLOOD LAUNCHER",
@@ -583,7 +565,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBloodNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  29: BLOOD LAUNCHER
+    },
     WeaponData {
         id: 30,
         wep_name: "SPLINTER GUN",
@@ -600,7 +582,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSplinterGun",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  30: SPLINTER GUN
+    },
     WeaponData {
         id: 31,
         wep_name: "TOXIC BOW",
@@ -617,7 +599,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprToxicBow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  31: TOXIC BOW
+    },
     WeaponData {
         id: 32,
         wep_name: "SENTRY GUN",
@@ -634,7 +616,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSentryGun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  32: SENTRY GUN
+    },
     WeaponData {
         id: 33,
         wep_name: "WAVE GUN",
@@ -651,7 +633,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprWaveGun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  33: WAVE GUN
+    },
     WeaponData {
         id: 34,
         wep_name: "PLASMA GUN",
@@ -668,7 +650,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPlasmaGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  34: PLASMA GUN
+    },
     WeaponData {
         id: 35,
         wep_name: "PLASMA CANNON",
@@ -685,7 +667,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPlasmaCannon",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  35: PLASMA CANNON
+    },
     WeaponData {
         id: 36,
         wep_name: "ENERGY HAMMER",
@@ -702,7 +684,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprEnergyHammer",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  36: ENERGY HAMMER
+    },
     WeaponData {
         id: 37,
         wep_name: "JACKHAMMER",
@@ -719,7 +701,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprJackHammer",
         wep_swap: "sndSwapMotorized",
         wep_lout: None,
-    }, //  37: JACKHAMMER
+    },
     WeaponData {
         id: 38,
         wep_name: "FLAK CANNON",
@@ -736,7 +718,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFlakCannon",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  38: FLAK CANNON
+    },
     WeaponData {
         id: 39,
         wep_name: "GOLDEN REVOLVER",
@@ -753,7 +735,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldRevolver",
         wep_swap: "sndSwapPistol",
         wep_lout: Some("sprGoldRevolverLoadout"),
-    }, //  39: GOLDEN REVOLVER
+    },
     WeaponData {
         id: 40,
         wep_name: "GOLDEN WRENCH",
@@ -770,7 +752,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldWrench",
         wep_swap: "sndSwapHammer",
         wep_lout: Some("sprGoldWrenchLoadout"),
-    }, //  40: GOLDEN WRENCH
+    },
     WeaponData {
         id: 41,
         wep_name: "GOLDEN MACHINEGUN",
@@ -787,7 +769,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldMachinegun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: Some("sprGoldMachinegunLoadout"),
-    }, //  41: GOLDEN MACHINEGUN
+    },
     WeaponData {
         id: 42,
         wep_name: "GOLDEN SHOTGUN",
@@ -804,7 +786,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: Some("sprGoldShotgunLoadout"),
-    }, //  42: GOLDEN SHOTGUN
+    },
     WeaponData {
         id: 43,
         wep_name: "GOLDEN CROSSBOW",
@@ -821,7 +803,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: Some("sprGoldCrossbowLoadout"),
-    }, //  43: GOLDEN CROSSBOW
+    },
     WeaponData {
         id: 44,
         wep_name: "GOLDEN GRENADE LAUNCHER",
@@ -838,7 +820,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: Some("sprGoldGrenadeLauncherLoadout"),
-    }, //  44: GOLDEN GRENADE LAUNCHER
+    },
     WeaponData {
         id: 45,
         wep_name: "GOLDEN LASER PISTOL",
@@ -855,7 +837,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldLaserGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: Some("sprGoldLaserPistolLoadout"),
-    }, //  45: GOLDEN LASER PISTOL
+    },
     WeaponData {
         id: 46,
         wep_name: "CHICKEN SWORD",
@@ -872,7 +854,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSword",
         wep_swap: "sndSwapSword",
         wep_lout: Some("sprChickenSwordLoadout"),
-    }, //  46: CHICKEN SWORD
+    },
     WeaponData {
         id: 47,
         wep_name: "NUKE LAUNCHER",
@@ -889,7 +871,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprNukeLauncher",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  47: NUKE LAUNCHER
+    },
     WeaponData {
         id: 48,
         wep_name: "ION CANNON",
@@ -906,7 +888,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprIonCannon",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  48: ION CANNON
+    },
     WeaponData {
         id: 49,
         wep_name: "QUADRUPLE MACHINEGUN",
@@ -923,7 +905,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprQuadrupleMachinegun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  49: QUADRUPLE MACHINEGUN
+    },
     WeaponData {
         id: 50,
         wep_name: "FLAMETHROWER",
@@ -940,7 +922,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFlameThrower",
         wep_swap: "sndSwapFlame",
         wep_lout: None,
-    }, //  50: FLAMETHROWER
+    },
     WeaponData {
         id: 51,
         wep_name: "DRAGON",
@@ -957,7 +939,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprDragon",
         wep_swap: "sndSwapDragon",
         wep_lout: None,
-    }, //  51: DRAGON
+    },
     WeaponData {
         id: 52,
         wep_name: "FLARE GUN",
@@ -974,7 +956,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFlareGun",
         wep_swap: "sndSwapFlame",
         wep_lout: None,
-    }, //  52: FLARE GUN
+    },
     WeaponData {
         id: 53,
         wep_name: "ENERGY SCREWDRIVER",
@@ -991,7 +973,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprEnergyScrewDriver",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  53: ENERGY SCREWDRIVER
+    },
     WeaponData {
         id: 54,
         wep_name: "HYPER LAUNCHER",
@@ -1008,7 +990,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHyperLauncher",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  54: HYPER LAUNCHER
+    },
     WeaponData {
         id: 55,
         wep_name: "LASER CANNON",
@@ -1025,7 +1007,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLaserCannon",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  55: LASER CANNON
+    },
     WeaponData {
         id: 56,
         wep_name: "RUSTY REVOLVER",
@@ -1042,7 +1024,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprRustyRevolver",
         wep_swap: "sndSwapPistol",
         wep_lout: Some("sprRustyRevolverLoadout"),
-    }, //  56: RUSTY REVOLVER
+    },
     WeaponData {
         id: 57,
         wep_name: "LIGHTNING PISTOL",
@@ -1059,7 +1041,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningPistol",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  57: LIGHTNING PISTOL
+    },
     WeaponData {
         id: 58,
         wep_name: "LIGHTNING RIFLE",
@@ -1076,7 +1058,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningRifle",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  58: LIGHTNING RIFLE
+    },
     WeaponData {
         id: 59,
         wep_name: "LIGHTNING SHOTGUN",
@@ -1093,7 +1075,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningShotgun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  59: LIGHTNING SHOTGUN
+    },
     WeaponData {
         id: 60,
         wep_name: "SUPER FLAK CANNON",
@@ -1110,7 +1092,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperFlakCannon",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  60: SUPER FLAK CANNON
+    },
     WeaponData {
         id: 61,
         wep_name: "SAWED-OFF SHOTGUN",
@@ -1127,7 +1109,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSawnOffShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  61: SAWED-OFF SHOTGUN
+    },
     WeaponData {
         id: 62,
         wep_name: "SPLINTER PISTOL",
@@ -1144,7 +1126,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSplinterPistol",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  62: SPLINTER PISTOL
+    },
     WeaponData {
         id: 63,
         wep_name: "SUPER SPLINTER GUN",
@@ -1161,7 +1143,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavySplinterGun",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  63: SUPER SPLINTER GUN
+    },
     WeaponData {
         id: 64,
         wep_name: "LIGHTNING SMG",
@@ -1178,7 +1160,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningSMG",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  64: LIGHTNING SMG
+    },
     WeaponData {
         id: 65,
         wep_name: "SMART GUN",
@@ -1195,7 +1177,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSmartGun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  65: SMART GUN
+    },
     WeaponData {
         id: 66,
         wep_name: "HEAVY CROSSBOW",
@@ -1212,7 +1194,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  66: HEAVY CROSSBOW
+    },
     WeaponData {
         id: 67,
         wep_name: "BLOOD HAMMER",
@@ -1229,7 +1211,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBloodHammer",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  67: BLOOD HAMMER
+    },
     WeaponData {
         id: 68,
         wep_name: "LIGHTNING CANNON",
@@ -1246,7 +1228,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningCannon",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  68: LIGHTNING CANNON
+    },
     WeaponData {
         id: 69,
         wep_name: "POP GUN",
@@ -1263,7 +1245,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPopGun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  69: POP GUN
+    },
     WeaponData {
         id: 70,
         wep_name: "PLASMA RIFLE",
@@ -1280,7 +1262,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPlasmaRifle",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  70: PLASMA RIFLE
+    },
     WeaponData {
         id: 71,
         wep_name: "POP RIFLE",
@@ -1297,7 +1279,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPopRifle",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  71: POP RIFLE
+    },
     WeaponData {
         id: 72,
         wep_name: "TOXIC LAUNCHER",
@@ -1314,7 +1296,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprToxicNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  72: TOXIC LAUNCHER
+    },
     WeaponData {
         id: 73,
         wep_name: "FLAME CANNON",
@@ -1331,7 +1313,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFlameCannon",
         wep_swap: "sndSwapFlame",
         wep_lout: None,
-    }, //  73: FLAME CANNON
+    },
     WeaponData {
         id: 74,
         wep_name: "LIGHTNING HAMMER",
@@ -1348,7 +1330,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprLightningHammer",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  74: LIGHTNING HAMMER
+    },
     WeaponData {
         id: 75,
         wep_name: "FLAME SHOTGUN",
@@ -1365,7 +1347,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFlameShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  75: FLAME SHOTGUN
+    },
     WeaponData {
         id: 76,
         wep_name: "DOUBLE FLAME SHOTGUN",
@@ -1382,7 +1364,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprDoubleFlameShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  76: DOUBLE FLAME SHOTGUN
+    },
     WeaponData {
         id: 77,
         wep_name: "AUTO FLAME SHOTGUN",
@@ -1399,7 +1381,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprAutoFlameShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  77: AUTO FLAME SHOTGUN
+    },
     WeaponData {
         id: 78,
         wep_name: "CLUSTER LAUNCHER",
@@ -1416,7 +1398,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprClusterNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  78: CLUSTER LAUNCHER
+    },
     WeaponData {
         id: 79,
         wep_name: "GRENADE SHOTGUN",
@@ -1433,7 +1415,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprNadeShotgun",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  79: GRENADE SHOTGUN
+    },
     WeaponData {
         id: 80,
         wep_name: "GRENADE RIFLE",
@@ -1450,7 +1432,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprNadeRifle",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  80: GRENADE RIFLE
+    },
     WeaponData {
         id: 81,
         wep_name: "ROGUE RIFLE",
@@ -1467,7 +1449,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprRogueRifle",
         wep_swap: "sndSwapPistol",
         wep_lout: Some("sprRogueRifleLoadout"),
-    }, //  81: ROGUE RIFLE
+    },
     WeaponData {
         id: 82,
         wep_name: "PARTY GUN",
@@ -1484,7 +1466,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPartyGun",
         wep_swap: "sndSwapFlame",
         wep_lout: None,
-    }, //  82: PARTY GUN
+    },
     WeaponData {
         id: 83,
         wep_name: "DOUBLE MINIGUN",
@@ -1501,7 +1483,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprDoubleMinigun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  83: DOUBLE MINIGUN
+    },
     WeaponData {
         id: 84,
         wep_name: "GATLING BAZOOKA",
@@ -1518,7 +1500,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGatlingBazooka",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  84: GATLING BAZOOKA
+    },
     WeaponData {
         id: 85,
         wep_name: "AUTO GRENADE SHOTGUN",
@@ -1535,7 +1517,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprAutoNadeShotgun",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  85: AUTO GRENADE SHOTGUN
+    },
     WeaponData {
         id: 86,
         wep_name: "ULTRA REVOLVER",
@@ -1552,7 +1534,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraRevolver",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, //  86: ULTRA REVOLVER
+    },
     WeaponData {
         id: 87,
         wep_name: "ULTRA LASER PISTOL",
@@ -1569,7 +1551,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraLaserGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  87: ULTRA LASER PISTOL
+    },
     WeaponData {
         id: 88,
         wep_name: "SLEDGEHAMMER",
@@ -1586,7 +1568,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHammer",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  88: SLEDGEHAMMER
+    },
     WeaponData {
         id: 89,
         wep_name: "HEAVY REVOLVER",
@@ -1603,7 +1585,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyRevolver",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, //  89: HEAVY REVOLVER
+    },
     WeaponData {
         id: 90,
         wep_name: "HEAVY MACHINEGUN",
@@ -1620,7 +1602,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyMachinegun",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, //  90: HEAVY MACHINEGUN
+    },
     WeaponData {
         id: 91,
         wep_name: "HEAVY SLUGGER",
@@ -1637,7 +1619,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavySlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  91: HEAVY SLUGGER
+    },
     WeaponData {
         id: 92,
         wep_name: "ULTRA SHOVEL",
@@ -1654,7 +1636,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraShovel",
         wep_swap: "sndSwapHammer",
         wep_lout: None,
-    }, //  92: ULTRA SHOVEL
+    },
     WeaponData {
         id: 93,
         wep_name: "ULTRA SHOTGUN",
@@ -1671,7 +1653,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraShotgun",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, //  93: ULTRA SHOTGUN
+    },
     WeaponData {
         id: 94,
         wep_name: "ULTRA CROSSBOW",
@@ -1688,7 +1670,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, //  94: ULTRA CROSSBOW
+    },
     WeaponData {
         id: 95,
         wep_name: "ULTRA GRENADE LAUNCHER",
@@ -1705,7 +1687,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprUltraNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, //  95: ULTRA GRENADE LAUNCHER
+    },
     WeaponData {
         id: 96,
         wep_name: "PLASMA MINIGUN",
@@ -1722,7 +1704,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprPlasmaMinigun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  96: PLASMA MINIGUN
+    },
     WeaponData {
         id: 97,
         wep_name: "DEVASTATOR",
@@ -1739,7 +1721,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprDevastator",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, //  97: DEVASTATOR
+    },
     WeaponData {
         id: 98,
         wep_name: "GOLDEN PLASMA GUN",
@@ -1756,7 +1738,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldPlasmaGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: Some("sprGoldPlasmaGunLoadout"),
-    }, //  98: GOLDEN PLASMA GUN
+    },
     WeaponData {
         id: 99,
         wep_name: "GOLDEN SLUGGER",
@@ -1773,7 +1755,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: Some("sprGoldSluggerLoadout"),
-    }, //  99: GOLDEN SLUGGER
+    },
     WeaponData {
         id: 100,
         wep_name: "GOLDEN SPLINTER GUN",
@@ -1790,7 +1772,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldSplinterGun",
         wep_swap: "sndSwapBow",
         wep_lout: Some("sprGoldSplintergunLoadout"),
-    }, // 100: GOLDEN SPLINTER GUN
+    },
     WeaponData {
         id: 101,
         wep_name: "GOLDEN SCREWDRIVER",
@@ -1807,7 +1789,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldScrewdriver",
         wep_swap: "sndSwapSword",
         wep_lout: Some("sprGoldScrewdriverLoadout"),
-    }, // 101: GOLDEN SCREWDRIVER
+    },
     WeaponData {
         id: 102,
         wep_name: "GOLDEN BAZOOKA",
@@ -1824,7 +1806,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldBazooka",
         wep_swap: "sndSwapExplosive",
         wep_lout: Some("sprGoldBazookaLoadout"),
-    }, // 102: GOLDEN BAZOOKA
+    },
     WeaponData {
         id: 103,
         wep_name: "GOLDEN ASSAULT RIFLE",
@@ -1841,7 +1823,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldARifle",
         wep_swap: "sndSwapMachinegun",
         wep_lout: Some("sprGoldAssaultRifleLoadout"),
-    }, // 103: GOLDEN ASSAULT RIFLE
+    },
     WeaponData {
         id: 104,
         wep_name: "SUPER DISC GUN",
@@ -1858,7 +1840,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperDiscGun",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, // 104: SUPER DISC GUN
+    },
     WeaponData {
         id: 105,
         wep_name: "HEAVY AUTO CROSSBOW",
@@ -1875,7 +1857,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyAutoCrossbow",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, // 105: HEAVY AUTO CROSSBOW
+    },
     WeaponData {
         id: 106,
         wep_name: "HEAVY ASSAULT RIFLE",
@@ -1892,7 +1874,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyARifle",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, // 106: HEAVY ASSAULT RIFLE
+    },
     WeaponData {
         id: 107,
         wep_name: "BLOOD CANNON",
@@ -1909,7 +1891,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBloodCannon",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, // 107: BLOOD CANNON
+    },
     WeaponData {
         id: 108,
         wep_name: "DOG SPIN ATTACK",
@@ -1926,7 +1908,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "mskNone",
         wep_swap: "sndSwapExplosive",
         wep_lout: Some("mskNone"),
-    }, // 108: DOG SPIN ATTACK
+    },
     WeaponData {
         id: 109,
         wep_name: "DOG MISSILE",
@@ -1943,7 +1925,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "mskNone",
         wep_swap: "sndSwapExplosive",
         wep_lout: Some("mskNone"),
-    }, // 109: DOG MISSILE
+    },
     WeaponData {
         id: 110,
         wep_name: "INCINERATOR",
@@ -1960,7 +1942,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprIncinerator",
         wep_swap: "sndSwapMachinegun",
         wep_lout: None,
-    }, // 110: INCINERATOR
+    },
     WeaponData {
         id: 111,
         wep_name: "SUPER PLASMA CANNON",
@@ -1977,7 +1959,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperPlasmaCannon",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, // 111: SUPER PLASMA CANNON
+    },
     WeaponData {
         id: 112,
         wep_name: "SEEKER PISTOL",
@@ -1994,7 +1976,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSeekerPistol",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, // 112: SEEKER PISTOL
+    },
     WeaponData {
         id: 113,
         wep_name: "SEEKER SHOTGUN",
@@ -2011,7 +1993,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSeekerShotgun",
         wep_swap: "sndSwapBow",
         wep_lout: None,
-    }, // 113: SEEKER SHOTGUN
+    },
     WeaponData {
         id: 114,
         wep_name: "ERASER",
@@ -2028,7 +2010,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprEraser",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, // 114: ERASER
+    },
     WeaponData {
         id: 115,
         wep_name: "GUITAR",
@@ -2045,7 +2027,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGuitar",
         wep_swap: "sndSwapGuitar",
         wep_lout: None,
-    }, // 115: GUITAR
+    },
     WeaponData {
         id: 116,
         wep_name: "BOUNCER SMG",
@@ -2062,7 +2044,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBouncerSMG",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, // 116: BOUNCER SMG
+    },
     WeaponData {
         id: 117,
         wep_name: "BOUNCER SHOTGUN",
@@ -2079,7 +2061,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBouncerShotgun",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, // 117: BOUNCER SHOTGUN
+    },
     WeaponData {
         id: 118,
         wep_name: "HYPER SLUGGER",
@@ -2096,7 +2078,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHyperSlugger",
         wep_swap: "sndSwapShotgun",
         wep_lout: None,
-    }, // 118: HYPER SLUGGER
+    },
     WeaponData {
         id: 119,
         wep_name: "SUPER BAZOOKA",
@@ -2113,7 +2095,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprSuperBazooka",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, // 119: SUPER BAZOOKA
+    },
     WeaponData {
         id: 120,
         wep_name: "FROG PISTOL",
@@ -2130,7 +2112,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprFrogBlaster",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, // 120: FROG PISTOL
+    },
     WeaponData {
         id: 121,
         wep_name: "BLACK SWORD",
@@ -2147,7 +2129,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprBlackSword",
         wep_swap: "sndSwapSword",
         wep_lout: None,
-    }, // 121: BLACK SWORD
+    },
     WeaponData {
         id: 122,
         wep_name: "GOLDEN NUKE LAUNCHER",
@@ -2164,7 +2146,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldNukeLauncher",
         wep_swap: "sndSwapExplosive",
         wep_lout: Some("sprGoldNukeLauncherLoadout"),
-    }, // 122: GOLDEN NUKE LAUNCHER
+    },
     WeaponData {
         id: 123,
         wep_name: "GOLDEN DISC GUN",
@@ -2181,7 +2163,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldDiscgun",
         wep_swap: "sndSwapBow",
         wep_lout: Some("sprGoldDiscgunLoadout"),
-    }, // 123: GOLDEN DISC GUN
+    },
     WeaponData {
         id: 124,
         wep_name: "HEAVY GRENADE LAUNCHER",
@@ -2198,7 +2180,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprHeavyNader",
         wep_swap: "sndSwapExplosive",
         wep_lout: None,
-    }, // 124: HEAVY GRENADE LAUNCHER
+    },
     WeaponData {
         id: 125,
         wep_name: "GUN GUN",
@@ -2215,7 +2197,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGunGun",
         wep_swap: "sndSwapEnergy",
         wep_lout: None,
-    }, // 125: GUN GUN
+    },
     WeaponData {
         id: 126,
         wep_name: "EGGPLANT",
@@ -2232,7 +2214,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprEggplant",
         wep_swap: "sndSwapPistol",
         wep_lout: None,
-    }, // 126: EGGPLANT
+    },
     WeaponData {
         id: 127,
         wep_name: "GOLDEN FROG PISTOL",
@@ -2249,7 +2231,7 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprGoldFrogBlaster",
         wep_swap: "sndSwapPistol",
         wep_lout: Some("sprGoldToxicGunLoadout"),
-    }, // 127: GOLDEN FROG PISTOL
+    },
     WeaponData {
         id: 128,
         wep_name: "ELECTRIC GUITAR",
@@ -2266,10 +2248,9 @@ pub const WEAPONS: [WeaponData; WEAPON_COUNT] = [
         wep_sprt: "sprElectricGuitar",
         wep_swap: "sndSwapElectricGuitar",
         wep_lout: None,
-    }, // 128: ELECTRIC GUITAR
+    },
 ];
 
-/// Convenience: array of only the 128 playable weapons (ids 1..128) without placeholder.
 pub const WEAPONS_PLAYABLE: [WeaponData; MAXWEP] = [
     WEAPONS[1],
     WEAPONS[2],
@@ -2401,7 +2382,6 @@ pub const WEAPONS_PLAYABLE: [WeaponData; MAXWEP] = [
     WEAPONS[128],
 ];
 
-/// Lookup by id (0..128). Returns None if out of range.
 pub const fn weapon_by_id(id: usize) -> Option<&'static WeaponData> {
     if id <= MAXWEP {
         Some(&WEAPONS[id])
@@ -2410,7 +2390,6 @@ pub const fn weapon_by_id(id: usize) -> Option<&'static WeaponData> {
     }
 }
 
-/// Ammo capacity defaults (from scrAmmoInit.gml:typ_amax).
 pub const fn ammo_max(kind: AmmoType) -> u16 {
     match kind {
         AmmoType::None => 1000,
@@ -2422,7 +2401,6 @@ pub const fn ammo_max(kind: AmmoType) -> u16 {
     }
 }
 
-/// Ammo pickup amount defaults (from scrAmmoInit.gml:typ_ammo).
 pub const fn ammo_pickup(kind: AmmoType) -> u16 {
     match kind {
         AmmoType::None => 0,

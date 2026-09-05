@@ -1,6 +1,3 @@
-//! Player: movement, mouse aim (with camera lookahead), weapon switching,
-//! firing (ranged + melee), and the character active ability.
-
 use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -19,7 +16,6 @@ use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
 
-/// Bundled melee target queries (Bevy caps systems at 16 params).
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct MeleeTargets<'w, 's> {
     enemies: Query<
@@ -94,10 +90,9 @@ pub fn player_move(
             commands.entity(entity).remove::<Dash>();
         }
     } else {
-        // GML Player/Step_0: motion_add(_movspeed) then speed = min(speed, maxspeed)
-        // Bevy: treat input as direction, accel as GML _movspeed*30 equivalent
+
         if input.move_axis != Vec2::ZERO {
-            // GML precise vs cardinal: use normalized direction same as rewrite
+
             let dir = input.move_axis.normalize_or_zero();
             vel.0 += dir * player.accel * dt;
         }
@@ -105,13 +100,11 @@ pub fn player_move(
         if vel.0.length() > max_speed {
             vel.0 = vel.0.normalize() * max_speed;
         }
-        // GML friction subtractive + floor-type override (Player/Step_0:587)
-        // ExtraFeet bypasses floor check. Use shared helper for lockstep.
+
         crate::game::components::apply_gml_friction(&mut vel.0, player.friction, dt);
         tf.translation += (vel.0 * dt).extend(0.0);
     }
 
-    // Order: props (walls) first, then snap onto floor mask, then outer AABB.
     resolve_prop_collision(&mut tf.translation, PLAYER_RADIUS, &props);
     mask.resolve_circle(&mut tf.translation, PLAYER_RADIUS);
     clamp_to_arena(&mut tf.translation, PLAYER_RADIUS);
@@ -121,9 +114,7 @@ pub fn face_aim(mut q: Query<(&AimDir, &Velocity, &mut Sprite), With<Player>>) {
     let Ok((aim, vel, mut sprite)) = q.single_mut() else {
         return;
     };
-    // NT: right = gunangle>90&&<270 ? -1 : 1 (aim-based). Keep aim primary,
-    // but if stick/mouse is centered (aim ~0) fall back to movement dir so
-    // keyboard-only play still rotates.
+
     let x = if aim.0.length_squared() > 0.001 {
         aim.0.x
     } else {
@@ -144,11 +135,10 @@ pub fn player_aim(
     };
     let player_pos = ptf.translation.truncate();
 
-    // Twin-stick aim (gamepad right stick / touch) takes precedence.
     if input.aim_axis != Vec2::ZERO {
         aim.0 = input.aim_axis.normalize_or_zero();
         if let Ok(mut follow) = follow_q.single_mut() {
-            // Clamp stick lookahead - no runaway.
+
             const MAX_LOOK: f32 = 48.0;
             follow.set_aim(player_pos + aim.0 * MAX_LOOK);
         }
@@ -162,8 +152,6 @@ pub fn player_aim(
         return;
     };
 
-    // Convert the cursor with the camera's REST transform (pre-shake), otherwise the
-    // per-frame shake offset feeds back into the aim point and wobbles the camera.
     let rest_gt = match cam_base {
         Some(base) => {
             let mut t = Transform::from_translation(base.translation);
@@ -181,9 +169,7 @@ pub fn player_aim(
             aim.0 = dir;
         }
         if let Ok(mut follow) = follow_q.single_mut() {
-            // CRITICAL: use offset from camera centre (screen-stable for
-            // ortho). Using raw `world` makes aim race the camera -> jitter
-            // when looking far.
+
             const MAX_LOOK: f32 = 48.0;
             let cam_xy = rest_gt.translation().truncate();
             let screen_off = (world - cam_xy).clamp_length_max(MAX_LOOK);
@@ -317,8 +303,6 @@ pub fn player_ability(
         return;
     };
 
-    // GML Steroids has no active: spec (RMB) is the second gun's trigger
-    // (see player_fire dual path). Never consume it as Get Loaded.
     let fire = input.take_ability_pressed();
     if race_state.race == RaceId::Steroids {
         return;
@@ -330,7 +314,6 @@ pub fn player_ability(
     let pos = tf.translation.truncate();
     let ability = player.ability;
 
-    // GML alarms are in frames @30Hz; keep parity as frames/30.
     let cd_frames: f32 = match ability {
         AbilityKind::Flip => 105.0,
         AbilityKind::Shield => 150.0,
@@ -529,7 +512,7 @@ pub fn player_ability(
             player.rads = player
                 .rads
                 .saturating_add(if regurgitate { 40 } else { 20 });
-            // Robot's unlock: eat a weapon.
+
             let unlocked = crate::game::generated::unlocks::check_progress_unlocks(
                 &mut save, 0, 0, false, true, false,
             );
@@ -559,7 +542,6 @@ pub fn player_ability(
             let slot = inv.current;
             let held = inv.weapons[slot];
 
-            // Empty-handed Chicken keeps the thrash-dash fallback.
             if held == WeaponId::NONE {
                 player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
                 commands.entity(player_e).insert(Dash {
@@ -575,8 +557,6 @@ pub fn player_ability(
 
             player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
 
-            // Throw the held weapon: it leaves the inventory and drops where
-            // the projectile lands.
             inv.weapons[slot] = WeaponId::NONE;
             if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
                 inv.current = next;
@@ -893,11 +873,10 @@ pub fn player_fire(
     let spec_held = input.spec_held;
     let spec_pressed = input.take_spec_pressed();
 
-    // Primary gun = weapons[current] (GML `wep`).
     let primary_id = inv.weapons[inv.current];
     let primary_def = weapon_runtime_def(primary_id);
 
-    // Secondary gun (GML `bwep`): the other live slot. Only Steroids fires it.
+    // Second slot mirrors the other live slot.
     let second_slot = steroids_secondary_slot(inv.current, inv.weapon_slots);
     let secondary_id = if is_steroids {
         inv.weapons[second_slot]
@@ -954,16 +933,12 @@ pub fn player_fire(
         cooldown.burst_timer_b = Timer::from_seconds(secondary_def.burst_interval, TimerMode::Once);
     }
 
-    // GML scrPlayerFiring intent: semi needs click; Steroids holds semi
-    // (`hold_fire && (auto || race==Steroids)`).
     let primary_intent = if primary_def.automatic || is_steroids {
         fire_held
     } else {
         fire_pressed
     };
-    // GML Steroids block forces hold_fire=true for the bwep call and maps
-    // press_spec->press_fire, so the second gun fires on spec hold (auto and
-    // hold-semi alike).
+
     let secondary_intent = is_steroids && spec_held && secondary_id != WeaponId::NONE;
 
     if primary_id != WeaponId::NONE && primary_intent && cooldown.timer.is_finished() {
@@ -995,8 +970,7 @@ pub fn player_fire(
     }
 
     if secondary_intent && cooldown.timer_b.is_finished() {
-        // Re-read defs (primary fire may have mutated shared ammo/rads, but
-        // defs are values so refresh costs gate on current pools).
+
         let secondary_def = weapon_runtime_def(secondary_id);
         fire_one_gun(
             &mut commands,
@@ -1025,12 +999,9 @@ pub fn player_fire(
         );
     }
 
-    // Silence unused when secondary absent (non-Steroids single gun).
     let _ = spec_pressed;
 }
 
-/// One burst-tick volley (GML *Burst alarm0): pellets only, no ammo/rad cost,
-/// no cooldown reset. Pop Pop duplicates like a normal volley.
 #[allow(clippy::too_many_arguments)]
 fn fire_burst_volley(
     commands: &mut Commands,
@@ -1091,9 +1062,6 @@ fn fire_burst_volley(
     }
 }
 
-/// Fire one gun once: rad gate → ammo gate → cooldown → melee or pellets +
-/// recoil/kick → recycle/pop/burst queue. `visual_slot` selects which
-/// WeaponVisual takes the kick (0 primary, 1 Steroids secondary).
 #[allow(clippy::too_many_arguments)]
 fn fire_one_gun(
     commands: &mut Commands,
@@ -1122,7 +1090,6 @@ fn fire_one_gun(
 ) {
     let archetype = projectile_archetype(weapon_id);
 
-    // GML scrCheckRads.
     if def.rad_cost > 0 && player.rads < def.rad_cost {
         toast.show("NOT ENOUGH RADS");
         audio.play_ultra_empty(commands);
@@ -1171,7 +1138,7 @@ fn fire_one_gun(
         0.0
     };
     let cd = def.cooldown * player.fire_rate_mult / (1.0 + stress_bonus);
-    // GML reload/breload are per-gun timers.
+
     let timer = if visual_slot == 0 {
         &mut cooldown.timer
     } else {
@@ -1268,9 +1235,6 @@ fn fire_one_gun(
     }
 }
 
-/// Fires one volley of the current weapon (all pellets for one trigger pull).
-/// Mutation-layer adjustments applied on top of the generated runtime:
-/// Laser Brain, Shotgun Shoulders, Bolt Marrow, and ultra damage scaling.
 fn apply_weapon_mutation_mods(
     def: &mut WeaponDef,
     archetype: &mut ProjectileArchetype,
@@ -1323,8 +1287,7 @@ fn spawn_pellets(
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 
     let kind: WeaponKind = id.into();
-    // GML scrFire per-weapon snd table (gold/upg variants branch inside).
-    // Keep legacy 5-way mapping as fallback for the 9 legacy kinds.
+
     let legacy_fallback = matches!(
         kind,
         WeaponKind::Revolver
@@ -1369,7 +1332,6 @@ fn spawn_pellets(
     let mut def = *def;
     apply_weapon_mutation_mods(&mut def, &mut archetype, player);
 
-    // Beam weapons override the normal projectile path entirely.
     if let Some(beam) = archetype.beam {
         spawn_beam_shot(
             commands,
@@ -1381,7 +1343,6 @@ fn spawn_pellets(
         return;
     }
 
-    // Sentry Gun deploys one pod, not a burst of bullets.
     if let Some(sentry) = archetype.deploys_sentry {
         spawn_player_projectile_with_source(
             commands,
@@ -1413,7 +1374,7 @@ fn spawn_pellets(
 
     let mut rng = rand::rng();
     let spread = def.spread * player.spread_mult * player.accuracy;
-    // Chain bolts jump between targets instead of piercing linearly.
+
     let pierce = if archetype.chain_lightning.is_some() {
         0
     } else {
@@ -1451,16 +1412,11 @@ fn spawn_pellets(
             Some(id),
         );
     }
-    // Shell casing (scrBulletShotShellFX) - OG ejects a `Shell` with
-    // `sprBulletShell` at `gunangle + right*100 + orandom(25)` @ 2-4 speed.
-    // Bevy: small physics pop that tumbles and fades like `GroundPhysics`.
-    // OG calls this once per pellet for triple/double minigun, once for others;
-    // shotgun-type `Shells` ammo never ejects `sprBulletShell`.
+
     if def.ammo == AmmoKind::Bullets && def.melee.is_none() {
         let shell_path = "images/sprBulletShell.png";
         if catalog.has(shell_path) {
-            // Triple/quad minigun fire 3-4 pellets but OG spawns one shell per
-            // pellet inside the loop; other bullet weapons spawn one.
+
             let shells = if matches!(id.0, 2 | 83 | 49) {
                 def.pellets
             } else {
@@ -1516,7 +1472,7 @@ fn melee_attack(
     asset_server: &AssetServer,
 ) {
     let melee_def = melee;
-    // GML Long Arms is range mult; Bevy melee_range_mult same (Strong Spirit etc).
+
     let range = melee_def.range * player.melee_range_mult;
     ScreenEffects::add_trauma(trauma, def.shake.max(0.12));
     audio.play_melee(commands);
@@ -1537,7 +1493,7 @@ fn melee_attack(
         if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
             continue;
         }
-        // GML Slash uses scr_projectile_generic_hit → scr_can_hit i-frames.
+
         if nexthurt.as_ref().is_some_and(|nh| nh.0 > targets.frame.0) {
             continue;
         }
@@ -1558,7 +1514,6 @@ fn melee_attack(
         hit_any = true;
     }
 
-    // GML Slash Collision_hitme hits props too (any hitme).
     let mut dead_props: Vec<(
         Entity,
         Vec2,
@@ -1572,7 +1527,7 @@ fn melee_attack(
         }
         let center = ptf.translation.truncate();
         let half = prop.size * 0.5;
-        // Arc test against prop center, AABB-tolerant by half diagonal.
+
         let offset = center - player_pos;
         let dist = (offset.length() - half.length()).max(0.0);
         if dist > range {
@@ -1616,8 +1571,7 @@ fn melee_attack(
         GameFeel::rumble_controller(rumble, gamepads, 0.5, 0.7, 0.2);
         audio.play_hit(commands);
     } else {
-        // GML Slash Collision_Wall: spark + shake(damage/3) + sndMeleeWall.
-        // Approximate: if the swing tip lands outside floor, treat as wall hit.
+
         let tip = player_pos + aim.0.normalize_or_zero() * range;
         let _ = tip;
         let _ = &mut hit_wall;
@@ -1648,7 +1602,6 @@ enum AmmoPayment {
     Failed,
 }
 
-/// Spend ammo for a shot; Blood-family weapons pay HP when the pool is dry.
 fn pay_fire_cost(
     inv: &mut Inventory,
     health: &mut Health,
@@ -1676,7 +1629,6 @@ fn pay_fire_cost(
     AmmoPayment::Failed
 }
 
-/// Beam weapons (Ion / Laser Cannon): one persistent line entity, no pellets.
 #[allow(clippy::too_many_arguments)]
 fn spawn_beam_shot(
     commands: &mut Commands,
@@ -1726,7 +1678,7 @@ pub fn spawn_player_projectile(
     color: Color,
     size: Vec2,
 ) {
-    // Fallback path without art (tests / simple spawns) - spawn a colored quad
+
     spawn_player_projectile_with_source(
         commands,
         None,
@@ -1779,15 +1731,14 @@ pub fn spawn_player_projectile_with_source(
             let candidates = projectile_art::player_projectile_candidates(w);
             let path = projectile_art::first_existing(cat, &candidates);
             if cat.has(path) {
-                // GML `Other_7: image_index=1, image_speed=0` for every 2-frame bullet
-                // (Bullet1, Bullet2, HeavyBullet, Bolt, ...)
+
                 let frames = cat.anims.get(path).map(|m| m[0] as usize).unwrap_or(1);
                 let mut s = if frames == 2 {
                     crate::game::content::sprite_exact_frame(cat, srv, path, 1)
                 } else {
                     sprite_exact(cat, srv, path)
                 };
-                // Use native sprite size for projectiles
+
                 s.custom_size = None;
                 s.color = Color::WHITE;
                 let a = crate::game::content::sprite_anchor(cat, path);
@@ -1846,7 +1797,7 @@ pub fn spawn_player_projectile_with_source(
     }
     if let Some(w) = weapon {
         if w.0 == 7 || w.0 == 44 {
-            // GML Grenade friction 0.1 → 0.4 @ alarm[1]=6f + Smoke×4
+
             ec.insert(ProjectileFriction(0.1));
             ec.insert(crate::game::components::GrenadeFuse {
                 smoke_armed: false,
@@ -1884,7 +1835,7 @@ pub fn spawn_player_projectile_with_source(
         ec.insert(sticky);
     }
     if let Some(chain) = archetype.chain_lightning {
-        // Chain bolts jump between targets; linear pierce would double-dip.
+
         ec.remove::<PiercesLeft>();
         ec.insert(chain);
     }
@@ -1914,7 +1865,7 @@ pub fn spawn_player_projectile_with_source(
     }
     if archetype.hits_all_teams {
         ec.insert(HitsAllTeams);
-        // Grace: ignore owner for ~2 frames so muzzle doesn't instant self-kill.
+
         ec.insert(SpawnGrace(Timer::from_seconds(2.0 / 30.0, TimerMode::Once)));
     }
 
@@ -1924,7 +1875,6 @@ pub fn spawn_player_projectile_with_source(
     }
 }
 
-/// Hammerhead: while pushing into a destructible prop, chew it down over time.
 pub fn hammerhead_chew(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1972,7 +1922,7 @@ pub fn hammerhead_chew(
             if wpos.distance(probe) > crate::game::world::WALL_PX * 0.85 {
                 continue;
             }
-            // Prefer wall in push direction.
+
             if (wpos - pos).dot(push) < 0.0 {
                 continue;
             }
@@ -2117,9 +2067,6 @@ pub fn tick_portal_strikes(
     }
 }
 
-/// Ability residual clouds (Frog puke, Horror beam residue).
-/// Must NOT touch weapon clouds (`With<Team>`, no AbilityHazard) - those are
-/// handled by `combat::tick_hazard_clouds`.
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -2253,7 +2200,7 @@ pub fn ensure_weapon_visual(
     );
     if dual {
         let second = inv.weapons[(inv.current + 1) % inv.weapon_slots];
-        // Offset perpendicular so both Steroids guns stay visible.
+
         let perp = Vec2::new(-aim.0.y, aim.0.x).normalize_or_zero() * 8.0;
         spawn_gun_visual(
             &mut commands,
@@ -2344,7 +2291,7 @@ pub fn tick_weapon_visuals(
     }
     let dual = race_state.race == RaceId::Steroids && inv.weapon_slots > 1;
     let want_slots: usize = if dual { 2 } else { 1 };
-    // Despawn surplus visuals when leaving Steroids / losing second gun.
+
     let mut seen = [false; 2];
     for (_e, wv, _, _, _) in vis_q.iter() {
         if wv.owner == player_e && (wv.slot as usize) < 2 {
@@ -2422,8 +2369,6 @@ pub fn tick_weapon_visuals(
     }
 }
 
-/// GML Steroids `bwep` slot: the other live slot. Swap (cycle) exchanges
-/// which slot is primary vs secondary, matching `scrSwapWeps` role exchange.
 fn steroids_secondary_slot(current: usize, slots: usize) -> usize {
     if slots > 1 {
         (current + 1) % slots
@@ -2433,8 +2378,7 @@ fn steroids_secondary_slot(current: usize, slots: usize) -> usize {
 }
 
 fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
-    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
-    // build never silently shows the wrong gun (gen_assets hint).
+
     let meta = crate::game::content::weapon_meta(id);
     let stem = meta.wep_sprt;
     if stem.is_empty() || stem == "mskNone" {
@@ -2467,7 +2411,7 @@ mod steroids_dual_tests {
 
     #[test]
     fn swap_exchanges_roles() {
-        // Cycling current swaps primary/secondary roles like scrSwapWeps.
+
         let a_primary = 0;
         let a_secondary = steroids_secondary_slot(a_primary, 2);
         let b_primary = 1;

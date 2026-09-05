@@ -1,6 +1,3 @@
-//! Run progression: level-ups + mutation selection, portal spawn/entry, floor
-//! transitions, and the run setup/cleanup hooks.
-
 use bevy::prelude::*;
 use rand::RngExt;
 
@@ -99,10 +96,9 @@ pub fn setup_run(
 
     let def = character_def(character.0);
 
-    // Saved race loadout drives the starting kit (upstream Campfire menu).
     let loadout = save.race_loadout(character.0);
     let crown = CrownKind::from_u8(loadout.start_crown);
-    // cskin pick falls back to A when the save has a locked/stale skin.
+
     let skin = if save.skin_unlocked(character.0, loadout.preferred_skin) {
         loadout.preferred_skin
     } else {
@@ -112,9 +108,6 @@ pub fn setup_run(
     let primary =
         crate::game::content::resolve_start_weapon(sanitize_weapon_id(loadout.start_weapon));
 
-    // If no explicit start weapon is stored, this is the normal NT start:
-    // one revolver only. Do not pair the fallback revolver with a stale
-    // stored_weapon from an old/debug save.
     let explicit_start = sanitize_weapon_id(loadout.start_weapon) != WeaponId::NONE;
 
     let mut secondary = {
@@ -126,14 +119,14 @@ pub fn setup_run(
         }
     };
 
-    // Steroids is the character-specific dual-wield exception.
+    // Steroids alone dual-wields.
     if character.0 == crate::game::content::RaceId::Steroids && secondary == WeaponId::NONE {
         secondary = crate::game::content::WEAPON_REVOLVER;
     }
 
     let equipped = [primary, secondary, WeaponId::NONE];
     let mut starting_ammo = starting_ammo_for(&equipped, character.0, crown);
-    // BigDog special: GML scrPlayerRaceChange gives 255 bullets +44 explosives
+
     if character.0 == RaceId::BigDog {
         starting_ammo[1] = 255;
         starting_ammo[4] = 44;
@@ -143,19 +136,17 @@ pub fn setup_run(
         crate::game::anim::sprite_anim(&catalog, &asset_server, def.sprite);
     let anchor = crate::game::content::sprite_anchor(&catalog, def.sprite);
     let fire_rate_mult = if def.passive == PassiveKind::FastReload {
-        0.8 // 25% faster (lower cooldown)
+        0.8
     } else {
         1.0
     };
 
-    // Build player components as locals so the crown can mutate them before
-    // insertion (upstream crowns reshape HP/weapons at run start).
     let mut player_comp = Player {
         speed: crate::game::components::PLAYER_BASE_SPEED,
         speed_mult: def.speed_mult,
         pickup_range: def.pickup_range,
         fire_rate_mult,
-        // Steroids: GML accuracy 1.8 → wider spread
+
         spread_mult: if character.0 == RaceId::Steroids {
             1.8
         } else {
@@ -237,7 +228,7 @@ pub fn setup_run(
             target: Some(player),
             follow_weight: 0.20,
             aim_weight: 0.10,
-            aim_pull: 0.16, // high pull + raw mouse world aim = jitter
+            aim_pull: 0.16,
             base_scale: crate::game::components::NT_CAM_SCALE,
             zoom_speed: 0.08,
             ..default()
@@ -320,7 +311,7 @@ pub fn check_level_up(
         leveled = true;
 
         if player.level >= 10 && player.ultra.is_none() {
-            // Ultra is chosen after portal, same as normal mutations.
+
             player.ultra_pick_owed = true;
         } else if player.level < 10 {
             player.mutation_picks_owed = player.mutation_picks_owed.saturating_add(1);
@@ -328,7 +319,7 @@ pub fn check_level_up(
     }
 
     if leveled {
-        // Feedback only - do NOT open mutation UI mid-combat.
+
         toast.show(if player.ultra_pick_owed && player.level >= 10 {
             "LEVEL ULTRA!"
         } else {
@@ -366,16 +357,14 @@ fn begin_between_floor_skill_picks(
         paused.0 = true;
         let choices = ultra_choices_for(race).to_vec();
         commands.insert_resource(PendingUltra { choices });
-        // Keep ultra_pick_owed true until chosen.
+
         return;
     }
 
     if player.mutation_picks_owed > 0 {
         let choices = roll_mutations(player);
         if choices.is_empty() {
-            // No mutations left: full heal and consume one owed pick.
-            // Do not pause - there is no UI to show. Drain all owed picks that
-            // would otherwise leave deferred+paused with no Pending resource.
+
             while player.mutation_picks_owed > 0 {
                 let c = roll_mutations(player);
                 if c.is_empty() {
@@ -440,7 +429,7 @@ fn roll_mutations(player: &mut Player) -> Vec<MutationId> {
 
     let destiny = player.crown == CrownKind::Destiny;
     let want_base = if destiny { 1 } else { 4 };
-    // Patience overrides to 4 as well, but destiny takes precedence per GML
+
     let want_base = if player.patience_bonus && !destiny {
         4
     } else {
@@ -474,14 +463,13 @@ pub fn handle_mutation_choice(
     audio: Res<GameAudio>,
 ) {
     if ultra.is_none() && pending.is_none() {
-        // Consume a stale UI choice if nothing is pending.
+
         if choice.0.is_some() {
             choice.0 = None;
         }
         return;
     }
 
-    // Freeze gameplay while choosing.
     if !paused.0 {
         paused.0 = true;
     }
@@ -534,7 +522,7 @@ pub fn handle_mutation_choice(
 
         if let Ok((mut player, mut health, _, race_state)) = player_q.single_mut() {
             player.ultra_pick_owed = false;
-            // If normal picks still owed, open next screen instead of unpausing.
+
             if player.mutation_picks_owed > 0 {
                 let choices = roll_mutations(&mut player);
                 if choices.is_empty() {
@@ -736,7 +724,7 @@ fn apply_mutation(
             player.sharp_teeth = true;
         }
         MutationId::LastWish => {
-            // Instant one-shot: full heal + ammo grant (NOT a death save).
+
             health.hp = health.max;
             try_recharge_strong_spirit(&mut player, &health);
             let add = |inv: &mut Inventory, player: &Player, kind: AmmoKind, amount: i32| {
@@ -1078,7 +1066,7 @@ pub fn portal_check(
     if run.game_over || run.portal_open {
         return;
     }
-    // Throne I campfire / Throne II fight suppress the normal exit.
+
     if loop_transition.blocks_portal() {
         return;
     }
@@ -1115,8 +1103,7 @@ pub fn portal_check(
     if let Some(portal_strip) = portal_strip {
         pc.insert(portal_strip);
     }
-    // GML Portal/Create_0: PortalClear + PortalShock + PortalL FX.
-    // Shock: alarm 2 ticks, scale 2.25, kills props (hp=0), clears enemy shots.
+
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1134,7 +1121,7 @@ pub fn portal_check(
         },
         Transform::from_xyz(pos.x, pos.y, 6.0),
     ));
-    // GML repeat(4) scrFX PortalL.
+
     VfxSpawner::spawn_burst(
         &mut commands,
         pos,
@@ -1142,9 +1129,7 @@ pub fn portal_check(
         Color::srgb(0.5, 0.8, 1.0),
         (60.0, 160.0),
     );
-    // GML Portal/Create_0 appears instantly (shock + PortalL FX + sound);
-    // no scale pop-in. NOTE: no chest spawns here - GML Open Mind adds
-    // chests at level-gen time (scrPopChests), never on portal open.
+
     ScreenEffects::add_trauma(&mut trauma, 0.25);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.25);
     audio.play_portal(&mut commands);
@@ -1184,7 +1169,6 @@ pub fn portal_attract(
     let dt = time.delta_secs();
     let frames = dt * crate::app::NT_SIM_HZ as f32;
 
-    // GML Portal/Create_0 attract_objects: dist<=96, LOS clear, spd 2 (>48) / 5.
     let mut attract_step = |ppos: Vec2| -> Option<(Vec2, f32, f32)> {
         let dist = ppos.distance(tpos);
         if dist > 96.0 || dist < 0.5 {
@@ -1211,14 +1195,13 @@ pub fn portal_attract(
                 ptf.translation.y = ny.y;
             }
             if dist <= 48.0 {
-                // GML: angle -= 30*right, sprite spr_hurt img 1.
+
                 let right = aim
                     .map(|a| if a.0.x < 0.0 { -1.0 } else { 1.0 })
                     .unwrap_or(1.0);
                 ptf.rotation *= Quat::from_rotation_z((-30.0_f32.to_radians()) * right * frames);
                 if let (Some(anim), Some(sprite), Some(pa)) = (anim.as_mut(), sprite.as_mut(), pa) {
-                    // Trigger hurt strip once; tick_hurt_anims restores.
-                    // Skip while a hurt oneshot is already playing.
+
                     if !(anim.oneshot && !anim.finished) {
                         crate::game::anim::play_hurt(
                             &mut commands,
@@ -1234,7 +1217,7 @@ pub fn portal_attract(
                     }
                 }
             } else {
-                // GML: if dist>half && !roll && angle!=0 → angle=0.
+
                 ptf.rotation = Quat::IDENTITY;
             }
         }
@@ -1244,7 +1227,7 @@ pub fn portal_attract(
         let PickupKind::Weapon(_) = pickup.kind else {
             continue;
         };
-        // Skip already-carried (invisible) weapons.
+
         if wtf.scale.x < 0.01 {
             continue;
         }
@@ -1252,7 +1235,7 @@ pub fn portal_attract(
         let Some((dir, spd, _dist)) = attract_step(ppos) else {
             continue;
         };
-        // mp_potential_step_object(px,py,1,Wall): step toward portal, slide on blocked axis.
+
         let delta = dir * spd * 30.0 * dt;
         let nx = Vec2::new(ppos.x + delta.x, ppos.y);
         let ny = Vec2::new(ppos.x, ppos.y + delta.y);
@@ -1262,10 +1245,10 @@ pub fn portal_attract(
         if mask.is_walkable(ny) {
             wtf.translation.y = ny.y;
         }
-        // GML: image_angle -= 15*rotspeed.
+
         let rotspeed = gp.as_ref().map(|g| g.rotspeed).unwrap_or(0.8);
         wtf.rotation *= Quat::from_rotation_z((-15.0_f32.to_radians()) * rotspeed * frames);
-        // Damp slide velocity so attract wins over GroundPhysics drift.
+
         if let Some(mut gp) = gp {
             gp.vel *= 0.8;
         }
@@ -1273,8 +1256,6 @@ pub fn portal_attract(
     }
 }
 
-/// GML PortalShock: alarm 2 ticks, kills props (other.hp = 0) and clears
-/// enemy projectiles; chests in radius auto-open like player touch.
 pub fn tick_portal_shock(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1300,15 +1281,14 @@ pub fn tick_portal_shock(
     run: Res<Run>,
     player_q: Query<&Player>,
 ) {
-    // GML HP/Ammo Create_0: haste crown divides the despawn alarm by 3.
+
     let hasted = player_q
         .single()
         .is_ok_and(|p| p.crown == crate::game::content::CrownKind::Haste);
     for (shock_e, shock_tf, mut shock) in &mut shocks {
         shock.timer.tick(time.delta());
         let center = shock_tf.translation.truncate();
-        // Collision_prop: other.hp = 0 → lethal via existing death path.
-        // Apply immediately so barrels chain before the shock despawns.
+
         let mut killed: Vec<(
             Entity,
             Vec2,
@@ -1354,7 +1334,7 @@ pub fn tick_portal_shock(
             }
             commands.entity(prop_e).despawn();
         }
-        // Chests in radius auto-open (Weapon→weapon pickup, Ammo→2 pickups).
+
         for (chest_e, chest_tf, pickup) in &mut chests {
             let PickupKind::Chest(kind) = pickup.kind else {
                 continue;
@@ -1363,7 +1343,7 @@ pub fn tick_portal_shock(
             if center.distance(cpos) > shock.radius {
                 continue;
             }
-            // Swap to open corpse.
+
             crate::game::pickups::open_chest_shock(
                 &mut commands,
                 &catalog,
@@ -1387,7 +1367,7 @@ pub fn tick_portal_shock(
                     );
                 }
                 ChestKind::Ammo => {
-                    // GML shock spawns 2 generic boxes; type decided at pickup.
+
                     for _ in 0..2 {
                         crate::game::pickups::spawn_pickup(
                             &mut commands,
@@ -1417,7 +1397,7 @@ pub fn tick_portal_shock(
                 }
             }
         }
-        // Step_0: clear enemy projectiles in radius.
+
         for (proj_e, proj_tf, team) in &mut enemy_shots {
             if *team == Team::Player {
                 continue;
@@ -1432,7 +1412,6 @@ pub fn tick_portal_shock(
     }
 }
 
-/// GML PortalClear: destroys walls it touches (alarm 5 ticks).
 pub fn tick_portal_clear(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1461,6 +1440,7 @@ pub fn tick_portal_clear(
     }
 }
 
+// Portal latch blocks re-trigger.
 pub fn portal_enter(
     mut commands: Commands,
     run: Res<Run>,
@@ -1485,7 +1465,7 @@ pub fn portal_enter(
     let Ok((portal_e, portal_tf, closing)) = portal_q.single() else {
         return;
     };
-    // GML Portal/Collision_Player: `if (close) exit` - latch on first touch.
+
     if closing.is_some() {
         return;
     }
@@ -1502,13 +1482,10 @@ pub fn portal_enter(
     }
     let _ = &mut vel;
 
-    // GML close path: close=true, endgame=30, alarm[1]=90, sndPortalClose.
-    // Bevy: latch component blocks re-trigger; suck timer owns the 90-tick wait.
     commands.entity(portal_e).insert(PortalClosing {
         timer: Timer::from_seconds(90.0 / 30.0, TimerMode::Once),
     });
 
-    // GML Robot branch: nearby visible WepPickups are eaten (scrRobotEat).
     if race_state.race == RaceId::Robot {
         for (wep_e, wep_tf, pickup) in &mut weapon_q {
             let PickupKind::Weapon(w) = pickup.kind else {
@@ -1517,7 +1494,7 @@ pub fn portal_enter(
             if wep_tf.translation.truncate().distance(tpos) > 96.0 {
                 continue;
             }
-            // Approximate scrRobotEat(wep,true): weapon → its ammo, smoke puff.
+
             let kind = weapon_ammo(w);
             if kind != AmmoKind::None {
                 let add = ammo_pickup_amount(kind);
@@ -1535,8 +1512,6 @@ pub fn portal_enter(
         }
     }
 
-    // Begin suck-in (NT Portal/Collision pulls the player over ~16 frames
-    // @30fps); tick_portal_suck finishes the floor transition.
     commands.entity(player_e).insert(PortalSucking {
         portal: portal_e,
         timer: Timer::from_seconds(0.55, TimerMode::Once),
@@ -1594,7 +1569,7 @@ pub fn tick_portal_suck(
 
     suck.timer.tick(time.delta());
     let t = suck.timer.fraction().clamp(0.0, 1.0);
-    // Ease-in toward the portal + spin + shrink (vortex look).
+
     let ease = t * t;
     let pos = suck.start_pos.lerp(suck.target_pos, ease);
     player_tf.translation.x = pos.x;
@@ -1622,8 +1597,6 @@ pub fn tick_portal_suck(
         sprite.color.set_alpha(1.0);
     }
 
-    // GML Portal/Alarm_1: chicken swords left in Desert 1-1 count up.
-    // wep_chicken_sword = 46 (macros_general.gml:406).
     if run.floor == 1 && run.area == crate::game::areas::AreaId::Desert {
         let mut swords = carried.0.iter().filter(|w| w.0 == 46).count() as u32;
         for pickup in &weapon_q {
@@ -1634,15 +1607,11 @@ pub fn tick_portal_suck(
         run.blackswords += swords;
     }
 
-    // Clean current floor. Carried weapons already live in the
-    // PortalCarriedWeapons resource (despawned on portal touch), so the
-    // wipe only removes floor entities - GML room_restart persistence.
     for e in &level_q {
         commands.entity(e).despawn();
     }
     commands.entity(portal_e).despawn();
 
-    // Priority: completed-loop portal -> queued secret -> ordinary advance.
     let looped = crate::game::loop_transition::try_apply_loop_portal_transition(
         &mut run,
         &mut ctx.loop_transition,
@@ -1688,14 +1657,12 @@ pub fn tick_portal_suck(
         ctx.toast.show(&format!("LOOP {}", run.loop_count));
     }
 
-    // Mark Strong Spirit eligible to recharge on the next full heal.
     if player.strong_spirit_spent {
         player.strong_spirit_area_cleared = true;
     }
 
-    // NT: mutation/ultra selection happens after portal, before/around loading.
     if player.ultra_pick_owed || player.mutation_picks_owed > 0 {
-        // Hold generation until skills are picked.
+
         ctx.deferred.0 = true;
         begin_between_floor_skill_picks(
             &mut commands,
@@ -1706,7 +1673,7 @@ pub fn tick_portal_suck(
         if player.mutation_picks_owed == 0 && !player.ultra_pick_owed {
             if !ctx.paused.0 {
                 ctx.deferred.0 = false;
-                // Fall through to GenCont path below.
+
             } else {
                 player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
                 return;
@@ -1717,7 +1684,6 @@ pub fn tick_portal_suck(
         }
     }
 
-    // No picks owed → existing GenCont path:
     ctx.deferred.0 = false;
     let tip = pick_loading_tip(&run);
     commands.insert_resource(FloorTransition {
@@ -1730,9 +1696,9 @@ pub fn tick_portal_suck(
     commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up_for_gml_area(
         crate::game::vortex::gml_area_for_bevy_area(run.area),
     ));
-    // Hide player until next floor spawns (GenCont hides player during load)
+
     player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
-    // Keep portal_closed flag; will be cleared after transition spawns
+
     let _ = (
         &catalog,
         &asset_server,
@@ -1782,7 +1748,7 @@ pub fn tick_floor_transition(
                 return;
             };
             let plan = world::generate_level(&run);
-            // GML scrPopChests: Open Mind adds 2 random chests at gen time.
+
             let mut plan = plan;
             if open_mind.0 {
                 world::apply_open_mind_bonus(&mut plan, run.area, run.floor_in_area);
@@ -1818,8 +1784,7 @@ pub fn tick_floor_transition(
             tf.scale = Vec3::ONE;
             run.portal_open = false;
             ft.active = false;
-            // GML persistent WepPickups survive room_restart: drop carried
-            // weapons around the player spawn on the new floor.
+
             if !carried.0.is_empty() {
                 let base = tf.translation.truncate();
                 for (i, w) in carried.0.drain(..).enumerate() {
@@ -1835,8 +1800,7 @@ pub fn tick_floor_transition(
                     );
                 }
             }
-            // Signal vortex to drain (GML survivors pop within ~21 ticks;
-            // the quad despawns itself on a 26-tick margin)
+
             if let Some(mut s) = spiral {
                 if s.alive {
                     s.alive = false;
@@ -1876,8 +1840,6 @@ pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<
     }
 }
 
-/// Canonical unlock awards, applied once per newly reached floor and
-/// persisted through the throttled save flush.
 pub fn apply_floor_reach_unlocks(
     mut applied: Local<u32>,
     run: Res<Run>,
@@ -1945,8 +1907,7 @@ pub fn boss_info(q: &Query<(&Enemy, &Health), With<Enemy>>) -> Option<(u32, u32)
     None
 }
 
-/// NT starting ammo: GML `scrCreatePlayers` `scrAmmoGetPickupAmount(_type)*3` where
-/// `typ_ammo` already includes Fish and Haste bonuses (Back Muscle not at start).
+// Start ammo is pickup amount x3.
 fn starting_ammo_for(
     weapons: &[WeaponId; MAX_WEAPON_SLOTS],
     race: RaceId,
@@ -1954,7 +1915,6 @@ fn starting_ammo_for(
 ) -> [i32; MAX_AMMO_TYPES] {
     let mut ammo = [0; MAX_AMMO_TYPES];
 
-    // Fish bonus: typ_ammo[Ammo.Bullets] 32+8, etc., per scrAmmoUpdateTypeStats
     let fish = if race == RaceId::Fish { 1 } else { 0 };
     let haste = if crown == CrownKind::Haste { 1 } else { 0 };
 
@@ -2022,7 +1982,7 @@ mod loadout_tests {
             RaceId::Fish,
             CrownKind::None,
         );
-        assert_eq!(ammo[1], 120); // 40*3
+        assert_eq!(ammo[1], 120);
     }
 
     #[test]
@@ -2093,7 +2053,7 @@ mod mutation_progression_tests {
     fn completed_pool_heals_instead_of_rolling() {
         let mut player = dummy_player();
         player.mutations = ALL_MUTATIONS.to_vec();
-        // Patience was used, so it is excluded from the pool as well.
+
         player.patience_used = true;
 
         let choices = roll_mutations(&mut player);
@@ -2110,10 +2070,6 @@ mod mutation_progression_tests {
     }
 }
 
-/// Headless parity tests for GML portal/vortex level-end drag
-/// (`Portal/Create_0 attract_objects`, `WepPickup/Collision_Portal`,
-/// `Rad/Step_0`, `PortalShock/Collision_prop`, chest `Collision_PortalShock`).
-/// Also guards against Bevy B0001 query-conflict panics in these systems.
 #[cfg(test)]
 mod portal_vortex_parity_tests {
     use super::*;
@@ -2121,20 +2077,17 @@ mod portal_vortex_parity_tests {
     use bevy::asset::AssetPlugin;
     use bevy::time::TimeUpdateStrategy;
 
-    /// Minimal harness: fixed-step systems exactly like production, one fixed
-    /// tick per `update()` so `Time<Fixed>` deltas are deterministic.
     fn harness() -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
-        // Sprite-producing systems call AssetServer::load::<Image>, which
-        // requires the Image asset type to be registered.
+
         app.init_asset::<Image>();
         app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
         app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
         let mut run = Run::default();
         run.portal_open = true;
         app.insert_resource(run);
-        // Floor cells covering x in [-32, 96] so LOS/stepping is walkable.
+
         let mut mask = FloorMask::default();
         for cx in -1..=3 {
             mask.cells.insert((cx, 0));
@@ -2147,8 +2100,7 @@ mod portal_vortex_parity_tests {
         catalog
             .images
             .insert("images/sprBarrelDead.png".to_string());
-        // Chest loot falls back to the Revolver sprite when the rolled
-        // weapon art is absent; sprite_exact requires every path.
+
         catalog.images.insert("images/sprRevolver.png".to_string());
         app.insert_resource(catalog);
         app.add_systems(
@@ -2174,7 +2126,7 @@ mod portal_vortex_parity_tests {
         let portal = portal_pos();
         app.world_mut()
             .spawn((Portal, Transform::from_translation(portal.extend(5.0))));
-        // Dropped gun 64px away: inside the 96px GML attract ring.
+
         let gun = app
             .world_mut()
             .spawn((
@@ -2188,7 +2140,7 @@ mod portal_vortex_parity_tests {
                 Transform::from_translation(Vec2::ZERO.extend(8.0)),
             ))
             .id();
-        // Player needed for rad targeting; also attracted itself.
+
         app.world_mut().spawn((
             Player::default(),
             Velocity(Vec2::ZERO),
@@ -2206,14 +2158,14 @@ mod portal_vortex_parity_tests {
         for _ in 0..5 {
             app.update();
         }
-        // GML speed 2px/step: must have moved closer, never teleported.
+
         let mid = dist(&app);
         assert!(mid < start, "gun not dragged: {mid} vs {start}");
         assert!(mid > 1.0, "gun teleported instead of dragged");
         for _ in 0..40 {
             app.update();
         }
-        // GML WepPickup/Collision_Portal: persistent → carried, floor entity gone.
+
         let carried = app.world().resource::<PortalCarriedWeapons>();
         assert!(
             !carried.0.is_empty(),
@@ -2231,7 +2183,7 @@ mod portal_vortex_parity_tests {
         let portal = portal_pos();
         app.world_mut()
             .spawn((Portal, Transform::from_translation(portal.extend(5.0))));
-        // Player in the far ring, sprinting directly away at full run speed.
+
         let player = app
             .world_mut()
             .spawn((
@@ -2243,15 +2195,13 @@ mod portal_vortex_parity_tests {
         for _ in 0..5 {
             app.update();
         }
-        // Input authority: GML attract only nudges position, so velocity
-        // must be untouched (the old code overwrote it toward the portal,
-        // making the whole ring inescapable).
+
         let vel = app.world().get::<Velocity>(player).unwrap().0;
         assert!(
             (vel - Vec2::new(120.0, 0.0)).length() < 0.01,
             "drag stole player velocity: {vel}"
         );
-        // Only the GML 2px/step nudge applied: 80 - 5*2 = 70.
+
         let p = app
             .world()
             .get::<Transform>(player)
@@ -2274,7 +2224,7 @@ mod portal_vortex_parity_tests {
             Velocity(Vec2::ZERO),
             Transform::from_translation(Vec2::ZERO.extend(20.0)),
         ));
-        // Rad far beyond the normal 80px range: GML targets player anyway.
+
         let rad = app
             .world_mut()
             .spawn((
@@ -2296,7 +2246,7 @@ mod portal_vortex_parity_tests {
             app.update();
         }
         let end = player_dist(&app);
-        // GML mp_potential_step 12px/step × 10 ticks = ~120px closer.
+
         assert!(end < start - 50.0, "rad not magnetized: {end} vs {start}");
     }
 
@@ -2314,7 +2264,7 @@ mod portal_vortex_parity_tests {
             },
             Transform::from_translation(portal_pos().extend(6.0)),
         ));
-        // Barrel 10px away: GML Collision_prop other.hp = 0.
+
         let barrel = app
             .world_mut()
             .spawn((
@@ -2333,7 +2283,7 @@ mod portal_vortex_parity_tests {
                 Transform::from_translation(Vec2::new(74.0, 0.0).extend(-8.0)),
             ))
             .id();
-        // Closed weapon chest at origin: inside shock radius, outside carry radius.
+
         let chest = app
             .world_mut()
             .spawn((
@@ -2354,7 +2304,7 @@ mod portal_vortex_parity_tests {
             app.world().get::<OpenedChest>(chest).is_some(),
             "shock did not auto-open the chest"
         );
-        // Corpse = PickupLifetime without Pickup (bursts use Particle, rads keep Pickup).
+
         let corpses = app
             .world_mut()
             .query_filtered::<Entity, (With<PickupLifetime>, Without<Pickup>)>()

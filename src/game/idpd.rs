@@ -1,6 +1,3 @@
-//! IDPD raids: loop-only escalation, edge spawns, van deployments, and the
-//! HQ garrison pressure loop.
-
 use bevy::prelude::*;
 
 use crate::game::areas::AreaId;
@@ -26,10 +23,6 @@ fn is_raid_suppressed_area(area: AreaId) -> bool {
     )
 }
 
-/// True for every enemy managed by the IDPD raid director.
-///
-/// Keep this centralized so the campfire gate, raid director, death effects,
-/// and future HQ logic cannot disagree about which units must be cleared.
 pub fn is_idpd_kind(kind: EnemyKind) -> bool {
     matches!(
         kind,
@@ -37,10 +30,6 @@ pub fn is_idpd_kind(kind: EnemyKind) -> bool {
     )
 }
 
-/// Whether the raid director may enqueue a brand-new warning/wave.
-///
-/// Existing pending waves are handled separately; this only answers whether
-/// the trigger condition may create another one.
 pub fn may_queue_new_raid(transition: &LoopTransition) -> bool {
     !transition.blocks_new_idpd_raids()
 }
@@ -87,8 +76,6 @@ pub fn choose_wave(loop_count: u32, floor: u32, roll: u8) -> RaidWave {
     }
 }
 
-/// Four arena-edge points ordered farthest-first from the player so raids
-/// enter from off-pressure edges.
 pub fn edge_spawn_points_away_from(player_pos: Vec2) -> [Vec2; 4] {
     let margin = 56.0;
 
@@ -142,10 +129,6 @@ pub fn tick_idpd_raids(
     let enemies_alive = enemies_q.iter().count();
     let kills_since_checkpoint = run.total_kills.saturating_sub(raid.kills_checkpoint);
 
-    // Once Throne II has spawned - or after it dies while the loop portal is
-    // waiting - there must be no late warning left in the director. A pending
-    // warning during the campfire itself is intentionally retained: it was
-    // queued before the Throne died and is the alternate IDPD-clear path.
     if transition.throne_ii_alive || transition.loop_ready {
         raid.pending_wave = None;
         return;
@@ -172,8 +155,6 @@ pub fn tick_idpd_raids(
         return;
     }
 
-    // No new warning may begin during the campfire, but an already-pending
-    // warning is allowed to finish below (alternate IDPD-clear path).
     if transition.campfire_active && raid.pending_wave.is_none() {
         return;
     }
@@ -361,7 +342,6 @@ fn spawn_van(
     );
 }
 
-/// Vans hold position and periodically deploy reinforcements.
 pub fn tick_idpd_vans(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -407,13 +387,11 @@ pub fn tick_idpd_vans(
             );
         }
 
-        // Once empty, the van is just a stationary target.
         commands.entity(entity).remove::<IdpdShieldUnit>();
         let _ = enemy_def(EnemyKind::IdpdVan);
     }
 }
 
-/// HQ garrison: while visiting the I.D.P.D. HQ secret, keep pressure on.
 pub fn hq_pressure(
     time: Res<Time<Fixed>>,
     mut commands: Commands,

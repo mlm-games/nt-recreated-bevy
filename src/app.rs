@@ -62,10 +62,9 @@ const LOCALES: &[(&str, &str)] = &[
 pub enum AppState {
     #[default]
     Splash,
-    /// Logo intro done: the five big main-menu buttons (nt-rewrite
-    /// `MainMenuButton`).
+
     MainMenu,
-    /// Char-select campfire row (`Menu`/`CharSelect`).
+
     Loading,
     Title,
     InGame,
@@ -123,29 +122,27 @@ pub struct SharedUi {
     pub toast: String,
     pub toast_timer: f32,
     pub mutation_choices: Vec<String>,
-    /// GML skill index for each pending mutation (1-based subimage of
-    /// `sprSkillIcon` / `sprSkillIconHUD`).
+
     pub mutation_choice_ids: Vec<u8>,
-    /// GML SkillIcon.selected: None = nothing hovered, Some(idx) = hovered/selected, requiring second click to confirm.
+
     pub mutation_selected: Option<usize>,
     pub game_over: bool,
-    /// Acquired mutations (skill indices) for death screen – mirrors GML results.
+
     pub death_mutation_ids: Vec<u8>,
     pub character: String,
-    /// nt-rewrite `enum Race` id of the chosen mutant (Random=0..Cuz=16).
+
     pub selected_character: usize,
-    /// GoButton revealed after the first successful char-select click
-    /// (nt-rewrite CharSelect/Mouse_4).
+
     pub title_go_visible: bool,
-    /// Loadout panel open (Menu.loadout_open; toggled from the splat/arrow).
+
     pub loadout_open: bool,
-    /// Race id currently hovered in the char-select row (-1 = none).
+
     pub title_hover_race: i32,
-    /// Main-menu button index currently hovered (-1 = none).
+
     pub main_menu_hover: i32,
-    /// Vlambeer boot card index (0..=4; 4 = NT logo stage).
+
     pub boot_mode: u8,
-    /// Ammo count of each equipped weapon's type (HUD text).
+
     pub weapon_ammo: [i32; 2],
     pub best_floor: u32,
     pub total_kills: u32,
@@ -153,32 +150,30 @@ pub struct SharedUi {
     pub start_weapon_name: String,
     pub stored_weapon_name: String,
     pub crown: String,
-    /// Numeric ids for loadout ICON frames (sprLoadoutCrown / weapon art).
+
     pub start_weapon_id: u8,
     pub stored_weapon_id: u8,
     pub crown_id: u8,
     pub selected_skin: u8,
-    /// Menu.portrait_offsets[0]: starts at 180 on race change, approaches 0.
+
     pub portrait_offset: f32,
-    /// Menu.textappear[0]: 2 on race change; skills text uses this.
+
     pub text_appear: f32,
-    /// Bumped when race changes so ui_art can reset splat / char anims.
+
     pub selection_epoch: u32,
 
-    /// Viewport data used to pick HUD layout without adaptive APIs.
     pub viewport_width: f32,
     pub viewport_height: f32,
     pub hud_compact: bool,
-    /// GenCont loading (between floors) – mirrors Floors' GENERATING overlay.
+
     pub gen_active: bool,
     pub gen_progress: f32,
     pub gen_tip: String,
     pub run_id: u32,
-    /// MenuOptions category stack: 0 Main, 1 Audio, 2 Video, 3 Game, 4 Controls, 5 Language
-    /// Extended via Other_20 subcategories: 6 Video_Display 7 Game_Profile 8 Game_Color 9 Game_Data ...
+
     pub settings_page: u8,
     pub settings_page_stack: Vec<u8>,
-    /// Ambient volume (GML volume_ambient) – separate from sfx.
+
     pub ambience_vol: f32,
     pub volume_3dsound: bool,
     pub screenshake: f32,
@@ -210,7 +205,7 @@ pub struct SharedUi {
     pub player_color_hex: String,
     pub profile_name: String,
     pub cprefs: [bool; 8],
-    /// PauseButton confirmation state: None = normal 4 buttons, Some(0)=MENU confirm, Some(1)=RETRY confirm
+
     pub pause_confirm: Option<u8>,
 }
 
@@ -322,6 +317,7 @@ impl Default for SharedUi {
     }
 }
 
+// Sim runs at 30 Hz fixed.
 pub const NT_SIM_HZ: f64 = 30.0;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -334,12 +330,8 @@ pub enum NtSimSet {
     Cleanup,
 }
 
-/// Pixel font standing in for NT's bitmap `fntM1` (OFL, see
-/// assets/fonts/Silkscreen-OFL.txt).
 pub const NT_UI_FONT: &[u8] = include_bytes!("../assets/fonts/Silkscreen-Regular.ttf");
 
-/// The loaded UI font, so sprite-side systems (splash Text2d) share the exact
-/// face the Repose panels use.
 #[derive(Resource, Clone)]
 pub struct UiFont(pub Handle<Font>);
 
@@ -434,9 +426,7 @@ impl Plugin for AppPlugin {
                     handle_mutation_keys,
                     handle_death_restart,
                     tick_pending_unpause,
-                    // Sync after all overlay/paused changes so PostUpdate compose
-                    // sees fresh SharedUi in same frame – prevents 1-frame stale
-                    // MainMenu Settings flash after QuitToTitle (was before process).
+
                     sync_shared_ui,
                     sync_virtual_time_with_pause,
                 )
@@ -520,8 +510,7 @@ fn apply_saved_settings(save: Res<SaveData>, mut locale: ResMut<LocaleResources>
 fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
-        // Arena art uses negative z for back-to-front ordering, so
-        // widen the frustum to include it (like floppy-warriors).
+
         Projection::Orthographic(OrthographicProjection {
             near: -10000.0,
             far: 10000.0,
@@ -561,8 +550,7 @@ fn sync_shared_ui(
     };
     ui.phase = state.get().clone();
     if state.is_changed() && *state.get() == AppState::Title {
-        // Menu/Create_0 spawns GoButton with visible = false, but the current
-        // player race remains the actual selected race.
+
         ui.title_go_visible = false;
         ui.loadout_open = false;
         ui.title_hover_race = -1;
@@ -652,14 +640,14 @@ fn sync_shared_ui(
     channels.master = save.settings.master_volume;
     channels.sfx = save.settings.sfx_volume;
     channels.music = save.settings.music_volume;
-    // Loadout summary for title screen
+
     {
         let sel = selected.0;
         let lo = save.race_loadout(sel);
         let def = crate::game::content::character_def(sel);
         ui.character = def.name.to_string();
         ui.selected_character = sel as usize;
-        // Persisted cskin pick drives the menu portrait + loadout highlight.
+
         ui.selected_skin = lo.preferred_skin;
         let equipped_start = crate::game::content::resolve_start_weapon(lo.start_weapon);
 
@@ -674,7 +662,7 @@ fn sync_shared_ui(
         ui.crown = crate::game::content::crown_short_name(lo.start_crown).to_string();
         ui.start_weapon_id = equipped_start.0;
         ui.stored_weapon_id = lo.stored_weapon.0;
-        // Grid frames + highlight compare against nt-rewrite crwn_* ids.
+
         ui.crown_id = crate::game::content::crown_port_to_gml(lo.start_crown);
         ui.loadout_summary = format!(
             "{} | start {} | stored {} | crown {} | {}",
@@ -769,7 +757,7 @@ fn process_ui_actions(
                     ui.title_go_visible = false;
                     ui.title_hover_race = -1;
                 }
-                // Loading uses Loading state spiral (GenCont) - simple fade, vortex stays via Loading state
+
                 transition.begin_to_state(AppState::Loading);
             }
             UiAction::MainMenuPlay => {
@@ -786,7 +774,7 @@ fn process_ui_actions(
                     ui.title_hover_race = -1;
                     ui.loadout_open = false;
                 }
-                // OG PlayButton/Other_10 is instant - SpiralCont wisps linger via grow*=1.5 drain
+
                 transition.active = false;
                 transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
                 transition.progress = 0.0;
@@ -873,7 +861,7 @@ fn process_ui_actions(
                     ui.pause_confirm = None;
                 }
                 if kind == 0 {
-                    // MENU -> QuitToTitle exact GML image_index 5 flow (want_menu)
+
                     paused.0 = false;
                     *overlay = OverlayMenu::None;
                     pending_unpause.0 = None;
@@ -895,7 +883,7 @@ fn process_ui_actions(
                     next_state.set(AppState::MainMenu);
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
                 } else {
-                    // RETRY -> want_restart true (GML image_index 6)
+
                     paused.0 = false;
                     *overlay = OverlayMenu::None;
                     pending_unpause.0 = None;
@@ -939,15 +927,14 @@ fn process_ui_actions(
                 paused.0 = false;
                 *overlay = OverlayMenu::None;
                 pending_unpause.0 = None;
-                // Immediately reflect in SharedUi so Repose doesn't keep ghost pause
+
                 if let Some(mut ui) = lock_shared(&bridge) {
                     ui.paused = false;
                     ui.overlay = OverlayMenu::None;
                     ui.phase = AppState::MainMenu;
                     ui.game_over = false;
                 }
-                // Keep quit-to-menu instant for now; vortex handled in MainMenuPlay.
-                // If a wipe is desired here, switch to begin_vortex_to(MainMenu).
+
                 transition.active = false;
                 transition.phase = game_utils_bevy::transitions::TransitionPhase::Idle;
                 transition.progress = 0.0;
@@ -1092,7 +1079,7 @@ fn process_ui_actions(
                 if locale.available.contains(lang) {
                     locale.set_locale(lang);
                 }
-                // Persist language immediately (mirrors GML scrOptionsUpdate -> save)
+
                 save.settings.language = lang.clone();
                 if let Err(e) = manager.save(&*save) {
                     bevy::log::error!("save failed: {e}");
@@ -1415,7 +1402,7 @@ fn process_ui_actions(
             }
             UiAction::SettingResetOptions => {
                 *save = SaveData::default();
-                // Preserve progress-related fields? GML scrOptionsEraseSettings keeps tutorial flag etc but we reset fully for demo.
+
                 if let Err(e) = manager.save(&*save) {
                     bevy::log::error!("save failed: {e}");
                 }
@@ -1484,7 +1471,6 @@ fn process_ui_actions(
                     continue;
                 }
 
-                // scrCampfireMenuSelectionChange
                 selected.0 = race;
                 let lo = save.race_loadout(race);
 
@@ -1549,13 +1535,11 @@ fn process_ui_actions(
             }
             UiAction::SelectSkin(s) => {
                 let race = selected.0;
-                // Panel is force-closed for Random upstream; zones linger.
+
                 if race == crate::game::content::RaceId::Random {
                     continue;
                 }
-                // scrMenuDrawLoadout #region Skins: locked -> sndNoSelect;
-                // re-clicking the current skin is silent; otherwise persist
-                // cskin + play the per-letter cue.
+
                 let already = save.race_loadout(race).preferred_skin == s;
                 if !already && save.skin_unlocked(race, s) {
                     save.race_loadout_mut(race).preferred_skin = s;
@@ -1584,8 +1568,6 @@ fn process_ui_actions(
                 let race = selected.0;
                 let lo = save.race_loadout_mut(race);
 
-                // The start selector toggles between the normal Revolver and this race's
-                // stored weapon. It is not a global weapon browser.
                 if lo.stored_weapon.0 != 0 {
                     lo.start_weapon = if lo.start_weapon.0 == 0 {
                         lo.stored_weapon
@@ -1599,12 +1581,11 @@ fn process_ui_actions(
                 }
             }
             UiAction::CycleStoredWeapon(_) => {
-                // Stored weapons are earned and persisted by gameplay. The character
-                // menu must not manufacture/cycle arbitrary stored weapons.
+
             }
             UiAction::CycleCrown(dir) => {
                 let race = selected.0;
-                // Only cycle through unlocked crowns, matching GML's crowngot check
+
                 let mut next = save.race_loadout(race).start_crown;
                 for _ in 0..crate::game::content::CrownKind::ALL.len() {
                     next = crate::game::content::cycle_crown_id(next, dir);
@@ -1621,14 +1602,11 @@ fn process_ui_actions(
             }
             UiAction::SelectCrown(crown_id) => {
                 let race = selected.0;
-                // Upstream force-closes the panel for Random; zones can
-                // linger, so treat it as a locked press.
+
                 if race == crate::game::content::RaceId::Random {
                     continue;
                 }
-                // scrMenuDrawLoadout: unlocked -> equip + sndMenuCrown,
-                // locked -> sndNoSelect. Zone ids are GML crwn_* ids; the
-                // loadout stores port CrownKind ids (NONE=0, Death=1, ...).
+
                 let already = save.race_loadout(race).start_crown
                     == crate::game::content::crown_gml_to_port(crown_id);
                 if !already && save.crown_unlocked(race, crown_id) {
@@ -1643,7 +1621,7 @@ fn process_ui_actions(
                 }
             }
             UiAction::SelectMutation(idx) => {
-                // GML SkillIcon: first click = select (sndHover), second = confirm
+
                 let already = lock_shared(&bridge)
                     .map(|ui| ui.mutation_selected == Some(idx))
                     .unwrap_or(false);
@@ -1660,7 +1638,7 @@ fn process_ui_actions(
                 }
             }
             UiAction::PickMutation(idx) => {
-                // Direct confirm (used when already selected, or via keyboard 1-4 second press)
+
                 let selected = lock_shared(&bridge)
                     .map(|ui| ui.mutation_selected)
                     .unwrap_or(None);
@@ -1670,7 +1648,7 @@ fn process_ui_actions(
                         ui.mutation_selected = None;
                     }
                 } else {
-                    // First press selects, second will pick - mirror SelectMutation
+
                     if let Some(mut ui) = lock_shared(&bridge) {
                         ui.mutation_selected = Some(idx);
                     }
@@ -1829,9 +1807,9 @@ fn handle_mutation_keys(
         if i >= len {
             return;
         }
-        // Push via bridge like UI click - respects two-step select/confirm
+
         if let Some(mut q) = lock_actions(&bridge) {
-            // Check if already selected
+
             let already = lock_shared(&bridge)
                 .map(|ui| ui.mutation_selected == Some(i))
                 .unwrap_or(false);

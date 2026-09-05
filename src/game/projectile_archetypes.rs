@@ -1,11 +1,3 @@
-//! Projectile archetypes: special behaviors beyond bounce/pierce/hazard/split
-//! (homing, sticky, chain lightning, sentry deployment, custom explosions,
-//! beams, HP-ammo, weapon-pickup payloads).
-//!
-//! Deliberately keyed by generated-registry NAME and kept OUTSIDE `WeaponDef`
-//! so the runtime registry stays identity/timing/presentation only. Golden /
-//! Ultra / Cursed variants inherit their base family's archetype.
-
 use bevy::prelude::*;
 
 use crate::game::components::{
@@ -14,9 +6,6 @@ use crate::game::components::{
 use crate::game::content::WeaponId;
 use crate::game::weapons_data::WEAPONS;
 
-/// Beam archetype used by Ion Cannon / Laser Cannon.
-///
-/// This is a firing-mode override, not a projectile component.
 #[derive(Clone, Copy, Debug)]
 pub struct BeamSpec {
     pub length: f32,
@@ -28,7 +17,6 @@ pub struct BeamSpec {
     pub color: Color,
 }
 
-/// Plasma family secondary-burst profile.
 #[derive(Clone, Copy, Debug)]
 pub struct PlasmaBurstSpec {
     pub pellets: u8,
@@ -41,10 +29,6 @@ pub struct PlasmaBurstSpec {
     pub size: Vec2,
 }
 
-/// One archetype bundle per weapon.
-///
-/// This deliberately sits outside `WeaponDef` so the generated runtime registry
-/// stays stable and fully metadata-driven.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProjectileArchetype {
     pub sticky: Option<Sticky>,
@@ -53,15 +37,13 @@ pub struct ProjectileArchetype {
     pub deploys_sentry: Option<DeploysSentry>,
     pub custom_explosion: Option<CustomExplosion>,
     pub blood_ammo: Option<BloodAmmo>,
-    /// `Some(weapon)` => always drop that weapon.
-    /// `None` inside `Some(...)` means roll a random weapon.
+
     pub spawn_weapon_pickup: Option<SpawnsWeaponPickup>,
     pub beam: Option<BeamSpec>,
     pub plasma_burst: Option<PlasmaBurstSpec>,
     pub hits_all_teams: bool,
 }
 
-/// Strip GOLDEN/ULTRA/CURSED so variants inherit their family's archetype.
 pub fn base_weapon_name(name: &str) -> &str {
     name.strip_prefix("GOLDEN ")
         .or_else(|| name.strip_prefix("ULTRA "))
@@ -284,7 +266,7 @@ fn archetyped(name: &str) -> ProjectileArchetype {
         },
 
         _ => {
-            // Fallback: any name containing DISC or BOUNCER gets friendly-fire (future weapons)
+
             if name.contains("DISC") || name.contains("BOUNCER") {
                 ProjectileArchetype {
                     hits_all_teams: true,
@@ -414,8 +396,7 @@ mod tests {
 
     #[test]
     fn golden_variants_inherit_base_archetype() {
-        // GOLDEN NUKE LAUNCHER exists in the registry and must inherit the
-        // base nuke's big blast.
+
         let normal = projectile_archetype(id_by_name("NUKE LAUNCHER"));
         let golden = projectile_archetype(id_by_name("GOLDEN NUKE LAUNCHER"));
         assert_eq!(
@@ -423,7 +404,6 @@ mod tests {
             golden.custom_explosion.map(|c| c.radius),
         );
 
-        // Unrelated golden weapons stay inert.
         assert!(
             projectile_archetype(id_by_name("GOLDEN REVOLVER"))
                 .chain_lightning
@@ -445,8 +425,6 @@ mod tests {
         assert!(a.plasma_burst.is_none());
     }
 
-    /// Sweep: every registry name whose family implies a behavior gets exactly
-    /// that behavior, and nothing else accidentally lights up.
     #[test]
     fn archetype_assignment_matches_registry_names() {
         for meta in WEAPONS.iter().skip(1) {
@@ -509,7 +487,6 @@ mod tests {
         }
     }
 
-    /// Compile-time guard: the lookup only relies on stable registry fields.
     #[test]
     fn lookup_handles_out_of_range_ids() {
         let a = projectile_archetype(WeaponId(u8::MAX));

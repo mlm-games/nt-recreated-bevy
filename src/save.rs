@@ -11,6 +11,7 @@ pub const SAVE_VERSION: u32 = 4;
 
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SaveData {
+    // Old saves fill defaults via serde.
     #[serde(default)]
     pub version: u32,
     pub high_score: u32,
@@ -24,8 +25,8 @@ pub struct SaveData {
     pub unlocked_characters: Vec<String>,
     #[serde(default)]
     pub races: BTreeMap<RaceId, RaceLoadout>,
-    /// Per-race crown unlocks (nt-rewrite UberCont.crowngot). Ids 0 (RANDOM)
-    /// and 1 (NONE) default true; 2..=13 unlock by taking the crown in-run.
+
+    // Crowns 0-1 start open, rest unlock in-run.
     #[serde(default)]
     pub crown_got: BTreeMap<RaceId, [bool; 14]>,
     #[serde(default)]
@@ -258,13 +259,12 @@ impl SaveData {
             start_crown: 0,
         });
 
-        // Stored weapon without an explicit start weapon is almost always
-        // stale/debug data and causes an accidental two-gun run.
+        // Drop stored gun with no start gun.
         if lo.start_weapon == WeaponId(0) {
             lo.stored_weapon = WeaponId(0);
         }
 
-        // Crown not unlocked -> reset to None (port 0). Matches GML's crowngot check.
+        // Convert port crown ids to GML ids.
         if lo.start_crown != 0 {
             let gml = crate::game::content::crown_port_to_gml(lo.start_crown);
             if !self.crown_unlocked(race, gml) {
@@ -277,8 +277,7 @@ impl SaveData {
 
     pub fn sanitize_loadouts(&mut self) {
         for lo in self.races.values_mut() {
-            // A non-default starting weapon is valid only when it is the
-            // weapon actually stored for this race.
+
             if lo.start_weapon.0 != 0 && lo.start_weapon != lo.stored_weapon {
                 lo.start_weapon = WeaponId(0);
             }
@@ -287,7 +286,7 @@ impl SaveData {
                 lo.start_weapon = WeaponId(0);
             }
         }
-        // Crown check needs to avoid borrowing self while races is mutably borrowed
+
         let mut to_reset = Vec::new();
         for (race, lo) in self.races.iter() {
             if lo.start_crown != 0 {
@@ -304,7 +303,6 @@ impl SaveData {
         }
     }
 
-    /// crowngot row with scrInit defaults: RANDOM(0) and NONE(1) always got.
     fn crown_row(&self, race: RaceId) -> [bool; 14] {
         const BASE: [bool; 14] = [
             true, true, false, false, false, false, false, false, false, false, false, false,
@@ -313,7 +311,6 @@ impl SaveData {
         self.crown_got.get(&race).copied().unwrap_or(BASE)
     }
 
-    /// scr_loadout_race_is_crown_unlocked: cgot[race] && crowngot[race, id].
     pub fn crown_unlocked(&self, race: RaceId, crown: u8) -> bool {
         if crown as usize >= 14 || race == RaceId::Random {
             return false;
@@ -321,7 +318,6 @@ impl SaveData {
         self.race_unlocked(race) && self.crown_row(race)[crown as usize]
     }
 
-    /// scr_loadout_race_get_unlocked_crowns_count > 0 (ids above NONE only).
     pub fn any_crown_unlocked(&self, race: RaceId) -> bool {
         if race == RaceId::Random {
             return false;
@@ -330,7 +326,6 @@ impl SaveData {
         (2..14).any(|i| row[i])
     }
 
-    /// scr_race_is_skin_unlocked: A(0) is always unlocked; B+ via cskingot.
     pub fn skin_unlocked(&self, race: RaceId, skin: u8) -> bool {
         if skin == 0 {
             return true;
@@ -344,7 +339,6 @@ impl SaveData {
             })
     }
 
-    /// scr_loadout_race_unlock_crown + set_start_crown auto-equip.
     pub fn unlock_crown(&mut self, race: RaceId, crown: u8) {
         if (crown as usize) >= 14 || race == RaceId::Random || !self.race_unlocked(race) {
             return;
@@ -359,8 +353,7 @@ impl SaveData {
             return;
         }
         row[crown as usize] = true;
-        // Loadout storage is port-id space (scr_loadout_race_set_start_crown
-        // equivalent); crown ids here are GML crwn_* ids.
+
         self.race_loadout_mut(race).start_crown = crate::game::content::crown_gml_to_port(crown);
     }
 }
@@ -390,7 +383,6 @@ mod tests {
         assert_eq!(settings.language, "en");
     }
 
-    /// scrInit defaults: RANDOM(0)/NONE(1) always got, real crowns locked.
     #[test]
     fn crown_defaults_match_scrInit() {
         let save = SaveData::default();
@@ -400,8 +392,6 @@ mod tests {
         assert!(!save.any_crown_unlocked(RaceId::Fish));
     }
 
-    /// Locked race denies everything (scr_loadout_race_is_crown_unlocked's
-    /// cgot[race] gate).
     #[test]
     fn crown_unlock_requires_race_unlocked() {
         let mut save = SaveData::default();
@@ -409,7 +399,6 @@ mod tests {
         assert!(!save.crown_unlocked(RaceId::Rogue, crate::game::content::crown_port_to_gml(2)));
         assert!(!save.any_crown_unlocked(RaceId::Rogue));
 
-        // Unlocking the race makes the same call succeed and auto-equip.
         save.race_loadout_mut(RaceId::Rogue).unlocked = true;
         let haste_gml = crate::game::content::crown_port_to_gml(3);
         save.unlock_crown(RaceId::Rogue, haste_gml);
@@ -418,7 +407,6 @@ mod tests {
         assert_eq!(save.race_loadout(RaceId::Rogue).start_crown, 3);
     }
 
-    /// Old saves without the field get scrInit defaults via serde(default).
     #[test]
     fn legacy_saves_get_crown_defaults() {
         let json = serde_json::json!({
@@ -434,13 +422,11 @@ mod tests {
         assert!(!save.crown_unlocked(RaceId::Fish, 5));
     }
 
-    /// scr_race_is_skin_unlocked: A(0) always; B+ only when flagged, and
-    /// never for Random (no cskingot row exists for it).
     #[test]
     fn skin_unlock_defaults_match_scrInit() {
         let mut save = SaveData::default();
         assert!(save.skin_unlocked(RaceId::Fish, 0));
-        assert!(!save.skin_unlocked(RaceId::Fish, 1)); // B locked by default
+        assert!(!save.skin_unlocked(RaceId::Fish, 1));
         assert!(save.skin_unlocked(RaceId::Random, 0));
 
         save.race_loadout_mut(RaceId::Fish).unlocked_skins[2] = true;
@@ -448,7 +434,6 @@ mod tests {
         assert!(!save.skin_unlocked(RaceId::Fish, 3));
     }
 
-    /// preferred_skin persists per race and defaults to A on legacy saves.
     #[test]
     fn preferred_skin_persists_and_defaults() {
         let mut save = SaveData::default();

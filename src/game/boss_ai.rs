@@ -1,9 +1,3 @@
-//! Boss-specific AI state machines.
-//!
-//! Intentionally bypasses the generic enemy chase/fire loop: bosses get their
-//! own phases so they stop feeling like scaled-up Bandits. Generic `EnemyBrain`
-//! still carries the shared melee-contact timer.
-
 use std::time::Duration;
 
 use bevy::prelude::*;
@@ -45,7 +39,7 @@ pub fn boss_ai(
     >,
     props: Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
-    // Non-boss children (disjoint from `bosses`) for FrogQueen egg budget.
+
     children: Query<
         (Entity, &'static Enemy, &'static Transform),
         (With<Enemy>, Without<BossBrain>),
@@ -88,7 +82,7 @@ pub fn boss_ai(
         boss.attack_timer.tick(time.delta());
         boss.special_timer.tick(time.delta());
         brain.melee.tick(time.delta());
-        // GML enemy friction 0.4 for bosses (applied inside big_bandit already)
+
         if !matches!(enemy.kind, EnemyKind::BigBandit | EnemyKind::BigBanditLoop) {
             apply_gml_friction(&mut vel.0, 0.4, dt);
         }
@@ -311,25 +305,22 @@ fn big_bandit_ai(
     } else {
         EnemyKind::BigBandit
     };
-    // GML BanditBoss fidelity: friction 0.4 every tick, speed caps via gml_motion_add_clamp
+
     apply_gml_friction(&mut vel.0, 0.4, dt);
 
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
-            // Walk like GML Other_10 non-charge: motion_add(direction,0.4) via walk timer sets vel
-            // plus continuous friction already applied. Drift handled by BossBrain walk via
-            // EnemyBrain.walk – ensure boss moves like trash with gml helpers.
+
             if brain.walk > 0.0 {
                 let face = (boss.target - pos).normalize_or_zero();
-                // GML Other_10 when not charging: motion_add(direction,1) + motion_add(gunangle,1) cap 3
-                // For idle we approximate with small walk impulse away/toward player
+
                 let move_dir = if vel.0.length_squared() > 0.0 {
                     vel.0.normalize_or_zero()
                 } else {
                     -dir
                 };
                 gml_motion_add_clamp(&mut vel.0, move_dir, 1.0, 3.0, dt);
-                // also nudge toward gunangle
+
                 if face.length_squared() > 0.0001 {
                     gml_motion_add_clamp(&mut vel.0, face, 0.5, 3.0, dt);
                 }
@@ -351,10 +342,8 @@ fn big_bandit_ai(
                 };
                 boss.attack_timer = Timer::from_seconds(period, TimerMode::Once);
 
-                // Alarm_1 chance to start burst (2/3) if LOS + dist>48 + intro done
                 let intro_done = boss.pattern_index > 0 || boss.phase == BossPhase::Cooldown;
-                // Use pattern_index as chargewait counter (like GML chargewait variable)
-                // and also as intro flag: after first cycle pattern_index becomes non-zero
+
                 let should_burst = los
                     && dist > 48.0
                     && dist < 240.0
@@ -368,25 +357,24 @@ fn big_bandit_ai(
                     boss.set_phase(BossPhase::Radial, 2.5);
                     boss.attack_timer = Timer::from_seconds(70.0 / 30.0, TimerMode::Once);
                 } else {
-                    // chargewait path – increment and possibly start Tell (Alarm_3)
-                    // pattern_index reused as chargewait counter
+
                     let mut chargewait = boss.pattern_index.saturating_add(1);
                     if dist < 96.0 {
                         chargewait = chargewait.saturating_add(1);
                     }
                     boss.pattern_index = chargewait;
-                    // GML: if chargewait>=2 or during intro then Alarm_3 -> charge
+
                     let intro_charge = pos.distance(boss.home) < 1.0;
                     if chargewait >= 2 || intro_charge {
                         boss.pattern_index = 0;
                         boss.target = player_pos;
                         brain.gunangle = dir.y.atan2(dir.x);
-                        boss.set_phase(BossPhase::Telegraph, 15.0 / 30.0); // Alarm_3 =15f
+                        boss.set_phase(BossPhase::Telegraph, 15.0 / 30.0);
                         vel.0 *= 0.2;
                         ScreenEffects::add_trauma(trauma, 0.08);
                     }
                 }
-                // walk step (Alarm_1 always sets walk)
+
                 let away = -dir;
                 let ang =
                     away.y.atan2(away.x) + rand::rng().random_range(-90f32..90.0).to_radians();
@@ -400,14 +388,14 @@ fn big_bandit_ai(
         }
 
         BossPhase::Radial => {
-            // Burst = Alarm_2 every 4 frames while ammo > 0
+
             brain.burst_timer.tick(Duration::from_secs_f32(dt));
             brain.walk = 0.0;
             if brain.ammo > 0 && brain.burst_timer.just_finished() {
                 let spread = rand::rng().random_range(-15f32..15.0).to_radians();
                 let ang = brain.gunangle + spread;
                 let sdir = Vec2::new(ang.cos(), ang.sin());
-                // bullet speed 8 px/frame = 240 px/s
+
                 fire_projectile(
                     commands,
                     catalog,
@@ -425,9 +413,9 @@ fn big_bandit_ai(
                     8.0,
                     Some(kind),
                 );
-                // recoil
+
                 gml_motion_add_clamp(&mut vel.0, -sdir, 1.0, 5.0, dt);
-                // GML BanditBoss Alarm_2: sprite_index = spr_fire per pellet.
+
                 if !hurting
                     && let Some(fire) =
                         crate::game::anim::derive_fire_path(def.sprite)
@@ -455,7 +443,7 @@ fn big_bandit_ai(
                 brain.ammo -= 1;
                 brain.burst_left = brain.burst_left.saturating_sub(1);
                 if looped && brain.ammo == 7 {
-                    brain.gunangle = dir.y.atan2(dir.x); // mid-burst re-aim
+                    brain.gunangle = dir.y.atan2(dir.x);
                 }
                 brain.burst_timer = Timer::from_seconds(4.0 / 30.0, TimerMode::Once);
             }
@@ -474,21 +462,21 @@ fn big_bandit_ai(
         }
 
         BossPhase::Telegraph => {
-            // sprBanditBossTell - hold still 15f
+
             vel.0 *= 0.5_f32.powf(dt * 30.0);
             tf.translation += (vel.0 * dt).extend(0.0);
             if boss.phase_timer.just_finished() {
                 let charge_dir = (boss.target - pos).normalize_or_zero();
                 brain.gunangle = charge_dir.y.atan2(charge_dir.x);
-                // seed direction for Other_10 charge
+
                 vel.0 = charge_dir * (2.0 * 30.0);
-                boss.set_phase(BossPhase::Charging, 0.55); // ~ charge duration
+                boss.set_phase(BossPhase::Charging, 0.55);
                 ScreenEffects::add_trauma(trauma, 0.18);
             }
         }
 
         BossPhase::Charging => {
-            // Other_10 charge: motion_add(direction,2) + motion_add(gunangle,2) cap 5
+
             let move_dir = vel.0.normalize_or_zero();
             let gun = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
             gml_motion_add_clamp(&mut vel.0, move_dir, 2.0, 5.0, dt);
@@ -507,7 +495,7 @@ fn big_bandit_ai(
                 boss.set_phase(BossPhase::Cooldown, 0.55);
                 vel.0 *= 0.15;
                 tf.scale = Vec3::ONE;
-                // No recovery ring – not in base GML BanditBoss (removed divergence)
+
                 boss.pattern_index = 0;
             } else {
                 tf.scale = Vec3::splat(1.06);
@@ -538,7 +526,7 @@ fn big_dog_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
-    // Big Dog is heavy: it drifts toward home and the player, but never chases.
+
     let looped = def.name.contains("Loop");
     let kind = if looped {
         EnemyKind::BigDogLoop
@@ -736,7 +724,7 @@ fn lil_hunter_ai(
 
     match boss.phase {
         BossPhase::Idle | BossPhase::Cooldown => {
-            // Keep a skirmish range.
+
             let desired = if pos.distance(player_pos) < 150.0 {
                 -dir
             } else {
@@ -856,7 +844,7 @@ fn lil_hunter_ai(
             if boss.phase_timer.just_finished() {
                 boss.set_phase(BossPhase::Cooldown, 0.35);
                 tf.scale = Vec3::ONE;
-                // Post-land double burst.
+
                 lil_hunter_burst(
                     commands,
                     catalog,
@@ -950,7 +938,7 @@ fn throne_ai(
     dir: Vec2,
     dt: f32,
 ) {
-    // Throne stays central and only drifts back toward its home.
+
     let to_home = boss.home - pos;
     vel.0 += to_home.normalize_or_zero() * def.accel * 0.15 * dt;
     limit_velocity(vel, 70.0);
@@ -1110,8 +1098,6 @@ fn throne_radial_burst(
     }
 }
 
-/// Four beam lanes on the aim axis and its perpendiculars. Team-safe damage
-/// flows through `Beam.team` inside `tick_beams`.
 fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, enraged: bool) {
     let base = dir_to_player.to_angle();
     let angles = [
@@ -1150,8 +1136,6 @@ fn throne_beam_lanes(commands: &mut Commands, pos: Vec2, dir_to_player: Vec2, en
     }
 }
 
-// Throne II - circling orb boss (split orbs / laser orbs / static stars)
-
 #[allow(clippy::too_many_arguments)]
 fn throne_ii_ai(
     commands: &mut Commands,
@@ -1169,7 +1153,7 @@ fn throne_ii_ai(
     dt: f32,
     loop_count: u32,
 ) {
-    // Circle the arena around home, reversing direction every few patterns.
+
     let reverse = (boss.pattern_index / 3) % 2 == 1;
     let ang_speed = if reverse { -1.15 } else { 1.15 };
     let angle = boss.phase_timer.elapsed_secs() * ang_speed + boss.pattern_index as f32 * 0.2;
@@ -1180,7 +1164,6 @@ fn throne_ii_ai(
     limit_velocity(vel, def.speed.max(90.0));
     tf.translation += (vel.0 * dt).extend(0.0);
 
-    // Enrage transition: faster cadence + a named phase for the pulse VFX.
     if boss.enraged
         && !matches!(
             boss.phase,
@@ -1243,7 +1226,7 @@ fn throne_ii_ai(
         }
 
         BossPhase::Radial => {
-            // Static star phase.
+
             vel.0 *= 0.85_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
             if boss.phase_timer.just_finished() {
                 throne_ii_star_burst(
@@ -1343,7 +1326,6 @@ fn throne_ii_laser_orbs(
             Transform::from_translation((pos + dir * 24.0).extend(16.0)),
         ));
 
-        // Bright orbs fire a random-direction beam from their travel lane.
         let beam_dir = dir_from_angle(angle + 1.7);
         spawn_enemy_beam(
             commands,
@@ -1390,8 +1372,6 @@ fn throne_ii_star_burst(
     }
 }
 
-// Hyper Crystal - contact flunky core with orbiting laser crystals
-
 #[allow(clippy::too_many_arguments)]
 fn hyper_ai(
     commands: &mut Commands,
@@ -1408,7 +1388,7 @@ fn hyper_ai(
     dt: f32,
     loop_count: u32,
 ) {
-    // Slow drift; the huge touch damage is the threat.
+
     let desired = (boss.home - pos) * 0.4 + (player_pos - pos) * 0.1;
     if desired.length_squared() > 1.0 {
         vel.0 += desired.normalize_or_zero() * def.accel * 0.12 * dt;
@@ -1416,8 +1396,6 @@ fn hyper_ai(
     limit_velocity(vel, def.speed.max(35.0));
     tf.translation += (vel.0 * dt).extend(0.0);
 
-    // Rearm orbit ring periodically - only spawn once at init to avoid leak.
-    // GML hyper creates ring on Create, not every attack. We guard by tracking pattern_index.
     if boss.attack_timer.just_finished() && boss.pattern_index == 0 {
         boss.pattern_index += 1;
         hyper_ensure_orbit(commands, owner, pos, loop_count, boss.enraged);
@@ -1425,7 +1403,6 @@ fn hyper_ai(
         boss.pattern_index += 1;
     }
 
-    // Search phase when the player keeps distance.
     if boss.special_timer.just_finished() && pos.distance(player_pos) > 220.0 {
         hyper_search_detonate(
             commands,
@@ -1450,7 +1427,6 @@ fn hyper_search_detonate(
     ScreenEffects::add_trauma(trauma, 0.3);
     let lasers = 7 + loop_count as usize * 2 + usize::from(enraged);
 
-    // Explosion at the player's cover.
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1520,8 +1496,6 @@ fn hyper_ensure_orbit(
     }
 }
 
-/// Orbit positioning around the core plus periodic beam fire; crystals free
-/// themselves (slow drift) when their core dies.
 pub fn tick_hyper_orbit_crystals(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1537,9 +1511,9 @@ pub fn tick_hyper_orbit_crystals(
 
     for (entity, mut tf, mut vel, mut crystal) in q.iter_mut() {
         let Ok(core_tf) = cores.get(crystal.owner) else {
-            // Core dead: fade out and despawn (was leak: drifted forever).
+
             vel.0 *= 0.92;
-            // Despawn after 2s drift to prevent accumulation
+
             if vel.0.length() < 5.0 {
                 commands.entity(entity).despawn();
             }
@@ -1571,8 +1545,6 @@ pub fn tick_hyper_orbit_crystals(
     }
 }
 
-// Mom - loop Sewers boss: toxic rings, hazard clouds, and Frog Egg broods
-
 #[allow(clippy::too_many_arguments)]
 fn mom_ai(
     commands: &mut Commands,
@@ -1590,7 +1562,7 @@ fn mom_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
-    // Drift and keep mid range.
+
     let desired = if pos.distance(player_pos) < 120.0 {
         -dir
     } else {
@@ -1602,7 +1574,7 @@ fn mom_ai(
     resolve_prop_collision(&mut tf.translation, def.radius, props);
 
     if boss.attack_timer.just_finished() {
-        // Toxic ring around Mom.
+
         fire_ring_with_kind(
             commands,
             catalog,
@@ -1626,7 +1598,7 @@ fn mom_ai(
 
     if boss.special_timer.just_finished() {
         boss.set_phase(BossPhase::Spawning, 0.4);
-        // Lay three eggs in a triangle around Mom.
+
         for i in 0..3 {
             let a = i as f32 * std::f32::consts::TAU / 3.0 + boss.pattern_index as f32 * 0.4;
             commands.spawn(PendingEnemySpawn {
@@ -1643,9 +1615,6 @@ fn mom_ai(
     }
 }
 
-/// Frog Queen - Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
-/// Alternates aimed MomProjectile volleys with FrogEgg clusters; keeps an
-/// egg budget of 8 on screen (upstream Exploder + SuperFrog*2 < 8 check).
 fn frog_queen_ai(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -1666,20 +1635,19 @@ fn frog_queen_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
-    // Relentless chase at loop-scaled speed.
+
     vel.0 += dir * def.accel * 0.6 * dt;
     limit_velocity(vel, def.speed);
     tf.translation += (vel.0 * dt).extend(0.0);
     resolve_prop_collision(&mut tf.translation, def.radius, props);
 
-    // Egg budget.
     let egg_count = children
         .iter()
         .filter(|(_, e, _)| e.kind == EnemyKind::FrogEgg)
         .count();
 
     if boss.attack_timer.just_finished() {
-        // Aimed MomProjectile: speed 4/frame = 120px/s, orandom(30) jitter.
+
         let jitter = rand::rng().random_range(-0.26f32..0.26);
         let aim = Vec2::new(
             dir.x * jitter.cos() - dir.y * jitter.sin(),
@@ -1708,7 +1676,7 @@ fn frog_queen_ai(
 
     if boss.special_timer.just_finished() && egg_count < 8 {
         boss.set_phase(BossPhase::Spawning, 0.35);
-        // Cluster of two eggs flanking the queen.
+
         for side in [-1.0f32, 1.0] {
             let offset = Vec2::new(side * 40.0, -20.0);
             commands.spawn(PendingEnemySpawn {
@@ -1725,8 +1693,6 @@ fn frog_queen_ai(
     }
 }
 
-// Technomancer - loop Labs boss: stationary summon engine
-
 fn technomancer_ai(
     commands: &mut Commands,
     _catalog: &AssetCatalog,
@@ -1740,7 +1706,7 @@ fn technomancer_ai(
     _player_pos: Vec2,
 ) {
     let _ = def;
-    // Stationary revive engine: periodically raises reinforcements.
+
     if boss.attack_timer.just_finished() {
         boss.pattern_index += 1;
         let kind = if boss.pattern_index % 2 == 0 {
@@ -1758,7 +1724,7 @@ fn technomancer_ai(
     }
 
     if boss.special_timer.just_finished() {
-        // Burst of Freaks in a ring; wider when enraged.
+
         let n = if boss.enraged { 4 } else { 2 };
         for i in 0..n {
             let a = i as f32 * (std::f32::consts::TAU / n as f32);
@@ -1773,8 +1739,6 @@ fn technomancer_ai(
 
     vel.0 = Vec2::ZERO;
 }
-
-// Captain - IDPD HQ boss: fan volleys, wall charges, and teleports
 
 #[allow(clippy::too_many_arguments)]
 fn captain_ai(
@@ -1842,12 +1806,12 @@ fn captain_ai(
             if boss.phase_timer.just_finished() {
                 tf.scale = Vec3::ONE;
                 if boss.pattern_index % 2 == 0 {
-                    // Charge through the player's last position.
+
                     boss.set_phase(BossPhase::Charging, 0.35);
                     vel.0 = (boss.target - pos).normalize_or_zero() * 720.0;
                     ScreenEffects::add_trauma(trauma, 0.14);
                 } else {
-                    // Teleport past the player.
+
                     boss.set_phase(BossPhase::Teleport, 0.05);
                     tf.translation = (player_pos + dir * 90.0).extend(tf.translation.z);
                     ScreenEffects::add_trauma(trauma, 0.2);
@@ -1899,8 +1863,6 @@ fn captain_ai(
     }
 }
 
-// Old Guardian - Crown Vault boss: slow advance, aimed fans + radial bursts
-
 #[allow(clippy::too_many_arguments)]
 fn old_guardian_ai(
     commands: &mut Commands,
@@ -1918,7 +1880,7 @@ fn old_guardian_ai(
     dt: f32,
     props: &Query<(Entity, &Prop, &Transform), (With<Prop>, Without<Enemy>)>,
 ) {
-    // Slow advance toward the intruder.
+
     let desired = if pos.distance(player_pos) < 90.0 {
         -dir
     } else {
@@ -1973,12 +1935,9 @@ fn old_guardian_ai(
     }
 }
 
-/// Spawn difficulty used by bosses that call reinforcements mid-fight.
 fn difficulty_for_loop(enraged: bool) -> f32 {
     1.0 + if enraged { 0.25 } else { 0.0 }
 }
-
-// Shared enemy beam helper
 
 #[allow(clippy::too_many_arguments)]
 fn spawn_enemy_beam(
@@ -2039,7 +1998,7 @@ fn fire_fan(
     color: Color,
     size: f32,
 ) {
-    // Back-compat wrapper: defaults to Bandit when caller doesn't specify a kind.
+
     fire_fan_with_kind(
         commands,
         catalog,
@@ -2213,7 +2172,7 @@ fn fire_projectile(
             enemy_kind: None,
         })
     };
-    // Resolve sprite + optional anim + anchor exactly as GML spriteId/xorigin.
+
     let (sprite, anim, path) = if let Some(kind) = enemy_kind {
         if matches!(
             kind,

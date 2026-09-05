@@ -1,8 +1,3 @@
-//! Nuclear Throne GUI art (nt-rewrite draw events) rendered as
-//! camera-anchored world sprites. All placement uses NT's 320x240 logical
-//! GUI coordinate system mapped 1:1 into camera space; sprites keep their
-//! native dimensions and GameMaker origins (from anims.json).
-
 use std::collections::HashSet;
 
 use bevy::audio::AudioSource;
@@ -20,23 +15,19 @@ use crate::save::SaveData;
 use game_utils_bevy::screen_effects::CameraBase;
 use game_utils_bevy::transitions::Transition;
 
-/// Marker for menu art (title backdrop); despawned on state exit.
 #[derive(Component)]
 pub struct TitleArt;
 
-/// World-space campfire scene (floors/walls/fire/chars). NOT parented to camera.
 #[derive(Component)]
 pub struct TitleWorldArt;
 
-/// Marker for screen-space title UI art (camera-anchored, GUI-mapped).
-/// Separates rebuildable title UI layer from the stable world/campfire scene.
 #[derive(Component)]
 struct TitleScreenUiArt;
 
 #[derive(Component)]
 struct CampCharArt {
     race: usize,
-    /// NT-pixel offset from campfire (GM x-64, y-64).
+
     offset: Vec2,
     path_slct: &'static str,
     path_to: &'static str,
@@ -47,7 +38,7 @@ struct CampCharArt {
     frames: usize,
     fw: f32,
     fh: f32,
-    /// pixel scale at spawn
+
     s: f32,
 }
 
@@ -59,12 +50,9 @@ enum CampCharPhase {
     From,
 }
 
-/// Marker for in-game HUD art; despawned with the level.
 #[derive(Component)]
 pub struct HudArt;
 
-/// Marker for mutation-choice icons (sprSkillIcon 24×32) – camera-anchored,
-/// despawned when the choice is resolved.
 #[derive(Component)]
 struct MutationIconArt;
 
@@ -73,27 +61,25 @@ struct MutationArtRefs {
     entities: Vec<Entity>,
 }
 
-/// Handles for the HUD pieces that update every tick.
 #[derive(Resource)]
 pub struct HudArtRefs {
-    /// Health bar outline (sprHealthBar) at (20,4).
+
     pub hp_bar: Entity,
-    /// Dark background strip (frame 2) and health fill strip (frame 1).
+
     pub hp_bg: Entity,
     pub hp_fg: Entity,
-    /// Rad thermometer (frame = fraction * 16) and LEVEL UP overlay.
+
     pub exp_bar: Entity,
     pub exp_level: Entity,
-    /// Per NT ammo type (Bullets..Energy): background + fill icon.
+
     pub ammo_bg: [Entity; 5],
     pub ammo_icon: [Entity; 5],
-    /// Primary/secondary weapon icon: four outline copies + black body.
+
     pub wep: [([Entity; 4], Entity); 2],
-    /// Weapon gml ids currently rendered (texture-swap dedup).
+
     pub wep_ids: [u8; 2],
 }
 
-/// nt-rewrite GUI constants (macros_general.gml, scrDrawSpiral.gml).
 pub(crate) const GUI_W: f32 = 320.0;
 pub(crate) const GUI_H: f32 = 240.0;
 const LETTERBOX_SIZE: f32 = 36.0;
@@ -103,18 +89,11 @@ const SLOT_XSTART: f32 = 8.0;
 
 pub const CAM_SCALE: f32 = 0.45;
 
-/// scrDrawLetterbox `_margin`: solid-black side fill width, in GUI pixels.
-/// Must use the actual letterbox sprite width, like the original GML does.
 fn letterbox_margin(catalog: &AssetCatalog, effective_w: f32) -> f32 {
     let lb_w = meta_of(catalog, "images/sprLetterbox.png")[1].max(1.0);
     (effective_w - lb_w).max(0.0)
 }
 
-/// scrMenuDrawLoadout crown grid slots, GM-exact. `_crown_x` starts at
-/// `_crownright - _crownsize*3` (=248), wraps when it passes `_crownright`
-/// OR right after crwn_none - so RANDOM+NONE sit alone on row one and the
-/// remaining twelve flow 4-per-row from `_crownleft` (=220).
-/// Returns `(crown_id, gui_x, gui_y)`; crown size is 28 px.
 pub fn crown_slot_positions() -> Vec<(u8, f32, f32)> {
     let step = 28.0_f32;
     let right = GUI_W + 12.0;
@@ -133,12 +112,6 @@ pub fn crown_slot_positions() -> Vec<(u8, f32, f32)> {
     out
 }
 
-/// The 320x240 NT GUI surface, uniformly scaled and letterboxed inside the
-/// camera view (exactly how GameMaker's GUI layer behaves).
-///
-/// `s` is world units per NT pixel; `ox`/`oy` are the centered margins in
-/// world units. Derived from the *live* ortho scale so gameplay zoom keeps
-/// the surface glued to the same screen rect.
 pub(crate) struct GuiMap {
     pub(crate) s: f32,
     pub(crate) ox: f32,
@@ -176,19 +149,16 @@ impl GuiMap {
     }
 }
 
-/// GameMaker builtin `c_gray` - unselected char-select pods.
 const C_GRAY: Color = Color::srgb_u8(128, 128, 128);
-/// `#999999` (`c_uigray`, macros_gameplay.gml) - unhovered GoButton.
+
 const C_UIGRAY: Color = Color::srgb_u8(153, 153, 153);
 
-/// Slot geometry reproduced from nt-rewrite `Menu/Create_0`.
 pub fn slot_ystart() -> f32 {
     GUI_H - POD_H - ((LETTERBOX_SIZE - POD_H) / 2.0).floor()
 }
 
 fn slot_step(count: usize) -> f32 {
-    // Menu/Create_0: min(20, floor((game_screen_width - 40) / count))
-    // where game_screen_width is the FIXED #macro 320 (macros_general.gml:6).
+
     20.0f32.min(((GUI_W - 40.0) / (count as f32).max(1.0)).floor())
 }
 
@@ -196,8 +166,6 @@ fn slot_x(i: usize, step: f32) -> f32 {
     SLOT_XSTART + step * i as f32
 }
 
-/// GoButton placement from `Menu/Create_0`: right of the last slot, sunk
-/// into the letterbox by half its bbox height minus 2.
 fn go_button_pos(step: f32, count: usize) -> (f32, f32) {
     let last_x = slot_x(count - 1, step);
     let bbox_half_h = (19.0_f32 / 2.0).floor();
@@ -207,7 +175,6 @@ fn go_button_pos(step: f32, count: usize) -> (f32, f32) {
     )
 }
 
-/// Metadata row from anims.json: [frames, w, h, fps, xorigin, yorigin].
 type SpriteMeta = [f32; 6];
 
 fn meta_of(catalog: &AssetCatalog, path: &str) -> SpriteMeta {
@@ -218,7 +185,6 @@ fn meta_of(catalog: &AssetCatalog, path: &str) -> SpriteMeta {
         .unwrap_or([1.0, 16.0, 16.0, 0.0, 8.0, 8.0])
 }
 
-/// Frame geometry `[w, h, xorigin, yorigin]` for CPU-driven sprites.
 pub(crate) fn sprite_meta(catalog: &AssetCatalog, path: &str) -> (f32, f32, f32, f32) {
     let m = meta_of(catalog, path);
     (m[1].max(1.0), m[2].max(1.0), m[4], m[5])
@@ -238,11 +204,10 @@ fn race_skin_subimage(race: usize, skin: u8) -> i32 {
 }
 
 fn loadout_available(race: usize) -> bool {
-    // Mirrors scr_loadout_is_available_for_race: false for BigDog(13), Skeleton(14), Frog(15)
+
     !matches!(race, 13 | 14 | 15)
 }
 
-/// scrRaceGetMaxSkinCount: BigDog/Frog 1, Skeleton 2, Robot 4, else 3.
 pub fn max_skin_count(race: usize) -> usize {
     match race {
         13 | 15 => 1,
@@ -254,22 +219,19 @@ pub fn max_skin_count(race: usize) -> usize {
 
 fn race_default_weapon_id(race: usize) -> u8 {
     match race {
-        6 => 255,  //TODO: Venuz golden_revolver - not in our subset
-        9 => 254,  // Chicken sword
-        12 => 253, // Rogue rifle
-        13 => 252, // BigDog spin
-        14 => 251, // Skeleton rusty
-        15 => 250, // Frog golden pistol
-        16 => 255, // Cuz golden
+        6 => 255,
+        9 => 254,
+        12 => 253,
+        13 => 252,
+        14 => 251,
+        15 => 250,
+        16 => 255,
         _ => WeaponId::REVOLVER.0,
     }
 }
 
-/// scrMenuDrawLoadout skin column: x = _crownleft - _crownsize/2 - 22 = 184;
-/// y starts at gui_h/2 - (skinsize/2)*count - 2 and steps 28 per entry.
-/// Returns `(idx, gui_x, gui_y)` for `count` entries.
 pub fn skin_slot_positions(count: usize) -> Vec<(usize, f32, f32)> {
-    let size = 28.0_f32; // sprLoadoutSkin width (32) - 4
+    let size = 28.0_f32;
     let x = 220.0 - 28.0_f32 * 0.5 - 22.0;
     let mut y = GUI_H * 0.5 - (size * 0.5) * count as f32 - 2.0;
     let mut out = Vec::with_capacity(count);
@@ -280,9 +242,6 @@ pub fn skin_slot_positions(count: usize) -> Vec<(usize, f32, f32)> {
     out
 }
 
-/// One `draw_sprite_ext(sprite, subimage, x, y, xscale, yscale, angle,
-/// blend, alpha)` translation. `gui_x/gui_y` are the GM drawing point
-/// (origin-relative): left = x - xorigin*xscale, top = y - yorigin*yscale.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gm_sprite(
     catalog: &AssetCatalog,
@@ -304,7 +263,7 @@ pub(crate) fn gm_sprite(
     let frame_count = m[0].max(1.0) as usize;
     let frame = frame % frame_count.max(1);
     let mut sprite = sprite_exact(catalog, assets, path);
-    // Source rectangle = frame rectangle (strips are horizontal).
+
     sprite.rect = Some(Rect::new(
         frame as f32 * fw,
         0.0,
@@ -312,7 +271,7 @@ pub(crate) fn gm_sprite(
         fh,
     ));
     sprite.color = tint;
-    // Native dimensions in NT pixels; GuiMap.s scales the whole surface.
+
     sprite.custom_size = Some(Vec2::new(fw * xscale * map.s, fh * yscale * map.s));
 
     let left = gui_x - xorigin * xscale;
@@ -322,21 +281,6 @@ pub(crate) fn gm_sprite(
     (sprite, Transform::from_xyz(center.x, center.y, z))
 }
 
-// Boot logo (nt-rewrite object `Logo`: sprLogo centred on the GUI)
-
-/// The full Vlambeer boot sequence (objects `Vlambeer` + `Logo`):
-///
-/// mode 0: sprSaving icon + "do not turn off" note      (120 ticks)
-/// mode 1: "MADE IN GAMEMAKER"                          (60 ticks)
-/// mode 2: sprVlambeer card + additive glow            (120 ticks)
-/// mode 3: team credits                                 (60 ticks)
-/// mode 4: NT logo - frame-stepped machinegun intro,    (input)
-///         then any key/click -> main menu buttons.
-///
-/// Every card sprite is spawned ONCE up front and kept hidden; card switches
-/// flip Visibility for the outgoing and incoming sets in the SAME frame, so a
-/// new card can never composite over (or lag behind) the previous one,
-/// regardless of command-flush timing.
 #[derive(Resource)]
 struct BootState {
     mode: u8,
@@ -346,21 +290,19 @@ struct BootState {
     guns: u8,
     booms: bool,
     wave: f32,
-    /// Last mode whose sprites were made visible (one-shot gating).
+
     rendered_mode: i8,
-    /// All card art built and parked hidden.
+
     built: bool,
-    /// sprSaving icon (mode 0).
+
     icon: Option<Entity>,
-    /// sprVlambeer main + ten additive glow copies (mode 2).
+
     vlambeer: Vec<Entity>,
-    /// NT logo (mode 4).
+
     logo: Option<Entity>,
-    /// NT logo glow (mode 4, image_index 7): 8 additive copies.
+
     logo_glow: Vec<Entity>,
-    /// Per-mode Repose-replacement text lines, pre-spawned hidden:
-    /// (mode, entities). Rendered as Text2d so text and sprite cards share
-    /// ONE visibility timeline - no cross-renderer timing at all.
+
     texts: Vec<(u8, Vec<Entity>)>,
 }
 
@@ -395,9 +337,6 @@ fn despawn_boot_art(mut commands: Commands, q: Query<Entity, With<BootArt>>) {
     }
 }
 
-/// Quit-to-menu path: SpiralCont was destroyed with the run, rebuild it.
-/// The swirl itself is the WGSL vortex quad (`game::vortex`); this only
-/// re-arms the controller resource and the portal ambience.
 #[allow(clippy::type_complexity)]
 fn spawn_spiral_field(
     mut commands: Commands,
@@ -426,19 +365,15 @@ fn spawn_spiral_field(
     }
 }
 
-/// Marker for all boot-sequence sprites (rebuilt per mode).
 #[derive(Component)]
 struct BootArt;
 
-/// Looping logo ambience; stops when the logo is dismissed (Logo/Destroy_0).
 #[derive(Component)]
 struct SplashLoop;
 
-/// Looping portal drone started with SpiralCont; lives until the run starts.
 #[derive(Component)]
 pub(crate) struct PortalLoop;
 
-/// Campfire ambience loop started on Title enter (Menu/Create_0 MusCont amb0).
 #[derive(Component)]
 struct CampfireAmb;
 
@@ -454,9 +389,6 @@ fn despawn_splash_loop(mut commands: Commands, q: Query<Entity, With<SplashLoop>
     }
 }
 
-/// The GameMaker splash draw event calls draw_clear(c_black). In this port the
-/// splash cards are Bevy world sprites, so the clear must live in the same
-/// camera layer as BootArt, not in Repose.
 #[derive(Component)]
 struct BootClear;
 
@@ -572,9 +504,7 @@ fn pick_i32(items: &[i32]) -> i32 {
 }
 
 fn campfire_floor_frame(catalog: &AssetCatalog) -> usize {
-    // Floor/Create_0:
-    // if random(500)<1 image_index=3
-    // else image_index = choose(0,0,0,0,0,0,0,1,2) + choose(0,4)
+
     let raw = if rand::random::<f32>() * 500.0 < 1.0 {
         3
     } else {
@@ -588,9 +518,7 @@ fn floor0_frame(catalog: &AssetCatalog) -> usize {
 }
 
 fn title_world_to_gui(wx: f32, wy: f32) -> (f32, f32) {
-    // scrCampfireMenuCreate places the campfire at world (64,64).
-    // The Bevy title scene places the campfire at the GUI center, so every
-    // MenuGen/FloorMaker world coordinate is rendered relative to that anchor.
+
     (GUI_W * 0.5 + wx - 64.0, GUI_H * 0.5 + wy - 64.0)
 }
 
@@ -603,8 +531,7 @@ fn title_wall_xy(wx: i32, wy: i32) -> (f32, f32) {
 }
 
 fn add_title_floor_cell(floors: &mut HashSet<(i32, i32)>, wx: i32, wy: i32) {
-    // Floor object positions are 32px-grid world coordinates.
-    // Duplicate Floor creation is ignored by Floor/Create_0 via place_meeting.
+
     floors.insert((wx.div_euclid(32), wy.div_euclid(32)));
 }
 
@@ -619,11 +546,7 @@ fn floor_maker_step_delta(direction: i32) -> (i32, i32) {
 }
 
 fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
-    // Exact title-area floor source:
-    // MenuGen/Create_0 creates the initial 3x4 cluster field, then creates
-    // four FloorMaker instances at choose(0,32,64,96,128). FloorMaker/Create_0
-    // sets goal=50 while MenuGen exists, and scrMakeFloor uses the area 0
-    // branch for turns/splitting.
+
     let mut floors: HashSet<(i32, i32)> = HashSet::new();
 
     let mut dix = 32_i32;
@@ -631,7 +554,7 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
 
     for _row in 0..3 {
         for _col in 0..4 {
-            // GameMaker choose(), not weighted: choose(32,0,-32).
+
             let mody = pick_i32(&[32, 0, -32]);
             let cx = dix + mody;
             let cy = diy + mody;
@@ -645,7 +568,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
             dix += 32;
         }
 
-        // This is intentionally 0, not 32. It matches MenuGen/Create_0.
         dix = 0;
         diy += 32;
     }
@@ -664,7 +586,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
         let y = pick_i32(&[0, 32, 64, 96, 128]);
         let direction = pick_i32(&[0, 0, 90, 180, 270]);
 
-        // FloorMaker/Create_0 ends by creating a Floor at its position.
         add_title_floor_cell(&mut floors, x, y);
         makers.push(Maker { x, y, direction });
     }
@@ -677,14 +598,12 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
         let mut next: Vec<Maker> = Vec::with_capacity(makers.len() + 2);
 
         for mut maker in makers.drain(..) {
-            // FloorMaker/Step_0: if instance_number(Floor) > goal, create one
-            // last floor and destroy the maker.
+
             if floors.len() > 50 {
                 add_title_floor_cell(&mut floors, maker.x, maker.y);
                 continue;
             }
 
-            // scrMakeFloor area_campfire branch.
             let (dx, dy) = floor_maker_step_delta(maker.direction);
             maker.x += dx;
             maker.y += dy;
@@ -693,12 +612,10 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
             let trn = pick_i32(&[0, 0, 90, -90, 90, -90, 180]);
             maker.direction = (maker.direction + trn).rem_euclid(360);
 
-            // scrMakeFloor creates another Floor on 180-degree turns.
             if trn == 180 {
                 add_title_floor_cell(&mut floors, maker.x, maker.y);
             }
 
-            // Area 0 early-destroy/split rules.
             let span = 19 + active_count;
             if rand::random::<f32>() * span as f32 > 22.0 {
                 add_title_floor_cell(&mut floors, maker.x, maker.y);
@@ -721,8 +638,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
         makers = next;
     }
 
-    // MenuGen/Alarm_1:
-    // with(Floor) create missing cardinal neighbours.
     let base: Vec<(i32, i32)> = floors.iter().copied().collect();
     for (cx, cy) in base {
         floors.insert((cx - 1, cy));
@@ -734,7 +649,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
     floors
 }
 
-// Wall/Create_0 exact frame families for area_campfire / sprWall0*
 fn campfire_wall_body_frame(catalog: &AssetCatalog) -> usize {
     let raw = if rand::random::<f32>() * 150.0 < 1.0 {
         3
@@ -891,17 +805,10 @@ fn set_title_camera_clear(mut q: Query<&mut Camera, With<Camera2d>>) {
     }
 }
 
-/// Card stage lengths. Upstream Vlambeer/Create_0 sets alarm[0]=120 and
-/// Alarm_0 re-arms 60 (+60 for the Vlambeer card) at a game speed of
-/// 30 fps (UberCont Step_0: game_set_speed(30, gamespeed_fps)).
 const MODE_SECS: [f32; 4] = [4.0, 2.0, 4.0, 2.0];
 
-/// Build every boot-card sprite once, parked hidden. Card switches only flip
-/// Visibility (old set hidden + new set visible queued in the same frame), so
-/// swaps are atomic - no compositing, no blank gaps.
 #[allow(clippy::too_many_arguments)]
-/// One centred Silkscreen line, the Bevy-sprite twin of the old Repose
-/// `nt_text_at(..., centered)` splash labels.
+
 fn splash_text_line(
     commands: &mut Commands,
     cam: Entity,
@@ -941,7 +848,7 @@ fn build_boot_cards(
     font: &Handle<Font>,
     boot: &mut BootState,
 ) {
-    // Mode 0: saving icon. Vlambeer/Create_0 plays the jingle with it.
+
     play_cue(commands, catalog, asset_server, "sndVlambeer", 0.7);
     let (spr, tf) = gm_sprite(
         catalog,
@@ -962,10 +869,6 @@ fn build_boot_cards(
             .id(),
     );
 
-    // Mode 2: Vlambeer/Draw_0 draws the card at
-    //   _px = (view_width - sprite_width) div 2
-    //   _py = view_height - sprite_height
-    // (origin 0,0), plus ten additive orandom(4) glow copies.
     let m = meta_of(catalog, "images/sprVlambeer.png");
     let fw = m[1].max(1.0);
     let fh = m[2].max(1.0);
@@ -1013,7 +916,6 @@ fn build_boot_cards(
         );
     }
 
-    // Mode 4: NT logo. Frame 0 is blank; it builds up per machinegun shot.
     let (spr, tf) = gm_sprite(
         catalog,
         asset_server,
@@ -1032,8 +934,7 @@ fn build_boot_cards(
             .spawn((BootArt, ChildOf(cam), Visibility::Hidden, spr, tf))
             .id(),
     );
-    // Mode 4 glow: Logo/Draw_0 draws 8 additive sprLogoGlow copies around
-    // the logo when image_index == 7, radius 4 + sin(wave)*(2+random(1)).
+
     for _ in 0..8 {
         let (g, gtf) = gm_sprite(
             catalog,
@@ -1055,8 +956,6 @@ fn build_boot_cards(
         );
     }
 
-    // Text cards (modes 0/1/3) - same hidden-until-switched lifecycle as the
-    // sprite cards above.
     let cy = GUI_H / 2.0;
     let mut group = |lines: Vec<(&str, Color)>, base_y: f32, step: f32| -> Vec<Entity> {
         lines
@@ -1125,7 +1024,6 @@ fn build_boot_cards(
     boot.built = true;
 }
 
-/// Vlambeer + Logo boot driver.
 #[allow(clippy::type_complexity)]
 fn boot_intro(
     mut commands: Commands,
@@ -1152,7 +1050,6 @@ fn boot_intro(
         return;
     };
 
-    // Build all card art once (hidden); retry until the camera view is ready.
     if !boot.built {
         let Some((cam, map)) = view_setup(&windows, &cam_q) else {
             return;
@@ -1172,7 +1069,6 @@ fn boot_intro(
     let pressed =
         mouse.get_just_pressed().next().is_some() || keys.get_just_pressed().next().is_some();
 
-    // Keep Repose text locked to the current card.
     sync_boot_mode_ui(&bridge, boot.mode);
 
     if boot.mode == 4 {
@@ -1184,9 +1080,6 @@ fn boot_intro(
             }
         }
 
-        // Logo/Alarm_0 (30 fps; Create_0 arms alarm[0]=30): index 1 after
-        // 1.0s, then every 2 ticks; after frame 6 wait 20 ticks, then frame 7
-        // + boom set + logo-loop ambience. Times when image_index hits 1..7:
         const STEP_T: [f32; 7] = [
             1.0,
             1.0 + 2.0 / 30.0,
@@ -1220,8 +1113,6 @@ fn boot_intro(
             }
         }
 
-        // Draw_0: the logo steps to the current frame and jitters by shake,
-        // which decays one unit per tick.
         boot.shake = (boot.shake - dt * 30.0).max(0.0);
         if let Some(logo) = boot.logo {
             if let Ok(mut spr) = sprites.get_mut(logo) {
@@ -1240,7 +1131,6 @@ fn boot_intro(
             }
         }
 
-        // Logo/Draw_0 glow: sprLogoGlow additive at image_index == 7.
         let show_glow = boot.guns >= 7;
         for &e in &boot.logo_glow.clone() {
             if let Ok(mut v) = visibilities.get_mut(e) {
@@ -1253,11 +1143,11 @@ fn boot_intro(
         }
         if show_glow {
             boot.wave += dt * 3.9;
-            // Reuse the shaken centre; fallback to GUI centre if logo missing.
+
             let (base_x, base_y) = if let Some(logo) = boot.logo
                 && let Ok(tf) = transforms.get(logo)
             {
-                // tf already at shaken world pos; convert back to GUI for radial offset.
+
                 if let Some((_, map)) = view_setup(&windows, &cam_q) {
                     let g = map.to_gui(tf.translation.truncate());
                     (g.x, g.y)
@@ -1275,7 +1165,7 @@ fn boot_intro(
                         let radius = 4.0 + (boot.wave + i as f32 * 0.02).sin() * (2.0 + r_extra);
                         let jx = radius * ang.to_radians().cos();
                         let jy = radius * ang.to_radians().sin();
-                        // GML lengthdir_y is +sin in GUI coords (y-down positive), so jy as is.
+
                         let c = map.to_world(base_x + jx, base_y + jy);
                         tf.translation = c.extend(-800.8);
                     }
@@ -1283,10 +1173,9 @@ fn boot_intro(
             }
         }
 
-        // Logo/Mouse_53.
         if pressed {
             if boot.guns == 0 {
-                // Before frame 1: speed the alarm up (min 10 ticks).
+
                 boot.t = boot.t.max(1.0 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
@@ -1295,7 +1184,6 @@ fn boot_intro(
         return;
     }
 
-    // Advance only after the current card has been displayed at least once.
     let can_advance = boot.rendered_mode == boot.mode as i8;
     if can_advance && (pressed || boot.t >= MODE_SECS[boot.mode as usize]) {
         boot.mode += 1;
@@ -1303,9 +1191,7 @@ fn boot_intro(
         boot.rendered_mode = -1;
 
         if boot.mode == 4 {
-            // Vlambeer/Alarm_0 mode >= 3: SpiralCont + portal drone.
-            // The swirl is the WGSL vortex quad; just arm the controller
-            // (pre-warmed so the field is established immediately).
+
             commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
             play_loop(
                 &mut commands,
@@ -1322,10 +1208,6 @@ fn boot_intro(
         boot.t += dt;
     }
 
-    // Atomic card swap: outgoing and incoming Visibility flips are queued in
-    // the same frame, so they apply together. This MUST run for every mode
-    // change INCLUDING the 3->4 hand-off to the logo stage, which otherwise
-    // never hides the credits text group.
     if let Some(icon) = boot.icon
         && let Ok(mut vis) = visibilities.get_mut(icon)
     {
@@ -1369,7 +1251,6 @@ fn boot_intro(
         return;
     }
 
-    // Draw_0: da += 0.5 once per 30-FPS game tick.
     boot.da += dt * 15.0;
 
     if boot.rendered_mode != boot.mode as i8 {
@@ -1380,7 +1261,7 @@ fn boot_intro(
         && let Some(icon) = boot.icon
         && let Ok(mut spr) = sprites.get_mut(icon)
     {
-        // sprSaving animates: da += 0.5 per tick.
+
         let m = meta_of(&catalog, "images/sprSaving.png");
         let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
         let n = sprite_frame_count(&catalog, "images/sprSaving.png").max(1);
@@ -1395,8 +1276,7 @@ fn boot_intro(
         && boot.vlambeer.len() > 1
         && let Some((_, map)) = view_setup(&windows, &cam_q)
     {
-        // Re-jitter the ten glow copies every frame (orandom(4)); the main
-        // card itself never advances frames.
+
         let m = meta_of(&catalog, "images/sprVlambeer.png");
         let fw = m[1].max(1.0);
         let fh = m[2].max(1.0);
@@ -1417,9 +1297,6 @@ fn boot_intro(
     }
 }
 
-/// Gameplay zoom AND chase offset (CameraFollow) must not leak into the menu
-/// screens: the Repose hitbox layer is zoom-independent and all menu art is
-/// placed in world coords around the origin, so restore base scale and centre.
 fn reset_camera_view(
     mut q: Query<(&mut Transform, &mut Projection, Option<&mut CameraBase>), With<Camera2d>>,
 ) {
@@ -1466,7 +1343,7 @@ impl Plugin for UiArtPlugin {
                 (
                     reset_camera_view,
                     set_title_camera_clear,
-                    // PlayButton/Other_10 order: SpiralCont dies, THEN MenuGen/Menu exist.
+
                     crate::game::vortex::teardown_vortex,
                     spawn_char_select,
                 )
@@ -1500,7 +1377,6 @@ impl Plugin for UiArtPlugin {
     }
 }
 
-/// (camera entity, GUI map for the current window + live ortho zoom).
 fn view_setup<F: QueryFilter>(
     windows: &Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: &Query<(Entity, &Transform, &Projection), F>,
@@ -1516,10 +1392,6 @@ fn view_setup<F: QueryFilter>(
         gui_map(win.width(), win.height(), scale),
     ))
 }
-
-// Title: rotating spiral field + logo - now rendered by game::vortex (WGSL).
-// SpiralCtl lives in crate::game::vortex; ensure_vortex_quad/vortex_tick run
-// from VortexPlugin. despawn_title_art below still tears the resource down.
 
 fn despawn_title_art(
     mut commands: Commands,
@@ -1538,62 +1410,58 @@ fn despawn_title_art(
     }
 }
 
-// Char select (nt-rewrite objects: Menu/Create_0, CharSelect, GoButton)
-
-/// Live handles for the title char-select art.
 #[derive(Resource, Default)]
 struct CharSelectArt {
-    /// (pod entity, race id, gui x) - one per `CharSelect` instance.
+
     pods: Vec<(Entity, usize, f32)>,
-    /// GoButton entity + base gui position.
+
     go_button: Option<(Entity, f32, f32)>,
-    /// Pop-in offset (`addy`), approaches 0.
+
     addy: f32,
-    /// Accumulated animation clock for the hovered button.
+
     go_anim: f32,
-    /// Bottom letterbox + top letterbox.
+
     letterbox: Vec<Entity>,
-    /// sprCharSplat under the name area.
+
     splat: Option<Entity>,
-    /// sprBigPortrait (frame = race id), bottom-left.
+
     big_portrait: Option<Entity>,
-    /// sprBigName (frame = race id).
+
     big_name: Option<Entity>,
     splat_anim: f32,
-    /// sprCampfire burning centre-screen (camera is centred on it).
+
     campfire: Option<Entity>,
     campfire_anim: f32,
-    /// sprLogMenu bench above the fire.
+
     log: Option<Entity>,
-    /// CampChar mutants around the fire.
+
     chars: Vec<Entity>,
-    /// Last selection_epoch we reacted to.
+
     last_selection_epoch: u32,
-    /// view lerp state in NT pixels relative to campfire (0,0)=fire centre.
+
     view_x: f32,
     view_y: f32,
-    /// pixel scale used when spawning world art (map.s at spawn).
+
     world_s: f32,
     campfire_entity: Option<Entity>,
-    /// legacy anim kept for compat (unused after phase machine)
+
     char_anim: f32,
-    /// Right-side loadout art (scrMenuDrawLoadout).
+
     arrow: Option<Entity>,
     loadout_splat: Option<Entity>,
     crown_icon: Option<Entity>,
-    /// (entity, weapon gml id) per slot; swapped on equipment change.
+
     wep_icons: [Option<(Entity, u8)>; 2],
-    /// Open-panel state (Menu.loadout_frame via approach()).
+
     loadout_anim: f32,
-    /// sprLoadoutOpen panel (bottom-right origin).
+
     open_panel: Option<Entity>,
-    /// Open-panel crown grid: (entity, crown id, gui x, gui y, last locked).
+
     crown_grid: Vec<(Entity, u8, f32, f32, bool)>,
-    /// Skin column: (entity, skin idx, last locked). Positions are live -
-    /// the column start depends on the selected race's skin count.
+
     skin_grid: Vec<(Entity, usize, bool)>,
     prev_go_visible: bool,
-    /// Layout basis used for the currently spawned screen-space title UI.
+
     layout_w: f32,
     layout_h: f32,
     layout_scale: f32,
@@ -1613,7 +1481,7 @@ fn remember_title_layout(art: &mut CharSelectArt, window: &Window, scale: f32) {
 
 const GO_W: f32 = 31.0;
 const GO_H: f32 = 19.0;
-/// sprGoButtonSymbolic yorigin (from anims.json / GoButton.yy).
+
 const GO_YORIGIN: f32 = -2.0;
 
 #[allow(clippy::type_complexity)]
@@ -1627,8 +1495,7 @@ fn spawn_char_select_world(
     selected: &crate::game::SelectedCharacter,
     cam_tf_q: &mut Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
 ) {
-    // World-space campfire level (MenuGen): floors/walls/decals are WORLD objects
-    // (not ChildOf(cam)) so camera focus pans. Background is camera clear #6a7aaf.
+
     {
         let s = map.s;
         art.world_s = s;
@@ -1753,7 +1620,7 @@ fn spawn_char_select_world(
                     );
                 }
                 if catalog.has("images/sprWall0Top.png") {
-                    // Top piece is 8px up (gy - 8).
+
                     spawn_world_sprite(
                         commands,
                         catalog,
@@ -1771,7 +1638,6 @@ fn spawn_char_select_world(
         }
     }
 
-    // Campfire scene (scrCampfireMenuCreate): WORLD objects at NT offsets from fire (0,0).
     {
         let s = art.world_s.max(0.001);
         let camp = spawn_world_sprite(
@@ -1825,7 +1691,6 @@ fn spawn_char_select_world(
             RaceId::Cuz,
         ];
 
-        // collect existing offsets for simple distance rejection
         let mut placed_offsets: Vec<Vec2> = Vec::new();
         let mut char_anchors: Vec<(usize, Vec2)> = Vec::new();
         for (race, dx, dy) in fixed.iter().copied() {
@@ -1873,7 +1738,7 @@ fn spawn_char_select_world(
             let Some((slct, to, menu, from)) = camp_char_sprite_set(catalog, race) else {
                 continue;
             };
-            // random distance like upstream: 32+rand*32 + rand*64*rand
+
             let r1: f32 = rand::random();
             let r2: f32 = rand::random();
             let r3: f32 = rand::random();
@@ -1881,7 +1746,7 @@ fn spawn_char_select_world(
             let ang = rand::random::<f32>() * std::f32::consts::TAU;
             let dx = ang.cos() * dist;
             let dy = ang.sin() * dist;
-            // reject if too close to another char (<32)
+
             let mut too_close = false;
             for p in &placed_offsets {
                 if (*p - Vec2::new(dx, dy)).length() < 32.0 {
@@ -1923,7 +1788,6 @@ fn spawn_char_select_world(
             placed_offsets.push(Vec2::new(dx, dy));
             char_anchors.push((race as usize, Vec2::new(dx, dy)));
 
-            // Chicken TV
             if race == RaceId::Chicken {
                 let tv_path = if catalog.has("images/sprTV.png") {
                     "images/sprTV.png"
@@ -1950,7 +1814,7 @@ fn spawn_char_select_world(
                 }
             }
         }
-        // Menu/Create_0: if char[race] exists, snap view onto it immediately.
+
         {
             let race_id = selected.0 as usize;
             if race_id != 0 {
@@ -1965,7 +1829,7 @@ fn spawn_char_select_world(
                 art.view_x = 0.0;
                 art.view_y = 0.0;
             }
-            // Apply immediate snap to live camera (OnEnter runs before first tick).
+
             let s = art.world_s.max(0.001);
             for (mut tf, base) in cam_tf_q.iter_mut() {
                 tf.translation.x = art.view_x * s;
@@ -1976,8 +1840,7 @@ fn spawn_char_select_world(
                 }
             }
         }
-        // Campfire ambience (Menu/Create_0 MusCont amb = amb0).
-        // Try common stems; resolve_audio_path handles stem substring fallback.
+
         for stem in ["amb0", "sndCampfire", "ambCampfire", "sndCampfireLoop"] {
             if catalog.resolve_audio_path(stem).is_some() {
                 play_loop(commands, catalog, asset_server, stem, 0.55, CampfireAmb);
@@ -2011,9 +1874,6 @@ fn spawn_char_select_screen_ui(
             "images/sprCharSelectLocked.png"
         };
 
-        // CharSelect/Draw_0:
-        // draw_sprite_ext(can ? sprite_index : sprCharSelectLocked,
-        //                 race, x, y, 1, 1, 0, color, 1)
         let (pod_spr, pod_tf) = gm_sprite(
             catalog,
             asset_server,
@@ -2080,9 +1940,6 @@ fn spawn_char_select_screen_ui(
         );
     }
 
-    // Char splat sits on the bottom letterbox (scrCampfireMenuDrawRacePortrait,
-    // fa_left/fa_bottom): draw point (0, 205), origin (0, 64). Native size -
-    // GameMaker never scales it.
     {
         let (spr, tf) = gm_sprite(
             catalog,
@@ -2104,16 +1961,13 @@ fn spawn_char_select_screen_ui(
         );
     }
 
-    // Big portrait (sprCampfireMenuDrawRacePortrait, fa_left): draw point
-    // (16, 240). Subimages are the per-race skin portraits; frame = race id.
-    // Hidden until a non-random pick.
     {
         let (spr, tf) = gm_sprite(
             catalog,
             asset_server,
             map,
             "images/sprBigPortrait.png",
-            1, // Fish default
+            1,
             16.0,
             GUI_H,
             1.0,
@@ -2135,15 +1989,13 @@ fn spawn_char_select_screen_ui(
         );
     }
 
-    // Big name plate (frame = race id), draw point (0, 137). Hidden until a
-    // non-random pick.
     {
         let (spr, tf) = gm_sprite(
             catalog,
             asset_server,
             map,
             "images/sprBigName.png",
-            1, // Fish default
+            1,
             0.0,
             GUI_H - LETTERBOX_SIZE - 32.0 - 35.0,
             1.0,
@@ -2165,8 +2017,6 @@ fn spawn_char_select_screen_ui(
         );
     }
 
-    // Right-side loadout art (scrMenuDrawLoadout, closed state): splat pinned
-    // to the right edge, arrow above it, current crown and both weapons.
     {
         let (spr, tf) = gm_sprite(
             catalog,
@@ -2261,11 +2111,6 @@ fn spawn_char_select_screen_ui(
             art.wep_icons[slot] = Some((e, if slot == 0 { WeaponId::REVOLVER.0 } else { 0 }));
         }
 
-        // Open panel (sprLoadoutOpen, bottom-right origin) + the crown grid
-        // layout from scrMenuDrawLoadout: start (248,48), step 28, wrap at
-        // the right edge back to x=220.
-        // Scale per upstream: _xscale = max(1, (_w - _skins_x)/200) - with
-        // _skins_x = _w-136 this is always 1; _yscale = (_splat_y-36)/168+0.05.
         let (spr, tf) = gm_sprite(
             catalog,
             asset_server,
@@ -2292,8 +2137,6 @@ fn spawn_char_select_screen_ui(
                 .id(),
         );
 
-        // Crown grid at the exact scrMenuDrawLoadout slots; lock state is
-        // corrected on the first char_select_tick pass.
         for (crown_id, gx, gy) in crown_slot_positions() {
             let (spr, tf) = gm_sprite(
                 catalog,
@@ -2318,8 +2161,7 @@ fn spawn_char_select_screen_ui(
                 false,
             ));
         }
-        // Skins (left side of loadout panel) - up to 4 slots; exact y for
-        // the live race count is applied every tick (scrMenuDrawLoadout).
+
         for (idx, _gx, _gy) in skin_slot_positions(4) {
             let (spr, tf) = gm_sprite(
                 catalog,
@@ -2344,7 +2186,6 @@ fn spawn_char_select_screen_ui(
         }
     }
 
-    // Menu/Create_0 spawns GoButton right of the last slot, hidden.
     let (gx, gy) = go_button_pos(step, count);
     let (go_spr, go_tf) = gm_sprite(
         catalog,
@@ -2353,7 +2194,7 @@ fn spawn_char_select_screen_ui(
         "images/sprGoButtonSymbolic.png",
         0,
         gx,
-        gy + 1.0, // Create_0 sets addy = 1
+        gy + 1.0,
         1.0,
         1.0,
         C_UIGRAY,
@@ -2461,14 +2302,12 @@ fn respawn_title_screen_ui_on_layout_change(
         commands.entity(e).try_despawn();
     }
 
-    // Preserve runtime animation/state fields.
     let addy = art.addy;
     let go_anim = art.go_anim;
     let splat_anim = art.splat_anim;
     let loadout_anim = art.loadout_anim;
     let last_selection_epoch = art.last_selection_epoch;
 
-    // Clear only screen-space handles; keep world/campfire state untouched.
     art.pods.clear();
     art.go_button = None;
     art.letterbox.clear();
@@ -2510,10 +2349,7 @@ fn hide_title_during_transition(
     let Some(art) = art else {
         return;
     };
-    // Hide fish/camp chars and the select-bar pods while any transition is
-    // covering/uncovering. Repose fade and vortex both drive
-    // `Transition.overlay_alpha` / `phase`; when active the title screen
-    // should be behind the transition, not over it.
+
     let hide = transition.active
         || transition.phase != game_utils_bevy::transitions::TransitionPhase::Idle;
     for (entity, _, _) in &art.pods {
@@ -2534,7 +2370,7 @@ fn hide_title_during_transition(
             };
         }
     }
-    // Also hide campfire/log which are part of the world scene
+
     for opt in [art.campfire, art.campfire_entity, art.log] {
         if let Some(e) = opt {
             if let Ok(mut vis) = vis_q.get_mut(e) {
@@ -2557,8 +2393,6 @@ fn hide_title_during_transition(
     }
 }
 
-/// MainMenuButton/Step_0 hover: point-in-rect over the five labels; plays
-/// sndHover on change.
 #[allow(clippy::type_complexity)]
 fn main_menu_hover(
     mut commands: Commands,
@@ -2588,7 +2422,7 @@ fn main_menu_hover(
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
     };
-    // Settings overlay is modal - don't leak hover lift/sndHover to the buttons behind it (GML MenuOptions blocks)
+
     if ui.overlay != crate::app::OverlayMenu::None {
         if ui.main_menu_hover != -1 {
             ui.main_menu_hover = -1;
@@ -2606,7 +2440,7 @@ fn main_menu_hover(
             .viewport_to_world_2d(&gt, cursor)
         {
             let g = map.to_gui(world);
-            // Label strip: x centred on 160, each row 20 px tall.
+
             if g.x >= 60.0 && g.x <= 260.0 {
                 let row = ((g.y - 62.0) / 24.0).floor();
                 if (0.0..5.0).contains(&row) {
@@ -2618,7 +2452,7 @@ fn main_menu_hover(
 
     if ui.main_menu_hover != hovered {
         ui.main_menu_hover = hovered;
-        // sndHover fires only for available rows (0, 2, 4).
+
         if matches!(hovered, 0 | 2 | 4)
             && let Some(catalog) = catalog
             && let Some(path) = resolve_audio_path(&catalog, "sndHover")
@@ -2635,8 +2469,6 @@ fn main_menu_hover(
     }
 }
 
-/// Per-frame hover/tint/animation, mirroring CharSelect/Draw_0 and
-/// GoButton/Draw_0.
 #[allow(clippy::type_complexity)]
 fn char_select_tick(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -2680,7 +2512,7 @@ fn char_select_tick(
     let Ok(mut ui) = bridge.shared.lock() else {
         return;
     };
-    // Modal overlay blocks char-select hover (GML MenuOptions is modal)
+
     if ui.overlay != crate::app::OverlayMenu::None {
         if ui.title_hover_race != -1 {
             ui.title_hover_race = -1;
@@ -2689,7 +2521,6 @@ fn char_select_tick(
     }
     let selected_race = ui.selected_character;
 
-    // CharSelect/Draw_0: _pointed via bbox rectangle.
     let mut hovered_race = -1_i32;
     if let Some(mouse) = cursor_gui {
         for (_, race_id, x) in &art.pods {
@@ -2715,9 +2546,6 @@ fn char_select_tick(
             .map(|r| save.race_unlocked(r))
             .unwrap_or(true);
 
-        // CharSelect/Draw_0:
-        // _color = (can && selected) ? c_white : c_gray
-        // selected is driven by (_pointed || _this_race)
         sprite.color = if unlocked && (pointed || this_race) {
             Color::WHITE
         } else {
@@ -2725,10 +2553,8 @@ fn char_select_tick(
         };
     }
 
-    // Big name + splat follow the selected mutant (not Random).
     let show_name = selected_race > 0 && selected_race <= 16;
 
-    // Animate splat while a mutant is selected.
     if show_name {
         art.splat_anim = (art.splat_anim + 12.0 * time.delta_secs()).min(3.0);
     } else {
@@ -2815,7 +2641,6 @@ fn char_select_tick(
         }
     }
 
-    // portrait slide + text appear approach
     if ui.portrait_offset > 0.0 {
         ui.portrait_offset = (ui.portrait_offset - 12.0 * 30.0 * time.delta_secs()).max(0.0);
     }
@@ -2823,7 +2648,6 @@ fn char_select_tick(
         ui.text_appear = (ui.text_appear - 30.0 * time.delta_secs()).max(0.0);
     }
 
-    // CampChar selection epoch -> phase kicks
     if ui.selection_epoch != art.last_selection_epoch {
         art.last_selection_epoch = ui.selection_epoch;
         art.splat_anim = 0.0;
@@ -2840,7 +2664,6 @@ fn char_select_tick(
         }
     }
 
-    // Campfire scene animation: fire at 12 fps (image_speed 0.4 @ 30 tps)
     art.campfire_anim = (art.campfire_anim + 12.0 * time.delta_secs()) % 4.0;
     if let Some(e) = art.campfire
         && let Ok(mut spr) = sprites.get_mut(e)
@@ -2849,7 +2672,7 @@ fn char_select_tick(
         let f = art.campfire_anim.floor().min(3.0);
         spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
     }
-    // CampChar phase machine @ image_speed 0.4 *30 =12 fps
+
     let dt_frames = 12.0 * time.delta_secs();
     for (mut cc, mut spr, _) in camp_chars.iter_mut() {
         let focused = cc.race == selected_race && selected_race != 0;
@@ -2894,9 +2717,6 @@ fn char_select_tick(
         ));
     }
 
-    // Right-side loadout (scrMenuDrawLoadout): the splat shows while closed,
-    // the panel opens through loadout_frame (approach()d in Other_11), and
-    // the closed crown/weapon row gives way to the grid + weapon slots.
     let open = ui.loadout_open;
     let target = if open { 4.0 } else { 0.0 };
     let step = 15.0 * time.delta_secs();
@@ -2923,10 +2743,7 @@ fn char_select_tick(
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
     }
-    // Crowns grid (scrMenuDrawLoadout #region Crowns): locked crowns use
-    // sprLockedLoadoutCrown; tint white only when unlocked AND (pointed or
-    // currently selected); pointed entries lift 1 px. RANDOM hides until the
-    // race has any crown above NONE unlocked.
+
     let crown_race = crate::game::content::race_from_gml_id(selected_race)
         .unwrap_or(crate::game::content::RaceId::Random);
     let any_crowns = save.any_crown_unlocked(crown_race);
@@ -2944,7 +2761,6 @@ fn char_select_tick(
             continue;
         }
 
-        // point_in_circle(_mx,_my, _crown_x, _crown_y, _crownsize*0.5)
         let pointed = cursor_gui.is_some_and(|m| (m.x - *gx).hypot(m.y - *gy) <= 14.0);
         let is_selected = *crown_id == ui.crown_id;
         let suspect = unlocked && (pointed || is_selected);
@@ -2976,9 +2792,7 @@ fn char_select_tick(
             tf.translation.y = c.y;
         }
     }
-    // Skins grid (scrMenuDrawLoadout #region Skins): column start depends on
-    // the live skin count; locked skins use sprLoadoutSkinLocked; white only
-    // when unlocked AND (selected or pointed); pointed entries lift 1 px.
+
     let skin_count = if avail {
         max_skin_count(selected_race)
     } else {
@@ -3003,7 +2817,7 @@ fn char_select_tick(
         };
         let (sx, sy) = (*sx, *sy);
         let unlocked = save.skin_unlocked(crown_race, *idx as u8);
-        // point_in_circle(_mx,_my, _skins_x, _skins_y, 10)
+
         let pointed = cursor_gui.is_some_and(|m| (m.x - sx).hypot(m.y - sy) <= 10.0);
         let is_selected = ui.selected_skin == *idx as u8;
         let selection = unlocked && (is_selected || pointed);
@@ -3074,8 +2888,7 @@ fn char_select_tick(
             spr.rect = Some(Rect::new(f * fw, 0.0, (f + 1.0) * fw, fh));
         }
     }
-    // Weapon icons: closed row at (254,190)/(278,190), open slots at
-    // (252,163)/(296,163); art swaps on equipment change.
+
     let wep_pos: [(f32, f32); 2] = if fullview {
         [(252.0, 163.0), (296.0, 163.0)]
     } else {
@@ -3085,11 +2898,7 @@ fn char_select_tick(
         let Some((e, cur)) = art.wep_icons[slot] else {
             continue;
         };
-        // Weapon id 0 is "no weapon". Never draw an icon for it. Previously
-        // slot 0 was always visible, causing id 0 to render using WEAPONS[0]
-        // metadata and appear as a bogus gun for some characters.
-        // Original scrMenuDrawLoadout skips slot 1 when _weapon == _default_weapon
-        // (and we also skip when both slots hold the same gun).
+
         let is_duplicate_default = slot == 1 && id == race_default_weapon_id(selected_race);
         let is_duplicate_start = slot == 1 && id != 0 && id == ui.start_weapon_id;
         let should_show =
@@ -3156,9 +2965,6 @@ fn char_select_tick(
         }
     }
 
-    // GoButton/Draw_0: animate while pointed; pop in via `addy`; lift 1 px
-    // while pointed; white when pointed, c_uigray otherwise. Hidden until a
-    // mutant has been clicked (visible flag).
     if let Some((entity, gx, gy)) = art.go_button {
         if let Ok(mut vis) = visibility.get_mut(entity) {
             *vis = if ui.title_go_visible {
@@ -3203,7 +3009,6 @@ fn char_select_tick(
         }
     }
 
-    // Reference: tooltip = (!_this_race && keyboard_pointed).
     let tooltip_race = if hovered_race >= 0 && hovered_race as usize != selected_race {
         hovered_race
     } else {
@@ -3214,9 +3019,6 @@ fn char_select_tick(
     }
 }
 
-// In-game HUD (nt-rewrite scripts/scrDrawPlayerHUD.gml)
-
-/// Ammo icon sprite pairs per NT ammo type (Bullets..Energy).
 const AMMO_SPRITES: [(&str, &str); 5] = [
     ("images/sprBulletIconBG.png", "images/sprBulletIcon.png"),
     ("images/sprShotIconBG.png", "images/sprShotIcon.png"),
@@ -3225,11 +3027,8 @@ const AMMO_SPRITES: [(&str, &str); 5] = [
     ("images/sprEnergyIconBG.png", "images/sprEnergyIcon.png"),
 ];
 
-/// Icon strips are 8 frames; drawn subimage = frames - ceil(fill * frames).
 const AMMO_FILL_FRAMES: f32 = 7.0;
 
-/// Source rectangle for a weapon HUD icon: subimage 1, region starting at
-/// (xoffset, yoffset - 8) sized (weapon_width, 14) - scrDrawPlayerHUD.
 fn weapon_icon_rect(m: SpriteMeta, wide: bool) -> Rect {
     let (_frames, w, _h, _fps, ox, oy) = (m[0], m[1], m[2], m[3], m[4], m[5]);
     let ww = if wide { 32.0 } else { 16.0 };
@@ -3238,7 +3037,6 @@ fn weapon_icon_rect(m: SpriteMeta, wide: bool) -> Rect {
     Rect::new(x0, y0, x0 + ww, y0 + 14.0)
 }
 
-/// Top-left gui position for weapon slot icons (24,16) and (68,16).
 fn wep_slot_pos(slot: usize) -> f32 {
     24.0 + slot as f32 * 44.0
 }
@@ -3264,7 +3062,7 @@ fn spawn_hud_art(
         &asset_server,
         &map,
         "images/sprHealthBar.png",
-        0, // was 2; strip is 1 frame post-extract
+        0,
         20.0,
         4.0,
         1.0,
@@ -3274,8 +3072,6 @@ fn spawn_hud_art(
     );
     let hp_bar = commands.spawn((HudArt, ChildOf(cam), bar_spr, bar_tf)).id();
 
-    // Fill strips: sprHealthFill is 1 px wide; upstream stretches it over the
-    // 84 px track (bg = lsthealth frame 2, fg = hp frame 1) at gui (22, 7).
     let mk_fill = |frame: usize, z: f32| {
         gm_sprite(
             &catalog,
@@ -3296,7 +3092,6 @@ fn spawn_hud_art(
     let (fg_spr, fg_tf) = mk_fill(1, -868.0);
     let hp_fg = commands.spawn((HudArt, ChildOf(cam), fg_spr, fg_tf)).id();
 
-    // Experience bar: sprExpBar subimage = min(1, rads/max_rads) * 16 at (4,4).
     let (exp_spr, exp_tf) = gm_sprite(
         &catalog,
         &asset_server,
@@ -3312,8 +3107,6 @@ fn spawn_hud_art(
     );
     let exp_bar = commands.spawn((HudArt, ChildOf(cam), exp_spr, exp_tf)).id();
 
-    // Level-up overlay sprExpBarLevel at (4,4), origin (1,1): shown while a
-    // mutation choice is pending (GameCont.skillpoints > 0 upstream).
     let (lvl_spr, lvl_tf) = gm_sprite(
         &catalog,
         &asset_server,
@@ -3331,8 +3124,6 @@ fn spawn_hud_art(
         .spawn((HudArt, ChildOf(cam), Visibility::Hidden, lvl_spr, lvl_tf))
         .id();
 
-    // Ammo icon stacks along the bottom-left, one BG + fill icon per type:
-    // dx = 2 + (type-1)*10, Bolts and beyond shift left 2; dy = 32.
     let mut ammo_bg: [Option<Entity>; 5] = [None; 5];
     let mut ammo_icon: [Option<Entity>; 5] = [None; 5];
     for t in 0..5usize {
@@ -3372,8 +3163,6 @@ fn spawn_hud_art(
     let ammo_bg = ammo_bg.map(|e| e.expect("ammo background"));
     let ammo_icon = ammo_icon.map(|e| e.expect("ammo icon"));
 
-    // Weapon slots: four outline copies (white active, #404040 inactive)
-    // around a black body, drawn from the weapon's own sprite art.
     let mut wep: [([Option<Entity>; 4], Option<Entity>); 2] = Default::default();
     for slot in 0..2usize {
         let dx = wep_slot_pos(slot);
@@ -3436,8 +3225,6 @@ fn spawn_hud_art(
     });
 }
 
-/// Loadout weapon icon (scrLoadoutDrawWeapon fallback path): the weapon's
-/// regular sprite, centred on the draw point, scaled 2x and tilted 30°.
 #[allow(clippy::too_many_arguments)]
 fn gm_loadout_weapon(
     catalog: &AssetCatalog,
@@ -3449,7 +3236,7 @@ fn gm_loadout_weapon(
     tint: Color,
     z: f32,
 ) -> (Sprite, Transform) {
-    // Gamemaker: scr_weapon_get_loadout_sprite(_weapon) ? loadout art 1x : regular sprite 2x @30°
+
     let data = crate::game::content::weapon_meta(id);
     if let Some(lout) = data.wep_lout {
         let lout_path = format!("images/{lout}.png");
@@ -3470,7 +3257,7 @@ fn gm_loadout_weapon(
     let path: &'static str = if catalog.has(&sprt_path) {
         Box::leak(sprt_path.into_boxed_str())
     } else {
-        // Fallback: HUD sprite or revolver
+
         crate::game::content::weapon_hud_sprite(id.0).unwrap_or("images/sprRevolver.png")
     };
     let m = meta_of(catalog, path);
@@ -3489,7 +3276,6 @@ fn gm_loadout_weapon(
     )
 }
 
-/// A weapon HUD icon via draw_sprite_part_ext semantics (subimage 1 crop).
 #[allow(clippy::too_many_arguments)]
 fn gm_weapon_icon(
     catalog: &AssetCatalog,
@@ -3514,15 +3300,11 @@ fn gm_weapon_icon(
     sprite.color = tint;
     sprite.custom_size = Some(Vec2::new(rect.width() * map.s, rect.height() * map.s));
 
-    // draw_sprite_part_ext draws without origin offset relative to the given
-    // position; the crop already encodes it.
     let center = map.to_world(gui_x + rect.width() / 2.0, gui_y + rect.height() / 2.0);
     let _ = (fw, fh);
     (sprite, Transform::from_xyz(center.x, center.y, z))
 }
 
-/// Per-tick HUD sync: health fill widths, rad-bar frame, ammo icon fills,
-/// weapon icons and outline tints - all from live components.
 #[allow(clippy::type_complexity)]
 fn sync_hud_art(
     mut refs: Option<ResMut<HudArtRefs>>,
@@ -3539,7 +3321,7 @@ fn sync_hud_art(
     let Some(refs) = refs.as_mut() else {
         return;
     };
-    // Hide HUD entirely during GenCont loading (draw_clear black + spiral)
+
     if floor_trans.is_some_and(|f| f.active) {
         for mut vis in &mut visibilities {
             *vis = Visibility::Hidden;
@@ -3562,9 +3344,7 @@ fn sync_hud_art(
     };
     let map = gui_map(window.width(), window.height(), scale);
 
-    // Health fills: 1×8 sprHealthFill stretched to width = 84 * frac.
-    // GM draws at (22, 7) with xscale=width, origin (0,0).
-    let lst = health.hp.max(0) as f32; // TODO: track lsthealth for lag bar
+    let lst = health.hp.max(0) as f32;
     let cur = health.hp.max(0) as f32;
     let max = health.max.max(1) as f32;
     let bg_w = (84.0 * (lst / max)).clamp(0.0, 84.0);
@@ -3572,18 +3352,17 @@ fn sync_hud_art(
 
     for (entity, w) in [(refs.hp_bg, bg_w), (refs.hp_fg, fg_w)] {
         if let Ok(mut spr) = sprites.get_mut(entity) {
-            // gm_sprite baked xscale into custom_size; rebuild width only.
+
             spr.custom_size = Some(Vec2::new(w.max(0.001) * map.s, 8.0 * map.s));
         }
         if let Ok(mut tf) = transforms.get_mut(entity) {
-            // origin (0,0): center = (22 + w/2, 7 + 4) in GUI
+
             let center = map.to_world(22.0 + w * 0.5, 7.0 + 4.0);
             tf.translation.x = center.x;
             tf.translation.y = center.y;
         }
     }
 
-    // Keep HUD pixel-locked on resize – Repose text uses live nt_view s
     if let Ok(mut spr) = sprites.get_mut(refs.hp_bar) {
         let m = meta_of(&catalog, "images/sprHealthBar.png");
         spr.custom_size = Some(Vec2::new(m[1].max(1.0) * map.s, m[2].max(1.0) * map.s));
@@ -3595,7 +3374,7 @@ fn sync_hud_art(
         tf.translation.x = c.x;
         tf.translation.y = c.y;
     }
-    // Rad bar subimage = floor(min(1, rads/max) * 16).
+
     let rad_frac = (player.rads as f32 / player.next_level_rads.max(1) as f32).clamp(0.0, 1.0);
     let rad_frame = (rad_frac * 16.0).floor().min(16.0);
     if let Ok(mut spr) = sprites.get_mut(refs.exp_bar) {
@@ -3611,7 +3390,7 @@ fn sync_hud_art(
         tf.translation.x = c.x;
         tf.translation.y = c.y;
     }
-    // Level-up overlay while a mutation pick is pending.
+
     if let Ok(mut vis) = visibilities.get_mut(refs.exp_level) {
         *vis = if player.rads >= player.next_level_rads && player.next_level_rads > 0 {
             Visibility::Visible
@@ -3631,7 +3410,6 @@ fn sync_hud_art(
         tf.translation.y = c.y;
     }
 
-    // Ammo stacks: bg frame from equipped weapon types, icon fill from counts.
     let t1 = crate::game::content::weapon_meta(inv.weapons[0]).wep_type as usize;
     let t2 = if inv.weapon_slots > 1 {
         crate::game::content::weapon_meta(inv.weapons[1]).wep_type as usize
@@ -3686,8 +3464,6 @@ fn sync_hud_art(
         }
     }
 
-    // Weapon icons: swap texture when equipment changes; outline copies are
-    // white for the active slot, #404040 for the stored one. Keep live on resize.
     for slot in 0..2usize {
         let slot_idx = slot.min(inv.weapon_slots.saturating_sub(1));
         let id = inv.weapons[slot_idx];
@@ -3709,7 +3485,7 @@ fn sync_hud_art(
                 }
             }
         }
-        // Even when id unchanged, keep size/pos in sync with new map.s (resize)
+
         for (i, &e) in refs.wep[slot].0.iter().enumerate() {
             let (ox, oy) = [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)][i];
             if let Ok(mut tf) = transforms.get_mut(e) {
@@ -3796,7 +3572,6 @@ fn despawn_mutation_art(
     }
 }
 
-/// Sync mutation choice icons (SkillIcon)
 fn sync_mutation_icons(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -3813,7 +3588,7 @@ fn sync_mutation_icons(
         (Vec::new(), None)
     };
     let has_pending = !ids.is_empty();
-    // Despawn when choice cleared / picked
+
     if !has_pending {
         if refs.is_some() || !existing.is_empty() {
             for e in &existing {
@@ -3825,14 +3600,14 @@ fn sync_mutation_icons(
         }
         return;
     }
-    // Clear old icons before respawning for new layout/count - respawn each frame so selected tint updates instantly
+
     for e in &existing {
         commands.entity(e).try_despawn();
     }
     let Some((cam, map)) = view_setup(&windows, &cam_q) else {
         return;
     };
-    // Native sprite is sprSkillIcon 24×32. Verify catalog has it; fall back to HUD 16×16.
+
     let icon_path = if catalog.has("images/sprSkillIcon.png") {
         "images/sprSkillIcon.png"
     } else {
@@ -3848,11 +3623,10 @@ fn sync_mutation_icons(
     let mut new_entities = Vec::with_capacity(n);
     for (i, &skill_id) in ids.iter().enumerate() {
         let gui_x = start_x + i as f32 * step;
-        // skill_id is 1-based (scrSkills), frame 0-based
+
         let frame = (skill_id as usize).saturating_sub(1) % 30;
         let is_selected = selected == Some(i);
-        // GML SkillIcon Draw: selected ? c_white : c_gray (128,128,128)
-        // image_xscale/yscale = _scale from Other_10, y lifts 1px when selected
+
         let lift = if is_selected { 1.0 } else { 0.0 };
         let tint = if is_selected {
             Color::WHITE
@@ -3904,9 +3678,7 @@ fn sync_gencont_art(
     mut ui: ResMut<GenContUi>,
     q: Query<Entity, With<GenContArt>>,
 ) {
-    // World-space GenCont now handled by Repose (menus::gen_cont_overlay) for
-    // resolution-independent letterboxing. Despawn any leftover world entities
-    // to avoid double bar / drift on resize (ChildOf camera offset).
+
     for e in &q {
         commands.entity(e).try_despawn();
     }
@@ -3920,7 +3692,6 @@ fn sync_gencont_art(
 mod campfire_ui_tests {
     use super::*;
 
-    /// 1280x720 at base cam scale: s = min(576/320, 324/240) = 1.35.
     #[test]
     fn gui_map_scales_letterboxed_16x9() {
         let m = gui_map(1280.0, 720.0, CAM_SCALE);
@@ -3929,7 +3700,6 @@ mod campfire_ui_tests {
         assert!(m.oy.abs() < 1e-3);
     }
 
-    /// scrDrawLetterbox at a 16:9 surface: margin = gui_w - 320 = 106.67.
     #[test]
     fn margin_matches_gml_on_wide_surface() {
         let m = gui_map(1280.0, 720.0, CAM_SCALE);
@@ -3947,8 +3717,6 @@ mod campfire_ui_tests {
         assert_eq!(letterbox_margin(&catalog, 320.0), 0.0);
     }
 
-    /// Crown grid: RANDOM+NONE alone on row one at x 248/276, then the
-    /// wrap-after-crwn_none rule forces 4-per-row from _crownleft=220.
     #[test]
     fn crown_slots_match_scrMenuDrawLoadout() {
         let slots = crown_slot_positions();
@@ -3976,11 +3744,9 @@ mod campfire_ui_tests {
         }
     }
 
-    /// Port <-> GML crown id boundary round-trips; NONE collapses to 0.
     #[test]
     fn crown_id_mapping_roundtrips() {
-        // crwn_random(0) is grid-only and has no port form; it maps to
-        // port 0 (NONE) and stays there.
+
         assert_eq!(crate::game::content::crown_gml_to_port(0), 0);
         for gml in 1u8..14 {
             let port = crate::game::content::crown_gml_to_port(gml);
@@ -3990,21 +3756,19 @@ mod campfire_ui_tests {
         assert_eq!(crate::game::content::crown_port_to_gml(1), 2);
     }
 
-    /// Skin column geometry: x fixed at 184; y start = 120 - 14*count - 2,
-    /// step 28 - verified against scrMenuDrawLoadout's _skins_y formula.
     #[test]
     fn skin_slots_match_scrMenuDrawLoadout() {
-        // Most races: 3 skins -> starts at 76.
+
         let three = skin_slot_positions(3);
         assert!(three.iter().all(|(_, x, _)| (*x - 184.0).abs() < 1e-3));
         for (i, want_y) in [76.0_f32, 104.0, 132.0].iter().enumerate() {
             assert!((three[i].2 - want_y).abs() < 1e-3);
         }
-        // Robot: 4 skins -> starts at 62.
+
         let four = skin_slot_positions(4);
         assert!((four[0].2 - 62.0).abs() < 1e-3);
         assert!((four[3].2 - 146.0).abs() < 1e-3);
-        // BigDog/Frog: single skin centred at 104.
+
         let one = skin_slot_positions(1);
         assert!((one[0].2 - 104.0).abs() < 1e-3);
     }

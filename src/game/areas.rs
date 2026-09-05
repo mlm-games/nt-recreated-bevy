@@ -29,7 +29,7 @@ impl Default for AreaId {
 }
 
 impl AreaId {
-    /// Route area for a one-based global floor (loop derived from the floor).
+
     pub fn from_route_floor(floor: u32) -> AreaId {
         let loop_count = (floor.max(1) - 1) / 15;
         area_for_floor(floor, loop_count)
@@ -51,12 +51,6 @@ pub enum TransitionCondition {
     Secret,
 }
 
-/// Normal route for a one-based global floor over the supported 15-floor
-/// NT cycle: 1-1..1-3 Desert, 2-1 Sewers, 3-1..3-3 Scrapyards, 4-1 Caves,
-/// 5-1..5-3 Frozen City, 6-1 Labs, 7-1..7-3 Palace (Throne).
-///
-/// Secret areas (Vault/CrownVault/Oasis) are NEVER produced here - they are
-/// reached only through explicit transition conditions upstream.
 pub fn area_for_floor(floor: u32, _loop_count: u32) -> AreaId {
     let route_floor = (floor.max(1) - 1) % 15 + 1;
     match route_floor {
@@ -71,9 +65,6 @@ pub fn area_for_floor(floor: u32, _loop_count: u32) -> AreaId {
     }
 }
 
-/// (world, floor-in-world) display coordinates for a global floor.
-/// Worlds 1..7 correspond to Desert/Sewers/Scrapyards/Caves/Frozen/Labs/Palace
-/// with variable floors per world; looping re-enters at 1-1.
 pub fn route_coordinates(floor: u32) -> (u32, u32) {
     let route_floor = (floor.max(1) - 1) % 15 + 1;
     match route_floor {

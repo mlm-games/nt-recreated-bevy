@@ -1,7 +1,3 @@
-//! Secret-area transition state machine: trigger detection (destroyed
-//! entrances, Oasis eligibility, cursed weapons, HQ loops), a queued-target
-//! resource, and the shared floor-advance path used by portal_enter.
-
 use bevy::prelude::*;
 
 use crate::game::areas::{AreaId, area_for_floor, route_coordinates};
@@ -62,19 +58,15 @@ impl SecretTarget {
 
     pub fn return_floor(self, current_floor: u32) -> u32 {
         match self {
-            // Oasis/Pizza both return to Scrapyards 3-1 in this route model.
+
             SecretTarget::Oasis | SecretTarget::PizzaSewers => 5,
 
-            // Mansion exits to 3-3 if entered from Scrapyards.
             SecretTarget::YvMansion => 7,
 
-            // Cursed Caves returns to Frozen City.
             SecretTarget::CursedCaves => 9,
 
-            // Jungle returns to Labs.
             SecretTarget::Jungle => 12,
 
-            // Vault/CrownVault/HQ continue to the next ordinary floor.
             SecretTarget::Vault | SecretTarget::CrownVault | SecretTarget::Hq => {
                 current_floor.saturating_add(1)
             }
@@ -88,16 +80,16 @@ pub struct SecretTriggers {
     pub last_secret: Option<SecretTarget>,
     pub oasis_eligible: bool,
     pub damage_taken_this_floor: bool,
-    /// Oasis step 1: all chests opened while the kill fraction stayed low.
+
     pub oasis_chests_ready: bool,
-    /// Countdown after Big Bandit appears; killing him in time opens Oasis.
+
     pub oasis_bandit_timer: f32,
     pub oasis_bandit_alive: bool,
-    /// Floor-start snapshots used for the chest / kill-fraction gates.
+
     pub(crate) oasis_floor_chests_initial: u32,
     pub(crate) oasis_floor_enemies_initial: u32,
     pub(crate) oasis_snapshot_done: bool,
-    /// Cap vault visits per run (upstream vaults_entered <3).
+
     pub vaults_entered: u8,
 }
 
@@ -121,13 +113,13 @@ impl Default for SecretTriggers {
 
 impl SecretTriggers {
     pub fn queue(&mut self, target: SecretTarget) {
-        // Cap vault visits per run.
+
         if matches!(target, SecretTarget::Vault | SecretTarget::CrownVault)
             && self.vaults_entered >= 3
         {
             return;
         }
-        // Priority: vault-style hard transitions should override soft transitions.
+
         let replace = match (self.queued, target) {
             (None, _) => true,
             (Some(SecretTarget::Oasis), _) => true,
@@ -200,9 +192,6 @@ pub fn target_for_secret_area(area: AreaId) -> Option<SecretTarget> {
     }
 }
 
-/// Consume any queued secret and move `run` onto that secret area; otherwise,
-/// if we are currently inside a secret, return to its route exit; otherwise,
-/// advance one ordinary floor. Returns the secret entered, if any.
 pub fn apply_secret_transition(
     run: &mut Run,
     triggers: &mut SecretTriggers,
@@ -256,8 +245,6 @@ pub fn apply_secret_transition(
     None
 }
 
-/// Oasis step 1: snapshot chests and living trash at floor start so the
-/// chest/kill-fraction gates below can compare against them.
 pub fn observe_oasis_floor_start(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -282,9 +269,6 @@ pub fn observe_oasis_floor_start(
     triggers.oasis_snapshot_done = true;
 }
 
-/// Oasis: open every chest on a Desert floor (1-1/1-2 within 2% kills,
-/// 1-3 within 10%) without taking damage. This arms the 10-second Big Bandit
-/// window handled by `tick_oasis_bandit_window`.
 pub fn detect_oasis_eligibility(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -322,8 +306,6 @@ pub fn detect_oasis_eligibility(
     }
 }
 
-/// Oasis step 2: once all chests are opened legally, killing Big Bandit
-/// within 10 seconds of his delayed entrance opens the Oasis portal.
 pub fn tick_oasis_bandit_window(
     time: Res<Time<Fixed>>,
     mut triggers: ResMut<SecretTriggers>,
@@ -356,21 +338,17 @@ pub fn tick_oasis_bandit_window(
 
     triggers.oasis_bandit_timer -= time.delta_secs();
     if !bandit_alive && triggers.oasis_bandit_timer > 0.0 {
-        // Bandit died inside the window.
+
         triggers.queue(SecretTarget::Oasis);
         triggers.oasis_chests_ready = false;
         triggers.oasis_bandit_alive = false;
     } else if triggers.oasis_bandit_timer <= 0.0 {
-        // Window expired.
+
         triggers.oasis_chests_ready = false;
         triggers.oasis_bandit_alive = false;
     }
 }
 
-/// Cursed Caves: GML checks `scrPlayerCountCursed` >0 in Crystal Caves.
-/// Until per-slot curse flag exists, use endgame tier proxy: wep_gold or
-/// wep_rads>=12 (ultras) counts as cursed-tier. Falls back to id>=90 for
-/// modded weapons.
 pub fn detect_cursed_caves(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -394,15 +372,12 @@ fn is_cursed_weapon(w: WeaponId) -> bool {
         return false;
     }
     if let Some(data) = crate::game::weapons_data::WEAPONS.get(w.0 as usize) {
-        // Golden weapons and ultra-tier rad weapons are cursed-tier; proper
-        // per-slot curse flag will replace this tier proxy.
+
         return data.wep_gold || data.wep_rads >= 12 || (90..=127).contains(&w.0);
     }
     (90..=127).contains(&w.0)
 }
 
-/// I.D.P.D. HQ: Rogue can force a strike from late Labs/Palace on loop;
-/// everyone else needs a rare seeded portal roll from Labs on loop 2+.
 pub fn detect_hq(
     run: Res<Run>,
     mut triggers: ResMut<SecretTriggers>,
@@ -418,8 +393,6 @@ pub fn detect_hq(
         return;
     }
 
-    // Non-Rogue: rare portal after loop 2 in the Labs, deterministic per-floor
-    // pseudo roll so manual repros and tests stay stable for a seed/floor pair.
     if run.area == AreaId::Labs && run.loop_count >= 2 {
         let roll =
             ((run.gen_seed ^ run.floor as u64).wrapping_mul(6364136223846793005) >> 56) as u8;

@@ -1,7 +1,3 @@
-//! Strip-sheet animation: `anims.json` (written by tools/gen_assets.py)
-//! maps sprite names to {frames, w, h, fps}; sprites store a horizontal
-//! strip and we slice one frame per tick via `Sprite::rect`.
-
 use bevy::prelude::*;
 
 use crate::game::components::{
@@ -18,15 +14,13 @@ pub struct AnimDef {
     pub fps: f32,
 }
 
-/// Per-entity animation state. `path` is the strip texture; `moving` lets
-/// systems swap between idle/walk variants by rewriting `path`.
 #[derive(Component)]
 pub struct SpriteAnim {
     pub path: String,
     pub def: AnimDef,
     pub frame: u32,
     pub timer: Timer,
-    /// When true, play once then stop (hurt / chest open / one-shots).
+
     pub oneshot: bool,
     pub finished: bool,
 }
@@ -65,7 +59,6 @@ impl SpriteAnim {
     }
 }
 
-/// Build an animated sprite when `path` has strip data; static otherwise.
 pub fn sprite_anim(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
@@ -82,7 +75,6 @@ pub fn sprite_anim(
     }
 }
 
-/// Advance every animation and slice its current frame.
 pub fn animate_sprites(time: Res<Time<Fixed>>, mut q: Query<(&mut SpriteAnim, &mut Sprite)>) {
     for (mut anim, mut sprite) in &mut q {
         if anim.finished {
@@ -105,7 +97,6 @@ pub fn animate_sprites(time: Res<Time<Fixed>>, mut q: Query<(&mut SpriteAnim, &m
     }
 }
 
-/// Player idle/walk strip pair; `moving` selects which is displayed.
 #[derive(Component)]
 pub struct PlayerAnim {
     pub idle: &'static str,
@@ -114,9 +105,6 @@ pub struct PlayerAnim {
     pub moving: bool,
 }
 
-/// Swap the player's strip when movement state changes (skipped during hurt
-/// and while dead: the PlayerDying dead strip must freeze on its last frame,
-/// otherwise it snaps back to idle and loops).
 pub fn player_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
@@ -132,7 +120,7 @@ pub fn player_anim_switch(
     >,
 ) {
     for (vel, mut pa, mut anim, mut sprite, mut anchor) in &mut q {
-        // Don't interrupt a oneshot (portal suck uses oneshot too).
+
         if anim.oneshot && !anim.finished {
             continue;
         }
@@ -152,9 +140,6 @@ pub fn player_anim_switch(
     }
 }
 
-/// Enemy walk/idle strip swap – mirrors GML `if speed<=0 sprite=spr_idle else spr_walk`
-/// (`enemy/Step_0.gml:7-24`, `Bandit/Other_10.gml` etc). Bandits were sliding
-/// on idle strip because only `player_anim_switch` existed.
 pub fn enemy_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
@@ -177,7 +162,7 @@ pub fn enemy_anim_switch(
         if anim.oneshot && !anim.finished {
             continue;
         }
-        // Don't interrupt hurt one-shot handled by `tick_hurt_anims`.
+
         let moving = vel.0.length_squared() > 80.0;
         let idle = sprites.idle;
         let walk = sprites.walk.unwrap_or(idle);
@@ -185,7 +170,7 @@ pub fn enemy_anim_switch(
         if anim.path == desired {
             continue;
         }
-        // Walk missing (Maggot/Scorpion) → keep idle regardless of speed.
+
         if moving && sprites.walk.is_none() {
             if anim.path != idle {
                 if let Some(def) = catalog.anim_def(idle) {
@@ -207,7 +192,6 @@ pub fn enemy_anim_switch(
     }
 }
 
-/// Begin hurt strip on an entity that has SpriteAnim + optional HurtAnim paths.
 pub fn play_hurt(
     commands: &mut Commands,
     entity: Entity,
@@ -225,7 +209,7 @@ pub fn play_hurt(
     else {
         return;
     };
-    // Prefer real hurt strip; fall back to a short freeze on idle frame 0.
+
     let path = if catalog.anim_def(hurt_path).is_some() {
         hurt_path
     } else {
@@ -236,14 +220,8 @@ pub fn play_hurt(
     sprite.image = asset_server.load(path.to_string());
     sprite.rect = Some(anim.rect());
 
-    // GM: hurt lasts while image_index <=2 (~3 frames at 0.4*30=12fps => 0.25s)
-    // Keep timer as backstop for missing strips.
     let secs = (3.0 / def.fps.max(1.0)).max(0.12).min(0.35);
-    // The victim may die between this queue and the flush: combat killers,
-    // the portal shock, and the portal-suck floor wipe (which touches no
-    // Prop component, so it runs in parallel) can all despawn it in the
-    // same tick. try_insert drops silently on a dead entity instead of
-    // panicking the whole schedule in apply_deferred.
+
     commands.entity(entity).try_insert(HurtAnim {
         idle,
         walk,
@@ -253,9 +231,6 @@ pub fn play_hurt(
     });
 }
 
-/// Restore idle/walk after hurt oneshot finishes. Mirrors GM:
-/// `if sprite_index==spr_hurt && image_index>2) sprite_index=spr_idle`
-/// which is frame-count, not timer. Keep timer as backstop for missing strips.
 pub fn tick_hurt_anims(
     time: Res<Time<Fixed>>,
     asset_server: Res<AssetServer>,
@@ -301,17 +276,11 @@ pub fn tick_hurt_anims(
         if let Some(ps) = prop_sprites {
             sprite.flip_x = ps.flip_x;
         }
-        // try_remove: the victim may have been wiped (portal-suck floor
-        // clear, shock) after this query ran; same-tick despawn must not
-        // panic the flush.
+
         commands.entity(e).try_remove::<HurtAnim>();
     }
 }
 
-/// Begin the firing strip on an enemy that just shot (GML `Alarm_2` sets
-/// `sprite_index = spr_fire`). Refresh the timer every pellet so the strip
-/// stays up through the whole burst; `tick_fire_anims` restores after.
-/// Skipped silently when the WAD lacks the strip.
 pub fn play_fire(
     commands: &mut Commands,
     entity: Entity,
@@ -330,9 +299,6 @@ pub fn play_fire(
     sprite.image = asset_server.load(fire_path.to_string());
     sprite.rect = Some(anim.rect());
 
-    // GML alarm[2] cadence is 2-4 ticks per pellet; 0.25s covers the gap so
-    // continuous fire reads as one sustained strip. try_insert: the shooter
-    // may die the same tick it fires; a stale insert must not panic flush.
     commands.entity(entity).try_insert(FireAnim {
         idle,
         walk,
@@ -340,10 +306,6 @@ pub fn play_fire(
     });
 }
 
-/// Restore idle/walk after the firing burst ends. Hurt takes precedence:
-/// `tick_hurt_anims` owns the strip while `HurtAnim` is present (GML
-/// `enemy/Step_0` checks `spr_hurt` first), and `hurt_on_damage` drops the
-/// stale `FireAnim` so it can never restore over a hurt strip.
 pub fn tick_fire_anims(
     time: Res<Time<Fixed>>,
     asset_server: Res<AssetServer>,
@@ -382,13 +344,10 @@ pub fn tick_fire_anims(
     }
 }
 
-/// Map idle sprite path → conventional hurt/walk names used by NT art.
 pub fn derive_hurt_path(idle: &'static str) -> &'static str {
-    // Static table - keep in sync with imported spr*Hurt.png names.
-    // Handles B/C skin variants like sprMutant1BIdle.png -> sprMutant1BHurt.png
-    // by stripping the skin suffix before matching.
+
     let base = if idle.contains("sprMutant") {
-        // Check B/C skin variants first
+
         if idle.contains("sprMutant1BIdle") {
             return "images/sprMutant1BHurt.png";
         }
@@ -485,7 +444,7 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         if idle.contains("sprMutant16CIdle") {
             return "images/sprMutant16CHurt.png";
         }
-        // fall through to A variants below
+
         idle
     } else {
         idle
@@ -503,7 +462,7 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprSnowBanditIdle.png" => "images/sprSnowBanditHurt.png",
         "images/sprWolfIdle.png" => "images/sprWolfHurt.png",
         "images/sprBanditBossIdle.png" => "images/sprBanditBossHurt.png",
-        // Expanded roster (upstream spr*Hurt strips)
+
         "images/sprGatorIdle.png" => "images/sprGatorHurt.png",
         "images/sprBuffGatorIdle.png" => "images/sprBuffGatorHurt.png",
         "images/sprRavenIdle.png" => "images/sprRavenHurt.png",
@@ -521,7 +480,7 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprGuardianIdle.png" => "images/sprGuardianHurt.png",
         "images/sprExploGuardianIdle.png" => "images/sprExploGuardianHurt.png",
         "images/sprDogGuardianWalk.png" => "images/sprDogGuardianHurt.png",
-        // Secret areas & mansion garrison
+
         "images/sprBoneFish1Idle.png" => "images/sprBoneFish1Hurt.png",
         "images/sprTurtleIdle.png" => "images/sprTurtleHurt.png",
         "images/sprMolefishIdle.png" => "images/sprMolefishHurt.png",
@@ -534,9 +493,9 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprInvLaserCrystalIdle.png" => "images/sprInvLaserCrystalHurt.png",
         "images/sprPopoFreakIdle.png" => "images/sprPopoFreakHurt.png",
         "images/sprMSpawnIdle.png" => "images/sprMSpawnHurt.png",
-        // Secret boss
+
         "images/sprFrogQueenIdle.png" => "images/sprFrogQueenHurt.png",
-        // Mutants A
+
         "images/sprMutant1Idle.png" => "images/sprMutant1Hurt.png",
         "images/sprMutant2Idle.png" => "images/sprMutant2Hurt.png",
         "images/sprMutant3Idle.png" => "images/sprMutant3Hurt.png",
@@ -609,7 +568,7 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprRadChest.png" => "images/sprRadChestHurt.png",
         "images/sprRadChestIdle.png" => "images/sprRadChestHurt.png",
         "images/sprThroneStatue.png" => "images/sprThroneStatue.png",
-        _ => idle, // fallback: replay idle as freeze
+        _ => idle,
     }
 }
 
@@ -778,8 +737,6 @@ pub fn derive_dead_path(idle: &'static str) -> &'static str {
     }
 }
 
-/// GML spr_dead naming for props (verified against objects/*/Create_0.gml).
-/// Static table only.
 pub fn derive_prop_dead_path(idle: &'static str) -> &'static str {
     match idle {
         "images/sprBarrel.png" => "images/sprBarrelDead.png",
@@ -842,24 +799,18 @@ pub fn derive_prop_dead_path(idle: &'static str) -> &'static str {
     }
 }
 
-/// Strict prop hurt resolver: bails with gen_assets hint if art is missing.
 pub fn derive_prop_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
     let hurt = derive_hurt_path(idle);
     catalog.require(hurt);
     hurt
 }
 
-/// Strict prop dead resolver: bails with gen_assets hint if art is missing.
 pub fn derive_prop_dead_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
     let dead = derive_prop_dead_path(idle);
     catalog.require(dead);
     dead
 }
 
-/// GML `spr_fire` per enemy idle (verified against objects/*/Create_0.gml).
-/// `None` means vanilla NT has no firing strip for this enemy (regular
-/// Bandit/Maggot/etc. use wkick gun visuals instead). HyperCrystal's fire
-/// *is* its idle, and CrownGuardian has no Bevy kind.
 pub fn derive_fire_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditBossIdle.png" => Some("images/sprBanditBossFire.png"),
@@ -889,15 +840,14 @@ pub fn derive_fire_path(idle: &'static str) -> Option<&'static str> {
 pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditIdle.png" => Some("images/sprBanditWalk.png"),
-        // Maggot and Scorpion have no walk strips in this WAD (idle-only);
-        // they simply fall through to None.
+
         "images/sprRatIdle.png" => Some("images/sprRatWalk.png"),
         "images/sprFreak1Idle.png" => Some("images/sprFreak1Walk.png"),
         "images/sprJungleAssassinIdle.png" => Some("images/sprJungleAssassinWalk.png"),
         "images/sprSnowBotIdle.png" => Some("images/sprSnowBotWalk.png"),
         "images/sprSnowBanditIdle.png" => Some("images/sprSnowBanditWalk.png"),
         "images/sprWolfIdle.png" => Some("images/sprWolfWalk.png"),
-        // Expanded roster (upstream spr*Walk strips)
+
         "images/sprGatorIdle.png" => Some("images/sprGatorWalk.png"),
         "images/sprBuffGatorIdle.png" => Some("images/sprBuffGatorWalk.png"),
         "images/sprRavenIdle.png" => Some("images/sprRavenWalk.png"),
@@ -912,7 +862,7 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprSnowTankIdle.png" => Some("images/sprSnowTankWalk.png"),
         "images/sprGoldTankIdle.png" => Some("images/sprGoldTankWalk.png"),
         "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianWalk.png"),
-        // ADD - present in full WAD / gen_assets NT_ALL_SPRITES=1
+
         "images/sprGuardianIdle.png" => Some("images/sprGuardianWalk.png"),
         "images/sprTurtleIdle.png" => Some("images/sprTurtleWalk.png"),
         "images/sprBigMaggotIdle.png" => Some("images/sprBigMaggotWalk.png"),
@@ -927,7 +877,7 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
         "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
         "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenWalk.png"),
-        // DogGuardian uses Walk as "idle" already - hurt maps from Walk path
+
         _ => None,
     }
 }
@@ -944,7 +894,6 @@ pub fn derive_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &
     if catalog.has(hurt) { hurt } else { idle }
 }
 
-/// Play the hurt strip on any enemy whose Health just dropped.
 pub fn hurt_on_damage(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -984,7 +933,7 @@ pub fn hurt_on_damage(
 ) {
     for (e, health, sprites, mut anim, mut sprite, mut anchor) in &mut damaged {
         let last = last_enemy_hp.get(&e).copied().unwrap_or(health.max);
-        // Only react to actual hp drop, and let resolve_deaths own lethal.
+
         if health.hp >= health.max || health.hp <= 0 || health.hp == last {
             last_enemy_hp.insert(e, health.hp);
             continue;
@@ -1001,8 +950,7 @@ pub fn hurt_on_damage(
             sprites.idle,
             sprites.walk,
         );
-        // Hurt wins over fire (GML Step_0 checks spr_hurt first); drop the
-        // stale fire state so tick_fire_anims can never restore over hurt.
+
         commands.entity(e).try_remove::<FireAnim>();
         let hurt_path = if catalog.anim_def(sprites.hurt).is_some() {
             sprites.hurt
@@ -1033,8 +981,6 @@ pub fn hurt_on_damage(
     }
 }
 
-/// Tick PlayerDying – keeps dead strip visible for 0.85s then despawns
-/// player entity, leaving the GroundPhysics corpse from resolve_deaths.
 pub fn tick_player_dying(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1048,9 +994,6 @@ pub fn tick_player_dying(
     }
 }
 
-/// GML prop/Step_1 + hitme damage: when hp drops but still alive, play
-/// spr_hurt until image_index > 2, then spr_idle. Lethal is owned by
-/// combat despawn + corpse.
 pub fn prop_hurt_on_damage(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -1106,11 +1049,6 @@ pub fn prop_hurt_on_damage(
     }
 }
 
-/// Regression tests for the same-tick kill-vs-hurt race: combat killers, the
-/// portal shock, and the portal-suck floor wipe (which touches no `Prop`
-/// component, so it runs in parallel) can despawn a prop after a hurt insert
-/// was queued but before it flushes. `try_*` ops must swallow that instead
-/// of panicking `apply_deferred`.
 #[cfg(test)]
 mod hurt_race_tests {
     use super::*;
@@ -1153,7 +1091,7 @@ mod hurt_race_tests {
         let asset_server = app.world().resource::<AssetServer>().clone();
         let (e, mut anim, mut sprite) = spawn_victim(app.world_mut());
         {
-            // Queue the hurt insert exactly like prop_hurt_on_damage does.
+
             let mut cmds = app.world_mut().commands();
             play_hurt(
                 &mut cmds,
@@ -1167,9 +1105,9 @@ mod hurt_race_tests {
                 None,
             );
         }
-        // Parallel killer (portal-suck wipe / shock / explosion) lands first.
+
         app.world_mut().despawn(e);
-        // Pre-fix this panicked inside apply_deferred; now it must flush clean.
+
         app.world_mut().flush();
         assert!(app.world().get_entity(e).is_err());
     }
@@ -1182,9 +1120,9 @@ mod hurt_race_tests {
         let e = app.world_mut().spawn_empty().id();
         {
             let mut cmds = app.world_mut().commands();
-            // tick_hurt_anims path on an already-wiped victim.
+
             cmds.entity(e).try_remove::<HurtAnim>();
-            // Two lethal sources, same tick (bullet + explosion).
+
             cmds.entity(e).try_despawn();
             cmds.entity(e).try_despawn();
         }
@@ -1195,7 +1133,7 @@ mod hurt_race_tests {
 
     #[test]
     fn live_hurt_insert_still_applies() {
-        // Guard against over-correction: a live victim must still get HurtAnim.
+
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Image>();
@@ -1221,8 +1159,6 @@ mod hurt_race_tests {
     }
 }
 
-/// Tests for GML `spr_fire` parity: per-pellet strip swap during bursts,
-/// sustain across pellets, restore to idle/walk after, hurt precedence.
 #[cfg(test)]
 mod fire_anim_tests {
     use super::*;
@@ -1238,7 +1174,7 @@ mod fire_anim_tests {
         for p in [IDLE, FIRE, WALK] {
             catalog.images.insert(p.to_string());
         }
-        // [frames, w, h, fps, xorigin, yorigin]
+
         catalog
             .anims
             .insert(FIRE.to_string(), [2.0, 48.0, 48.0, 8.0, 24.0, 24.0]);
@@ -1265,9 +1201,9 @@ mod fire_anim_tests {
             derive_fire_path("images/sprTurretIdle.png"),
             Some("images/sprTurretFire.png")
         );
-        // Regular Bandit has no firing strip (wkick gun visuals instead).
+
         assert_eq!(derive_fire_path("images/sprBanditIdle.png"), None);
-        // HyperCrystal's "fire" is its idle; unknown idles map to None.
+
         assert_eq!(derive_fire_path("images/sprHyperCrystalIdle.png"), None);
         assert_eq!(derive_fire_path("images/sprMaggotIdle.png"), None);
     }
@@ -1319,19 +1255,18 @@ mod fire_anim_tests {
         app.add_systems(FixedUpdate, tick_fire_anims);
         app.update();
 
-        // Firing strip is up right after the pellet.
         assert_eq!(
             app.world().get::<SpriteAnim>(e).unwrap().path,
             FIRE,
             "pellet must swap to spr_fire"
         );
         assert!(app.world().get::<FireAnim>(e).is_some());
-        // 0.25s timer at 30Hz: still up after 5 ticks (burst sustain).
+
         for _ in 0..5 {
             app.update();
         }
         assert!(app.world().get::<FireAnim>(e).is_some());
-        // Expired: restored to idle, marker removed.
+
         for _ in 0..5 {
             app.update();
         }

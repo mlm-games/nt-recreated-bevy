@@ -1,8 +1,3 @@
-//! SFX: placeholder WAVs in `assets/audio/` (generated) or original
-//! `.ogg` (Vorbis) imported locally via `tools/gen_assets.py`.  No copyrighted
-//! assets are committed; `.ogg` are loaded directly (Bevy `vorbis` feature)
-//! without conversion. `GameAudio` holds handles loaded once at startup.
-
 use bevy::prelude::*;
 use game_utils_bevy::audio::AudioM;
 
@@ -24,15 +19,15 @@ pub struct GameAudio {
     pub portal: Handle<AudioSource>,
     pub death: Handle<AudioSource>,
     pub chest: Handle<AudioSource>,
-    /// Upstream sndWeaponChest / sndAmmoChest (per chest kind).
+
     pub weapon_chest: Handle<AudioSource>,
     pub ammo_chest: Handle<AudioSource>,
-    /// sndPickupDisappear - rad/HP/ammo blink-out.
+
     pub pickup_disappear: Handle<AudioSource>,
-    /// GML sndEmpty / sndUltraEmpty (scrEmpty / scrEmptyRads).
+
     pub empty: Handle<AudioSource>,
     pub ultra_empty: Handle<AudioSource>,
-    /// Per-family fire sounds (GML scrFire snd table).
+
     pub plasma: Handle<AudioSource>,
     pub laser: Handle<AudioSource>,
     pub lightning: Handle<AudioSource>,
@@ -44,8 +39,7 @@ pub struct GameAudio {
 }
 
 fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
-    // Original imported files are OGG. Generated placeholders are WAV.
-    // Prefer originals whenever present.
+
     for dir in ["audio", "sounds"] {
         for ext in ["ogg", "wav", "mp3", "flac"] {
             let path = format!("{dir}/{stem}.{ext}");
@@ -55,7 +49,6 @@ fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
         }
     }
 
-    // Keep the old fallback so dev builds with generated placeholders still run.
     format!("audio/{stem}.wav")
 }
 
@@ -171,8 +164,6 @@ impl GameAudio {
         AudioM::play_sfx_varied(commands, self.ultra_empty.clone(), 0.6, 0.05);
     }
 
-    /// Per-family fire sound (GML scrFire snd table). Falls back to generic
-    /// shoot/explode for families without a dedicated handle.
     pub fn play_weapon_fire(&self, commands: &mut Commands, weapon_name: &str) {
         let n = weapon_name;
         if n.contains("PLASMA") || n.contains("DEVASTATOR") || n == "GUN GUN" {

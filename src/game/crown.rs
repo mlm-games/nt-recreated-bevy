@@ -1,7 +1,3 @@
-//! Crown passives: spawn-time application, per-floor ticking behaviors
-//! (Life regen, Protection shield, Love allies, Curses bullets), and
-//! floor-start bonuses driven by the `FloorStarted` message.
-
 use bevy::prelude::*;
 use rand::RngExt;
 
@@ -11,7 +7,6 @@ use crate::game::content::{
 };
 use crate::game::pickups;
 
-/// Apply a crown's one-time passive to the freshly built player components.
 pub fn apply_crown_to_spawn(
     crown: CrownKind,
     player: &mut Player,
@@ -34,8 +29,7 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Haste => {
-            // GML Crown Haste: scrAmmoUpdateTypeStats ups typ_ammo + haste per pickup, not fire_rate.
-            // Bevy models ammo via pickup amounts; fire_rate bump is Bevy-specific drift. Remove it.
+
             player.fire_rate_mult *= 1.0;
         }
 
@@ -54,9 +48,9 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Destiny => {
-            // Give a deterministic stronger starter if the player enters with no stored weapon.
+
             if inv.weapons[1] == WeaponId::NONE {
-                inv.weapons[1] = WeaponId(17); // Assault Rifle
+                inv.weapons[1] = WeaponId(17);
             }
         }
 
@@ -85,7 +79,6 @@ pub fn apply_crown_to_spawn(
     }
 }
 
-/// Crown of Life: regenerate 1 HP every couple of seconds.
 pub fn tick_crown_life(
     time: Res<Time<Fixed>>,
     mut q: Query<(&mut CrownState, &mut Health), With<Player>>,
@@ -103,7 +96,6 @@ pub fn tick_crown_life(
     }
 }
 
-/// Crown of Protection: once per floor, gain a brief shield when below half HP.
 pub fn tick_crown_protection(
     mut commands: Commands,
     mut q: Query<(Entity, &mut CrownState, &mut Health, Option<&Shield>), With<Player>>,
@@ -135,7 +127,6 @@ pub fn tick_crown_protection(
     }
 }
 
-/// Crown of Love: periodically spawn a friendly ally.
 pub fn tick_crown_love(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -179,7 +170,6 @@ pub fn tick_crown_love(
     }
 }
 
-/// Crown of Curses: periodic hostile bullets rain on the player.
 pub fn tick_crown_curses(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -236,7 +226,6 @@ pub fn tick_crown_curses(
     }
 }
 
-/// Floor-start bonuses for Destiny / Risk / Guns, fired by `FloorStarted`.
 pub fn crown_floor_start_bonus(
     mut events: MessageReader<FloorStarted>,
     mut commands: Commands,
@@ -255,7 +244,7 @@ pub fn crown_floor_start_bonus(
     for (player, mut state, mut inv, tf) in &mut q {
         match player.crown {
             CrownKind::Destiny => {
-                // One stronger weapon per run: only the first floor start.
+
                 if !state.destiny_ready {
                     continue;
                 }
@@ -265,10 +254,10 @@ pub fn crown_floor_start_bonus(
                     WeaponId::ASSAULT_RIFLE,
                     WeaponId::CROSSBOW,
                     WeaponId::GRENADE_LAUNCHER,
-                    WeaponId(38),  // Flak Cannon
-                    WeaponId(58),  // Lightning Rifle
-                    WeaponId(72),  // Toxic Launcher
-                    WeaponId(104), // Super Disc
+                    WeaponId(38),
+                    WeaponId(58),
+                    WeaponId(72),
+                    WeaponId(104),
                 ];
 
                 let idx = ((tf.translation.x.abs() as usize)
@@ -280,8 +269,7 @@ pub fn crown_floor_start_bonus(
             }
 
             CrownKind::Risk => {
-                // Risk front-loads ammo pressure: give a one-time small refill
-                // on floor start, then rely on the lower medkit tradeoff.
+
                 for ammo in [
                     AmmoKind::Bullets,
                     AmmoKind::Shells,
@@ -295,8 +283,7 @@ pub fn crown_floor_start_bonus(
             }
 
             CrownKind::Guns => {
-                // Extra weapon drop at floor start - but not inside secret
-                // reward areas where weapons already rain.
+
                 if crate::game::secret_areas::is_secret_area(start.area) {
                     continue;
                 }
@@ -320,7 +307,6 @@ pub fn crown_name_for_toast(crown: CrownKind) -> &'static str {
     crown_name(crown.to_u8())
 }
 
-/// Crown Vault pedestal: touching it swaps the player's active crown.
 pub fn tick_crown_pedestal(
     mut commands: Commands,
     mut toast: ResMut<Toast>,
@@ -348,8 +334,7 @@ pub fn tick_crown_pedestal(
         }
         apply_crown_to_spawn(ped.kind, &mut player, &mut health, &mut inv);
         *state = CrownState::new(ped.kind);
-        // scrCrownUnlock persists per-race crowngot and auto-equips. The
-        // save/grid use GML crwn_* ids; CrownKind is the port numbering.
+
         save.unlock_crown(
             selected.0,
             crate::game::content::crown_port_to_gml(ped.kind.to_u8()),
@@ -405,8 +390,7 @@ mod tests {
 
     #[test]
     fn crown_haste_reduces_fire_cooldown_multiplier() {
-        // GML Haste does NOT reduce fire_rate; it ups typ_ammo per pickup.
-        // Bevy previously faked 0.8 – now corrected to 1.0 to match GML.
+
         let mut p = base_player();
         let mut h = base_health();
         let mut inv = base_inv();

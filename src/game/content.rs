@@ -1,22 +1,14 @@
-//! Data-driven content registries: characters, weapons, enemies, mutations.
-//! Stats mirror the GPL Nuclear-Throne-Mobile rebuild reference.
-//! Visuals resolve through AssetCatalog (original strips via tools/gen_assets.py).
-
 use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Files that actually exist under `assets/images`, scanned once at startup.
-/// `sprite_or_fallback` consults this so a missing PNG can never produce an
-/// invisible entity (the Floppy-Warriors "never boot with blank art" rule).
 #[derive(Resource, Default, Clone)]
 pub struct AssetCatalog {
     pub images: HashSet<String>,
-    /// Audio files (music/ambience candidates), keyed by asset path.
+
     pub audio: HashSet<String>,
-    /// Strip metadata from assets/images/anims.json
-    /// (name -> [frames, w, h, fps, xorigin, yorigin]).
+
     pub anims: HashMap<String, [f32; 6]>,
 }
 
@@ -43,9 +35,7 @@ impl AssetCatalog {
                  tools/gen_assets.py` to import original art."
             );
         }
-        // Index audio files (ogg/wav/mp3/flac) under top-level asset dirs,
-        // storing asset-relative paths like "audio/music/desert.ogg". Music is
-        // optional content: an empty set is fine and every cue stays silent.
+
         let mut audio = HashSet::new();
         const AUDIO_EXTS: [&str; 4] = ["ogg", "wav", "mp3", "flac"];
         fn scan_audio_recursive(base: &str, dir: &std::path::Path, out: &mut HashSet<String>) {
@@ -74,8 +64,6 @@ impl AssetCatalog {
                 scan_audio_recursive(sub, &dir, &mut audio);
             }
         }
-        // Also accept flat sfx candidates like "audio/sfx/snd_levelup.ogg" by mapping to flat file "audio/sndLevelUp.wav" pattern.
-        // No extra alias map needed; resolve_audio_path does case-insensitive fallback.
 
         let mut anims = HashMap::new();
         if let Ok(txt) = std::fs::read_to_string("assets/images/anims.json")
@@ -114,28 +102,26 @@ impl AssetCatalog {
         }
     }
 
-    /// Whether an audio file exists at this asset path.
     pub fn has_audio(&self, path: &str) -> bool {
         self.audio.contains(path)
     }
 
     pub fn resolve_audio_path(&self, stem: &str) -> Option<String> {
-        // Direct match in indexed paths (supports sfx subfolders)
+
         for dir in ["audio", "sounds", "audio/sfx", "audio/music", "sounds/sfx"] {
             for ext in ["ogg", "wav", "mp3", "flac"] {
                 let path = format!("{dir}/{stem}.{ext}");
                 if self.has_audio(&path) {
                     return Some(path);
                 }
-                // Case-insensitive stem match against flat files (e.g., stem "snd_levelup" vs file "sndLevelUp.wav")
+
                 let lower_path = path.to_ascii_lowercase();
                 for existing in &self.audio {
                     if existing.to_ascii_lowercase() == lower_path {
                         return Some(existing.clone());
                     }
                 }
-                // Also try without snd_ prefix normalization: snd_levelup -> sndLevelUp
-                // Check stem substring containment fallback (flat folder contains file with stem substring)
+
                 let stem_lower = stem.to_ascii_lowercase().replace('_', "");
                 for existing in &self.audio {
                     let exist_lower = existing.to_ascii_lowercase().replace('_', "");
@@ -145,7 +131,7 @@ impl AssetCatalog {
                 }
             }
         }
-        // Final fallback: any audio file containing stem substring (useful for renamed flat placeholders like levelup.wav)
+
         let stem_norm = stem
             .to_ascii_lowercase()
             .replace("snd", "")
@@ -159,14 +145,6 @@ impl AssetCatalog {
         None
     }
 
-    /// Strip metadata for an animated sprite, if any.
-    ///
-    /// GML timing: character/prop/portal state strips are owned by objects
-    /// with `image_speed = 0.4` at 30 Hz room speed (Portal, Corpse, enemy,
-    /// Player, prop, hitme `Create_0.gml`), i.e. exactly 12 img/s. The only
-    /// non-0.4 owners in `~/Downloads` are 14 projectile/FX objects whose
-    /// strips never use state suffixes, so state-suffixed strips always play
-    /// at 12 fps regardless of the extractor's guessed value.
     pub fn anim_def(&self, path: &str) -> Option<crate::game::anim::AnimDef> {
         self.anims.get(path).map(|a| {
             let mut fps = a[3];
@@ -186,7 +164,6 @@ impl AssetCatalog {
         self.images.contains(path)
     }
 
-    /// Panic when a referenced sprite was not imported.
     pub fn require(&self, path: &str) {
         if !self.images.contains(path) {
             panic!(
@@ -201,21 +178,13 @@ pub fn scan_asset_catalog() -> AssetCatalog {
     AssetCatalog::scan()
 }
 
-/// fps override for GML `image_speed = 0.4` state strips (12 img/s at 30 Hz).
-/// Returns Some(12.0) when `path` is a state strip owned by a 0.4 object;
-/// None keeps the extractor value (projectile/FX strips with genuine speeds,
-/// and fps-0.0 static variant sheets which must never animate).
-///
-/// Suffix set is deliberately narrow: `Spawn`/`Charge`/`Fire` are excluded
-/// because GuardianBullet (0.7) owns `sprGuardianBulletSpawn` and
-/// BigGuardianBullet (0.5) owns `sprBigGuardianBulletSpawn`.
 fn gml_state_strip_fps(path: &str) -> Option<f32> {
     let stem = path.rsplit('/').next().unwrap_or(path);
     let stem = stem.strip_suffix(".png").unwrap_or(stem);
     let state_suffix = ["Idle", "Walk", "Hurt", "Dead", "Appear", "Disappear", "Burrow"]
         .iter()
         .any(|s| stem.ends_with(s));
-    // Portal object (image_speed 0.4) strips carry no state suffix.
+
     let portal_family = stem.starts_with("sprPortal")
         || stem.starts_with("sprProtoPortal")
         || stem.starts_with("sprPopoPortal")
@@ -228,11 +197,9 @@ fn gml_state_strip_fps(path: &str) -> Option<f32> {
 }
 
 pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {
-    // These are deliberately gameplay/UI-visible assets. If any are missing,
-    // the game would silently fall back to colored placeholders and diverge
-    // from nt-recreated-public / Nuclear Throne UX.
+
     const REQUIRED: &[&str] = &[
-        // Core projectile art
+
         "images/sprBullet1.png",
         "images/sprBullet2.png",
         "images/sprEnemyBullet1.png",
@@ -247,10 +214,7 @@ pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {
         "images/sprHeavyBolt.png",
         "images/sprFlameBall.png",
         "images/sprSalamanderBullet.png",
-        // Menu / loading / death parity-critical art
-        // NOTE: sprMaggotBullet and sprMenuBG are expected by upstream but
-        // are not present in the current extracted bundle; they are omitted
-        // here to avoid false-positive panics while the extractor is updated.
+
         "images/sprLogo.png",
         "images/sprLoadoutCrown.png",
         "images/sprPortal.png",
@@ -284,7 +248,6 @@ pub enum AmmoKind {
     Energy = 5,
 }
 
-// Keep legacy AmmoType alias for weapons_data bridge
 pub use crate::game::weapons_data::AmmoType;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize, Hash, PartialOrd, Ord)]
@@ -328,15 +291,10 @@ pub const PLAYABLE_RACES: [RaceId; 16] = [
     RaceId::Cuz,
 ];
 
-/// Back-compat: old 4-race code used CharacterId::Fish etc.
 pub type CharacterId = RaceId;
-/// All 16 selectable races (upstream Menu/Create_0 grid).
+
 pub const CHARACTERS: [CharacterId; PLAYABLE_RACES.len()] = PLAYABLE_RACES;
 
-/// The slot list upstream `Menu/Create_0` builds: every race id from
-/// `Race.Random` up to (but excluding) `Race.NUM_ALL_RACE_TYPES` that is not
-/// hidden (or is unlocked). Unlock gating filters this list at runtime -
-/// Random and Fish are always free; everything else respects the save.
 pub const CHAR_SELECT_RACES: [RaceId; 17] = [
     RaceId::Random,
     RaceId::Fish,
@@ -357,7 +315,6 @@ pub const CHAR_SELECT_RACES: [RaceId; 17] = [
     RaceId::Cuz,
 ];
 
-/// `scrRaceGetPassiveSkillDescription` stand-ins for the char-select text.
 pub fn race_passive_text(race: RaceId) -> &'static str {
     match race {
         RaceId::Fish => "Kills drop extra ammo",
@@ -380,7 +337,6 @@ pub fn race_passive_text(race: RaceId) -> &'static str {
     }
 }
 
-/// Inverse of `race as usize` for the nt-rewrite `enum Race` values.
 pub fn race_from_gml_id(id: usize) -> Option<RaceId> {
     CHAR_SELECT_RACES
         .iter()
@@ -388,8 +344,6 @@ pub fn race_from_gml_id(id: usize) -> Option<RaceId> {
         .find(|r| *r as usize == id)
 }
 
-/// Exact HUD icon sprite used by nt-rewrite `wep_sprt[]`
-/// (scripts/scrWeapons/scrWeapons.gml) for a weapon gml id.
 pub fn weapon_hud_sprite(gml_id: u8) -> Option<&'static str> {
     Some(match gml_id {
         1 => "images/sprRevolver.png",
@@ -489,32 +443,32 @@ impl From<WeaponId> for WeaponKind {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AbilityKind {
-    Flip,          // Fish
-    Shield,        // Crystal
-    Telekinesis,   // Eyes
-    Detonate,      // Melting
-    Snare,         // Plant - slow enemies in a cone
-    PopPop,        // Y.V. - next shot fires twice
-    GetLoaded,     // Steroids - refill ammo
-    EatWeapon,     // Robot - consume current weapon for HP
-    Throw,         // Chicken - short thrash dash + heal 1
-    SpawnAlly,     // Rebel
-    HorrorBeam,    // Horror - rad beam along aim
-    PortalStrike,  // Rogue - delayed blast at aim point
-    RocketBarrage, // Big Dog
-    BloodGamble,   // Skeleton - spend 1 HP, random weapon
-    ToxicPuke,     // Frog - toxic cloud
-    CuzSwap,       // Cuz - cycle 3rd slot / quick-swap
+    Flip,
+    Shield,
+    Telekinesis,
+    Detonate,
+    Snare,
+    PopPop,
+    GetLoaded,
+    EatWeapon,
+    Throw,
+    SpawnAlly,
+    HorrorBeam,
+    PortalStrike,
+    RocketBarrage,
+    BloodGamble,
+    ToxicPuke,
+    CuzSwap,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PassiveKind {
     None,
-    ShieldOnHit,     // Crystal
-    ChainExplosions, // Melting
-    FastReload,      // Steroids-ish dual feel via fire-rate
-    Headless,        // Chicken survives lethal hit once per floor
-    FreeAmmo,        // Robot passive: ammo pickups heal slightly (hooked later)
+    ShieldOnHit,
+    ChainExplosions,
+    FastReload,
+    Headless,
+    FreeAmmo,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
@@ -646,14 +600,10 @@ pub fn cycle_crown_id(id: u8, dir: i8) -> u8 {
     CrownKind::from_u8(id).cycle(dir).to_u8()
 }
 
-/// Port CrownKind id -> nt-rewrite crwn_* grid/save id (RANDOM=0, NONE=1,
-/// DEATH=2 .. PROTECTION=13). Port NONE(0) maps to crwn_none(1); every real
-/// crown shifts up one slot.
 pub fn crown_port_to_gml(id: u8) -> u8 {
     if id == 0 { 1 } else { id + 1 }
 }
 
-/// Inverse of [`crown_port_to_gml`]: crwn_none/RANDOM collapse to port 0.
 pub fn crown_gml_to_port(id: u8) -> u8 {
     if id <= 1 { 0 } else { id - 1 }
 }
@@ -667,7 +617,7 @@ pub struct CharacterDef {
     pub ability: AbilityKind,
     pub passive: PassiveKind,
     pub sprite: &'static str,
-    /// Walk-cycle strip (upstream sprMutantNWalk).
+
     pub walk_sprite: &'static str,
 }
 
@@ -721,7 +671,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             name: "Plant",
             color: Color::srgb(0.3, 0.85, 0.35),
             max_hp: 8,
-            speed_mult: 1.125, // 4.5/4 GML
+            speed_mult: 1.125,
             pickup_range: 95.0,
             ability: AbilityKind::Snare,
             passive: PassiveKind::None,
@@ -750,7 +700,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             sprite: "images/sprMutant7Idle.png",
             walk_sprite: "images/sprMutant7Walk.png",
         },
-        // Note: GML Steroids has accuracy 1.8 (handled via spread_mult in Player)
+
         RaceId::Robot => CharacterDef {
             name: "Robot",
             color: Color::srgb(0.6, 0.6, 0.65),
@@ -766,7 +716,7 @@ pub fn character_def(id: RaceId) -> CharacterDef {
             name: "Chicken",
             color: Color::srgb(0.95, 0.9, 0.6),
             max_hp: 8,
-            speed_mult: 1.0, // GML maxspeed 4 like Fish
+            speed_mult: 1.0,
             pickup_range: 95.0,
             ability: AbilityKind::Throw,
             passive: PassiveKind::Headless,
@@ -809,8 +759,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::BigDog => CharacterDef {
             name: "Big Dog",
             color: Color::srgb(0.55, 0.38, 0.28),
-            max_hp: 300,     // GML scrPlayerRaceChange
-            speed_mult: 0.5, // GML maxspeed 2/4
+            max_hp: 300,
+            speed_mult: 0.5,
             pickup_range: 95.0,
             ability: AbilityKind::RocketBarrage,
             passive: PassiveKind::None,
@@ -820,8 +770,8 @@ pub fn character_def(id: RaceId) -> CharacterDef {
         RaceId::Skeleton => CharacterDef {
             name: "Skeleton",
             color: Color::srgb(0.9, 0.9, 0.92),
-            max_hp: 4,        // GML
-            speed_mult: 0.75, // GML maxspeed 3/4
+            max_hp: 4,
+            speed_mult: 0.75,
             pickup_range: 95.0,
             ability: AbilityKind::BloodGamble,
             passive: PassiveKind::None,
@@ -929,7 +879,7 @@ pub struct WeaponDef {
     pub name: &'static str,
     pub ammo: AmmoKind,
     pub ammo_cost: i32,
-    /// GML wep_rads: extra rad cost on fire (ultra weapons 4..16).
+
     pub rad_cost: u32,
     pub cooldown: f32,
     pub damage: i32,
@@ -1260,7 +1210,6 @@ pub fn weapon_meta(id: WeaponId) -> &'static crate::game::weapons_data::WeaponDa
         .unwrap_or(&crate::game::weapons_data::WEAPONS[0])
 }
 
-/// Corrupt/OOB ids collapse to NONE instead of indexing wild memory.
 pub fn sanitize_weapon_id(id: WeaponId) -> WeaponId {
     if (id.0 as usize) < crate::game::weapons_data::WEAPONS.len() {
         id
@@ -1269,7 +1218,6 @@ pub fn sanitize_weapon_id(id: WeaponId) -> WeaponId {
     }
 }
 
-/// Ammo family of a weapon, safe for any id.
 pub fn weapon_ammo(id: WeaponId) -> AmmoKind {
     if id == WeaponId::NONE {
         return AmmoKind::None;
@@ -1293,8 +1241,6 @@ pub fn weapon_id_name(id: WeaponId) -> &'static str {
     weapon_meta(id).wep_name
 }
 
-/// Ammo capacity per kind (reference: bullets 255, others 55, energy 55). Back Muscle adds
-/// +300 / +44 respectively.
 pub fn ammo_max(kind: AmmoKind) -> i32 {
     match kind {
         AmmoKind::None => 0,
@@ -1304,7 +1250,7 @@ pub fn ammo_max(kind: AmmoKind) -> i32 {
 }
 
 pub fn ammo_pickup_amount(kind: AmmoKind) -> i32 {
-    // GML typ_ammo (scrAmmoUpdateTypeStats): 32/8/7/6/10.
+
     match kind {
         AmmoKind::None => 0,
         AmmoKind::Bullets => 32,
@@ -1342,23 +1288,23 @@ pub enum EnemyKind {
     IdpdShield,
     IdpdElite,
     IdpdVan,
-    // Loop / secret bosses (parity with upstream)
+
     Mom,
-    /// Pizza Sewers secret boss (upstream FrogQueen / Ball Mama).
+
     FrogQueen,
     Technomancer,
     Captain,
-    // Area fodder used by Mom / Techno
+
     Ballguy,
     FrogEgg,
     Necromancer,
-    // Expanded area roster
+
     Spider,
     Crystal,
     LaserCrystal,
     Sniper,
     Crab,
-    // Upstream roster parity (scrPopEnemies): sewers / scrapyards / caves
+
     Gator,
     BuffGator,
     Raven,
@@ -1371,15 +1317,15 @@ pub enum EnemyKind {
     LightningCrystal,
     ExploFreak,
     RhinoFreak,
-    // Frozen City / Palace garrisons
+
     SnowTank,
     GoldSnowtank,
     Guardian,
     ExploGuardian,
     DogGuardian,
-    // Jungle secret area
+
     JungleBandit,
-    // Secret areas & Y.V. Mansion garrison (scrPopEnemies parity)
+
     BoneFish,
     Turtle,
     Molefish,
@@ -1392,11 +1338,11 @@ pub enum EnemyKind {
     InvLaserCrystal,
     PopoFreak,
     MaggotSpawn,
-    // IDPD inspector unit (HQ trios)
+
     IdpdInspector,
-    // Vault
+
     OldGuardian,
-    /// Palace guardian spawned by Throne statues.
+
     PalaceGuardian,
 }
 
@@ -1477,8 +1423,6 @@ impl EnemyKind {
     }
 }
 
-/// `size`/`color` are presentation-parity fields retained from the reference
-/// registry; runtime visuals come from sprite strips.
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub struct EnemyDef {
@@ -1565,7 +1509,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            projectile_speed: 120.0, // GM motion_add 4 *30
+            projectile_speed: 120.0,
             projectile_spread: 0.175,
             projectile_damage: 3,
             projectile_radius: 4.0,
@@ -1595,8 +1539,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: true,
             burst_interval: 0.033,
             fan_spread: 0.0,
-            projectile_speed: 105.0, // GM random_range(3,4) avg 3.5*30
-            // GML Scorpion/Alarm_2: orandom(20) = ±20° (0.349rad).
+            projectile_speed: 105.0,
+
             projectile_spread: 0.349,
             projectile_damage: 2,
             projectile_radius: 4.0,
@@ -1926,7 +1870,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            // GML Turret/Alarm_2: EB1 speed 8*30=240 spread ±4° (0.07).
+
             projectile_speed: 240.0,
             projectile_spread: 0.07,
             projectile_damage: 3,
@@ -2280,8 +2224,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 30,
             drop_chance: 100,
             weapon_chance: 15,
-            // Upstream: chases (1.5 + loops/2 px/frame), alternates aimed
-            // MomProjectile volleys with FrogEgg clusters.
+
             preferred_range: 140.0,
             shoot_range: 999.0,
             attack_cooldown: 1.3,
@@ -2306,7 +2249,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 22.0,
             size: 44.0,
             color: Color::srgb(0.55, 0.35, 0.85),
-            // Fix: WAD has sprTechnoMancer (no Idle suffix); use that strip directly.
+
             sprite: "images/sprTechnoMancer.png",
             score: 1500,
             touch_damage: 0,
@@ -2488,7 +2431,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             radius: 12.0,
             size: 24.0,
             color: Color::srgb(0.85, 0.45, 1.0),
-            // Fix: original has no sprCrystalIdle; use LaserCrystal (same family, exists in WAD/assets)
+
             sprite: "images/sprLaserCrystalIdle.png",
             score: 16,
             touch_damage: 0,
@@ -2558,12 +2501,12 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             preferred_range: 220.0,
             shoot_range: 800.0,
             attack_cooldown: 1.8,
-            // GML Sniper/Alarm_2: 3x EB4 speed16 offsets +4/-4/0.
+
             bullets_per_shot: 3,
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.03,
-            projectile_speed: 480.0, // GM motion_add 16*30
+            projectile_speed: 480.0,
             projectile_spread: 0.01,
             projectile_damage: 5,
             projectile_radius: 3.5,
@@ -2586,7 +2529,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 3,
             drop_chance: 15,
             weapon_chance: 2,
-            // GML Crab/Alarm_2: 2x EB2 speed 5-7 (avg 6*30=180) ±3° (0.052), x8 burst.
+
             preferred_range: 90.0,
             shoot_range: 280.0,
             attack_cooldown: 1.6,
@@ -2650,7 +2593,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             preferred_range: 80.0,
             shoot_range: 420.0,
             attack_cooldown: 0.9,
-            // GML Guardian/Alarm_1: 3x GuardianBullet speed 1,2,2 angles 0/-40/+40.
+
             bullets_per_shot: 3,
             burst: false,
             burst_interval: 0.0,
@@ -2678,7 +2621,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 8,
             drop_chance: 16,
             weapon_chance: 2,
-            // Upstream: shotgun blast only at 48–128px with a HitWarning.
+
             preferred_range: 90.0,
             shoot_range: 170.0,
             attack_cooldown: 1.5,
@@ -2686,7 +2629,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.22,
-            // GML Gator/Alarm_2: 6x EB3 speed 10-14 (avg 12*30=360) spread ±25° (0.436).
+
             projectile_speed: 360.0,
             projectile_spread: 0.436,
             projectile_damage: 2,
@@ -2770,7 +2713,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 12,
             drop_chance: 18,
             weapon_chance: 3,
-            // Short-range fire breath (upstream snd_mele = fire sound).
+
             preferred_range: 70.0,
             shoot_range: 150.0,
             attack_cooldown: 1.1,
@@ -2838,7 +2781,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            // GML JungleBandit/Alarm_2: EB3 speed 11-13 (avg 12*30=360) ±8° (0.14).
+
             projectile_speed: 360.0,
             projectile_spread: 0.14,
             projectile_damage: 3,
@@ -3072,8 +3015,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 10,
             drop_chance: 30,
             weapon_chance: 5,
-            // Slow crawler that stops to line up its rocket.
-            // GML SnowTank/Alarm_2: 2x EB4 speed12 dir ±sin(wave)*20, 16 shots.
+
             preferred_range: 230.0,
             shoot_range: 700.0,
             attack_cooldown: 2.4,
@@ -3134,7 +3076,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 11,
             drop_chance: 22,
             weapon_chance: 3,
-            // Teleporting orb-fan shooter (sprGuardianAppear/Disappear).
+
             preferred_range: 180.0,
             shoot_range: 520.0,
             attack_cooldown: 1.5,
@@ -3255,8 +3197,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 12,
             drop_chance: 25,
             weapon_chance: 3,
-            // Upstream Alarm_1: dashes at visible targets within 320px
-            // (spr_fire, meleedamage = 4 while charging).
+
             preferred_range: 0.0,
             shoot_range: 0.0,
             attack_cooldown: 1.7,
@@ -3320,7 +3261,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             preferred_range: 170.0,
             shoot_range: 500.0,
             attack_cooldown: 1.5,
-            // GML Molesarge/Alarm_1: 5x EB3 speed 10-12 angles 0/±15/±30.
+
             bullets_per_shot: 5,
             burst: false,
             burst_interval: 0.0,
@@ -3348,7 +3289,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 5,
             drop_chance: 16,
             weapon_chance: 2,
-            // Lobs arcing fireballs toward the player.
+
             preferred_range: 160.0,
             shoot_range: 420.0,
             attack_cooldown: 1.4,
@@ -3409,7 +3350,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 8,
             drop_chance: 18,
             weapon_chance: 3,
-            // Ammo-limited rocket bursts (upstream JockRocket).
+
             preferred_range: 190.0,
             shoot_range: 520.0,
             attack_cooldown: 1.7,
@@ -3440,7 +3381,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 10,
             drop_chance: 20,
             weapon_chance: 2,
-            // Upstream: dives when close, spits 3 FiredMaggots beyond 96px.
+
             preferred_range: 110.0,
             shoot_range: 380.0,
             attack_cooldown: 1.5,
@@ -3531,7 +3472,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             rad_drop: 25,
             drop_chance: 30,
             weapon_chance: 8,
-            // IDPD freak police: rushes then fires 8-round slug bursts.
+
             preferred_range: 130.0,
             shoot_range: 460.0,
             attack_cooldown: 1.6,
@@ -3589,7 +3530,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprInspectorIdle.png",
             score: 40,
             touch_damage: 0,
-            // Upstream raddrop = 0 - inspectors never drop rads.
+
             rad_drop: 0,
             drop_chance: 22,
             weapon_chance: 6,
@@ -3600,7 +3541,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             burst: false,
             burst_interval: 0.0,
             fan_spread: 0.0,
-            // PopoSlug: very fast, wide jitter.
+
             projectile_speed: 480.0,
             projectile_spread: 0.1,
             projectile_damage: 3,
@@ -3613,7 +3554,6 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
     }
 }
 
-/// Level-10 race ultimates (two choices per playable race).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum UltraMutationId {
     FishGunWarrant,
@@ -3855,7 +3795,6 @@ pub fn is_boss(kind: EnemyKind) -> bool {
     enemy_def(kind).boss
 }
 
-/// NT simulation runs at 30 FPS; GML `wep_load` is frames.
 #[inline]
 pub const fn frames(f: f32) -> f32 {
     f / 30.0
@@ -3881,17 +3820,13 @@ pub fn weapon_gml_id(kind: WeaponKind) -> u8 {
     }
 }
 
-/// Load a sprite at its native pixel size. Panics when the art is missing -
-/// the game must never boot with invisible entities.
 pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &str) -> Sprite {
     catalog.require(path);
     let mut sprite = Sprite {
         image: asset_server.load(path.to_string()),
         ..Default::default()
     };
-    // Extracted strips now keep every frame; a plain consumer must show one
-    // frame, not the whole row. Animated users (SpriteAnim, ui_art) overwrite
-    // the rect themselves.
+
     if let Some(m) = catalog.anims.get(path)
         && m[0] > 1.0
     {
@@ -3901,7 +3836,6 @@ pub fn sprite_exact(catalog: &AssetCatalog, asset_server: &AssetServer, path: &s
     sprite
 }
 
-/// Same as `sprite_exact`, but pick a horizontal strip frame.
 pub fn sprite_exact_frame(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
@@ -3919,7 +3853,6 @@ pub fn sprite_exact_frame(
     sprite
 }
 
-/// Metadata: [frames, w, h, fps, xorigin, yorigin]
 pub fn sprite_meta(catalog: &AssetCatalog, path: &str) -> [f32; 6] {
     catalog
         .anims
@@ -3928,10 +3861,6 @@ pub fn sprite_meta(catalog: &AssetCatalog, path: &str) -> [f32; 6] {
         .unwrap_or([1.0, 16.0, 16.0, 0.0, 8.0, 8.0])
 }
 
-/// Place a sprite as GameMaker would: draw point = instance (x,y), using
-/// sprite xorigin/yorigin. Coordinates are Bevy y-up; `draw_pos` is the
-/// Bevy-space position of the GM draw point (instance x,y mapped to y-up).
-/// Returns (Sprite, Transform) with center-anchor.
 pub fn sprite_at_gm_origin(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
@@ -3944,12 +3873,6 @@ pub fn sprite_at_gm_origin(
     let (fw, fh, xorigin, yorigin) = (m[1].max(1.0), m[2].max(1.0), m[4], m[5]);
     let sprite = sprite_exact_frame(catalog, asset_server, path, frame);
 
-    // GM: left = x - xorigin, top = y - yorigin (y-down).
-    // Bevy y-up draw_pos is the same logical corner/origin point on screen
-    // after the lattice is already y-up:
-    //   left  = draw_pos.x - xorigin
-    //   top (high y) = draw_pos.y + yorigin
-    //   center = left + fw/2, top - fh/2 = draw_pos.y + yorigin - fh/2.
     let center = Vec2::new(
         draw_pos.x - xorigin + fw * 0.5,
         draw_pos.y + yorigin - fh * 0.5,
@@ -3958,10 +3881,6 @@ pub fn sprite_at_gm_origin(
     (sprite, Transform::from_xyz(center.x, center.y, z))
 }
 
-/// Bevy `Anchor` for a sprite path, derived from GameMaker xorigin/yorigin.
-/// Centered origins return `Anchor::Center` (default); custom origins (weapons,
-/// projectiles) return a custom anchor so rotation pivots at the handle/muzzle
-/// exactly as in the ~/Documents reference (fixes positional discrepancies).
 pub fn sprite_anchor(catalog: &AssetCatalog, path: &str) -> bevy::sprite::Anchor {
     if let Some(m) = catalog.anims.get(path) {
         let (w, h) = (m[1].max(1.0), m[2].max(1.0));
@@ -4000,7 +3919,6 @@ pub enum MutationId {
     SharpTeeth,
     LastWish,
 
-    // Missing upstream mutation pool.
     BoltMarrow,
     Hammerhead,
     LaserBrain,
@@ -4168,7 +4086,6 @@ pub fn mutation_def(id: MutationId) -> MutationDef {
     }
 }
 
-/// GML mut_* index used as sprSkillIcon subimage (nt-rewrite scrSkills order).
 pub fn mutation_skill_index(id: MutationId) -> u8 {
     match id {
         MutationId::RhinoSkin => 1,
@@ -4203,7 +4120,6 @@ pub fn mutation_skill_index(id: MutationId) -> u8 {
     }
 }
 
-/// Ultra skill icon subimage.
 pub fn ultra_skill_index(id: UltraMutationId) -> u8 {
     match id {
         UltraMutationId::FishGunWarrant => 1,

@@ -1,9 +1,3 @@
-//! Functional floor surfaces and environmental prop payloads.
-//!
-//! The ordinary `Prop` component remains the collision / HP representation.
-//! This module adds optional behavior components so existing props do not
-//! need a large enum field or a migration of every `Prop { ... }` literal.
-
 use bevy::prelude::*;
 
 use crate::game::combat::Explosion;
@@ -13,8 +7,6 @@ use crate::game::secret_areas::SecretTriggers;
 use game_utils_bevy::hit_flash::HitFlash;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
-
-// Functional floor surfaces
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SurfaceKind {
@@ -56,16 +48,11 @@ impl SurfacePulse {
     }
 }
 
-/// Axis-aligned zone test used both by the ECS system and unit tests.
 pub fn point_in_zone(point: Vec2, center: Vec2, half_size: Vec2) -> bool {
     let delta = (point - center).abs();
     delta.x <= half_size.x && delta.y <= half_size.y
 }
 
-/// Select the strongest surface under an actor.
-///
-/// Cobweb takes priority over ice if generation places both zones on the same
-/// cell - this prevents ice compensation from defeating web slowdown.
 pub fn surface_at_point(
     point: Vec2,
     zones: impl IntoIterator<Item = (Vec2, SurfaceZone)>,
@@ -86,12 +73,6 @@ pub fn surface_at_point(
     result
 }
 
-/// Post-movement velocity adjustment for a functional floor.
-///
-/// Runs after ordinary movement:
-/// - Cobweb strongly damps existing movement and caps maximum speed.
-/// - Ice compensates most of the friction already applied by movement,
-///   producing a long glide without rewriting the input system.
 pub fn surface_velocity(
     kind: SurfaceKind,
     velocity: Vec2,
@@ -113,8 +94,7 @@ pub fn surface_velocity(
         }
 
         SurfaceKind::Ice => {
-            // Undo most-but deliberately not all-of the regular movement
-            // friction; the 0.992 term guarantees eventual stillness.
+
             let friction = base_friction.clamp(0.05, 0.999);
             let compensation = (1.0 / friction).powf(dt * crate::app::NT_SIM_HZ as f32);
             let retention = 0.992_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
@@ -149,7 +129,7 @@ pub fn apply_surface_effects(
     let dt = time.delta_secs();
 
     for (tf, mut velocity, player, enemy, dash) in &mut actors {
-        // Character dashes carry explicit velocity that should be preserved.
+
         if dash.is_some() {
             continue;
         }
@@ -177,8 +157,6 @@ pub fn apply_surface_effects(
     }
 }
 
-// Environmental hazards
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EnvironmentHazardKind {
     Fire,
@@ -186,7 +164,7 @@ pub enum EnvironmentHazardKind {
 }
 
 impl EnvironmentHazardKind {
-    #[allow(dead_code)] // stable HitId mapping for future damage attribution
+    #[allow(dead_code)]
     pub fn hit_id(self) -> HitId {
         match self {
             EnvironmentHazardKind::Fire => HitId::Fire,
@@ -329,7 +307,6 @@ pub fn tick_environment_hazards(
                 continue;
             }
 
-            // Boiling Veins protects low-health players from fire hazards.
             if is_player
                 && hazard.spec.kind == EnvironmentHazardKind::Fire
                 && let Some(player) = player
@@ -356,8 +333,6 @@ pub fn tick_environment_hazards(
         }
     }
 }
-
-// Prop terminal payloads
 
 #[derive(Clone, Copy, Debug)]
 pub struct ExplosionPayload {
@@ -413,9 +388,6 @@ impl PropDeathEffect {
     }
 }
 
-/// GML prop/Destroy_0: if (corpse && sprite_exists(spr_dead)) create Corpse
-/// with spr_dead + flip. Called in addition to explosion/hazard (Barrel does
-/// both). Strict: dead art must exist via gen_assets, else bail.
 pub fn spawn_prop_corpse(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -441,8 +413,6 @@ pub fn spawn_prop_corpse(
     }
 }
 
-/// Shared terminal path for props destroyed by bullets, explosions, melee,
-/// Hammerhead, or a future chain reaction.
 pub fn spawn_prop_death_effect(
     commands: &mut Commands,
     pos: Vec2,
@@ -464,8 +434,7 @@ pub fn spawn_prop_death_effect(
     };
 
     if let Some(explosion) = effect.explosion {
-        // Neutral-hazard convention: Team::Player so the enemy-side pass sees
-        // it, hits_player=true so the player-side pass also sees it.
+
         commands.spawn((
             GameCleanup,
             LevelCleanup,
@@ -493,8 +462,6 @@ pub fn spawn_prop_death_effect(
         spawn_environment_hazard(commands, pos, hazard);
     }
 }
-
-// Mines
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ProximityMine {
@@ -541,8 +508,6 @@ pub fn tick_proximity_mines(
     }
 }
 
-// Presentation helpers
-
 pub fn animate_environment(time: Res<Time>, mut q: Query<(&SurfacePulse, &mut Sprite)>) {
     let now = time.elapsed_secs();
 
@@ -554,9 +519,6 @@ pub fn animate_environment(time: Res<Time>, mut q: Query<(&SurfacePulse, &mut Sp
     }
 }
 
-/// Load the first available image, otherwise create a visible colored
-/// fallback. Unlike `sprite_exact`, intentionally tolerant: environment art is
-/// optional and exact pack names can vary.
 pub fn sprite_from_candidates(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
@@ -577,10 +539,7 @@ pub fn sprite_from_candidates(
     }
 }
 
-/// Safety test for environmental spawns generated near arena edges.
 #[allow(dead_code)]
 pub fn valid_environment_position(pos: Vec2, radius: f32) -> bool {
     pos.x.abs() <= ARENA_W * 0.5 - radius && pos.y.abs() <= ARENA_H * 0.5 - radius
 }
-
-// Unit tests

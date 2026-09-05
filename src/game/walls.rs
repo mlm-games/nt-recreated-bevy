@@ -1,8 +1,3 @@
-//! Destructible walls: the single break pipeline shared by hammerhead, boss
-//! charges, explosions, and delayed boss entrances. Breaking a wall despawns
-//! its linked visuals, expands the floor mask under it, and stamps the
-//! owner-cell floor sprite so holes look walkable.
-
 use bevy::prelude::*;
 
 use crate::game::components::*;
@@ -13,7 +8,6 @@ use crate::game::world::{
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
-/// Apply all `PendingWallBreak` markers this tick.
 pub fn apply_pending_wall_breaks(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -66,7 +60,6 @@ pub fn apply_pending_wall_breaks(
     }
 }
 
-/// Queue a break for every wall solid within `radius` of `pos`.
 pub fn queue_wall_breaks_in_radius(
     commands: &mut Commands,
     walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
@@ -89,7 +82,6 @@ pub fn queue_wall_breaks_in_radius(
     }
 }
 
-/// Carve from `from` toward `to` at half-tile steps (boss charges).
 pub fn queue_wall_breaks_along_segment(
     commands: &mut Commands,
     walls: &Query<(Entity, &WallCell, &Transform), With<WallTile>>,
@@ -107,8 +99,6 @@ pub fn queue_wall_breaks_along_segment(
     }
 }
 
-/// True when the segment a→b passes close to any wall solid (LoS probe).
-/// Optimized via FloorMask hash lookup instead of O(Walls) scan.
 pub fn segment_hits_wall(a: Vec2, b: Vec2, mask: &FloorMask) -> bool {
     let delta = b - a;
     let len = delta.length();
@@ -126,7 +116,6 @@ pub fn segment_hits_wall(a: Vec2, b: Vec2, mask: &FloorMask) -> bool {
     false
 }
 
-/// Legacy overload used by old callers during migration.
 pub fn segment_hits_wall_query(
     a: Vec2,
     b: Vec2,
@@ -157,7 +146,6 @@ fn segment_hits_wall_legacy(
     false
 }
 
-/// Per-floor budget + throne-room gate reset driven by `FloorStarted`.
 pub fn reset_hammerhead_budget(
     mut events: MessageReader<FloorStarted>,
     mut budget: ResMut<HammerheadBudget>,
@@ -169,8 +157,6 @@ pub fn reset_hammerhead_budget(
     }
 }
 
-/// Marker added after a generator has been counted, prevents double-count
-/// if the prop lingers for multiple ticks before despawn.
 #[derive(Component)]
 pub struct CountedGenerator;
 
@@ -236,7 +222,6 @@ pub fn handle_throne_room_props(
     }
 }
 
-/// Throne carpet occupancy: sets `ThroneRoomState.player_on_carpet`.
 pub fn update_carpet_occupancy(
     mut throne_room: ResMut<ThroneRoomState>,
     player_q: Query<&Transform, With<Player>>,

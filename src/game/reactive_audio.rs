@@ -1,5 +1,3 @@
-//! Reactive one-shot audio and combat-intensity overlays.
-
 use bevy::audio::{AudioPlayer, AudioSink, AudioSource, PlaybackMode, PlaybackSettings, Volume};
 use bevy::prelude::*;
 
@@ -13,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum ReactiveCue {
-    // Gameplay / progression
+
     LevelUp,
     MutationChosen,
     UltraChosen,
@@ -30,11 +28,9 @@ pub enum ReactiveCue {
     ThroneRises,
     IdpdIncoming,
 
-    // Kill feedback
     Kill,
     KillStreak,
 
-    // UI
     UiClick,
     UiBack,
     UiConfirm,
@@ -52,8 +48,6 @@ impl ReactiveAudioRequest {
     }
 }
 
-/// Deferred cue for systems at (or near) the system-parameter cap: spawn this
-/// component and `flush_queued_cues` converts it into a request message.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct QueuedReactiveCue(pub ReactiveCue);
 
@@ -206,7 +200,6 @@ impl ReactiveAudioState {
         self.last_fired.get(&cue).copied()
     }
 
-    /// Returns true on every tenth kill inside the 3.5s streak window.
     fn note_kill(&mut self, now: f32) -> bool {
         if now - self.kill_streak_last > 3.5 {
             self.kill_streak = 0;
@@ -223,8 +216,6 @@ pub fn reset_reactive_audio_state(mut state: ResMut<ReactiveAudioState>) {
     state.reset();
 }
 
-/// Converts deferred [`QueuedReactiveCue`] components into request messages so
-/// parameter-capped systems can still fire stingers via `commands`.
 pub fn flush_queued_cues(
     mut commands: Commands,
     queued: Query<(Entity, &QueuedReactiveCue)>,
@@ -259,8 +250,7 @@ pub fn play_reactive_audio_requests(
         }
 
         let Some(path) = first_existing_audio(&catalog, cue_candidates(request.cue)) else {
-            // Missing assets stay silent; the throttle window is still
-            // consumed so same-frame repeats don't pile up.
+
             state.mark_fired(request.cue, now);
             continue;
         };
@@ -279,7 +269,6 @@ pub fn play_reactive_audio_requests(
     }
 }
 
-/// Automatic progression/player stingers without touching large systems.
 pub fn observe_player_audio_state(
     mut state: ResMut<ReactiveAudioState>,
     player_q: Query<(&Player, &Health), With<Player>>,
@@ -308,7 +297,6 @@ pub fn observe_player_audio_state(
         writer.write(ReactiveAudioRequest::new(ReactiveCue::PlayerCritical));
     }
 
-    // Low-health warning fires once on crossing below 25%, rearms above it.
     let low = (health.max as f32 * 0.25).ceil() as i32;
     if health.hp > low {
         state.low_hp_armed = true;
@@ -320,7 +308,6 @@ pub fn observe_player_audio_state(
     state.last_player_hp = Some(health.hp);
 }
 
-/// Boss appear / defeated stingers keyed on BossBrain membership deltas.
 pub fn observe_boss_audio_state(
     mut state: ResMut<ReactiveAudioState>,
     bosses: Query<Entity, With<BossBrain>>,
@@ -339,10 +326,6 @@ pub fn observe_boss_audio_state(
     state.known_bosses = current;
 }
 
-/// Generic kill / kill-streak feedback.
-///
-/// `RemovedComponents<Enemy>` also sees non-death marker removals (the IDPD
-/// Van sheds its marker when empty); acceptable for a broad feedback cue.
 pub fn observe_kill_audio_state(
     time: Res<Time>,
     mut state: ResMut<ReactiveAudioState>,
@@ -360,7 +343,6 @@ pub fn observe_kill_audio_state(
     }
 }
 
-/// Maps the tree's real UiAction variants onto reactive UI cues.
 pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
     match action {
         UiAction::StartGame | UiAction::MainMenuPlay | UiAction::Resume => {
@@ -387,7 +369,6 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
         | UiAction::CycleStoredWeapon(_)
         | UiAction::CycleCrown(_) => Some(ReactiveCue::UiCycle),
 
-        // Slider spam stays silent.
         UiAction::SetMasterVol(_)
         | UiAction::SetSfxVol(_)
         | UiAction::SetMusicVol(_)
@@ -409,7 +390,6 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
     }
 }
 
-/// Reads the same UiAction drain stream as `process_ui_actions`.
 pub fn play_ui_action_audio(
     mut reader: MessageReader<UiBridgeAction>,
     mut writer: MessageWriter<ReactiveAudioRequest>,
@@ -421,14 +401,12 @@ pub fn play_ui_action_audio(
     }
 }
 
-/// Mirror of every UI action, emitted by `process_ui_actions` so multiple
-/// readers can observe the drain without touching the Arc/Mutex channel.
 #[derive(bevy::ecs::message::Message, Clone, Debug)]
 pub struct UiBridgeAction(pub UiAction);
 
 #[derive(Component)]
 pub struct CombatIntensityLayer {
-    #[allow(dead_code)] // retained for future per-area mixing rules
+    #[allow(dead_code)]
     pub area: AreaId,
     pub current: f32,
 }
@@ -476,14 +454,12 @@ pub fn intensity_candidates(area: AreaId) -> &'static [&'static str] {
     }
 }
 
-/// Combat pressure: ordinary enemy = 1, IDPD = 2, boss = 4.
 pub fn combat_intensity_score(enemies_total: usize, idpd_count: usize, boss_count: usize) -> u32 {
     let ordinary = enemies_total.saturating_sub(idpd_count + boss_count);
 
     ordinary as u32 + idpd_count as u32 * 2 + boss_count as u32 * 4
 }
 
-/// Target intensity in `[0, 1]`.
 pub fn combat_intensity_target(score: u32) -> f32 {
     match score {
         0..=2 => 0.0,
@@ -492,7 +468,6 @@ pub fn combat_intensity_target(score: u32) -> f32 {
     }
 }
 
-/// Exponential half-life smoothing toward a target.
 pub fn smooth_value(current: f32, target: f32, dt: f32, half_life: f32) -> f32 {
     if dt <= 0.0 || half_life <= 0.0 {
         return target;
@@ -535,7 +510,6 @@ pub fn update_combat_intensity_audio(
         .as_ref()
         .is_some_and(|t| t.campfire_active || t.throne_ii_alive);
 
-    // Area change: drop the old layer, spawn the new one if candidates exist.
     if state.last_area != Some(run.area) {
         for (entity, _, _) in layers.iter() {
             commands.entity(entity).despawn();

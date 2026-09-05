@@ -1,10 +1,3 @@
-//! Area music + ambience: cue selection, looping track entities, crossfades,
-//! and volume-bus sync.
-//!
-//! Silent-failure design: every cue maps to candidate paths checked against
-//! the asset catalog; a missing file simply means that cue stays quiet until
-//! matching audio is dropped into the pack.
-
 use bevy::audio::{AudioPlayer, AudioSink, PlaybackMode, PlaybackSettings, Volume};
 use bevy::prelude::*;
 use game_utils_bevy::audio::AudioChannels;
@@ -15,7 +8,6 @@ use crate::game::areas::AreaId;
 use crate::game::components::*;
 use crate::game::content::{AssetCatalog, EnemyKind};
 
-/// High-level music selection cue.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum MusicCue {
     Desert,
@@ -44,7 +36,6 @@ pub enum MusicCue {
     TitleTheme,
 }
 
-/// High-level ambience selection cue.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum AmbienceCue {
     None,
@@ -71,8 +62,6 @@ pub struct AreaAudioState {
     pub ambience_entity: Option<Entity>,
 }
 
-/// GML `MusCont.ambfilter`: 1.0 normal, dimmed to 0.2 while `SpiralCont`
-/// exists or the game is paused (`MusCont/Step_0.gml`).
 #[derive(Resource, Debug)]
 pub struct AmbFilter(pub f32);
 impl Default for AmbFilter {
@@ -81,17 +70,15 @@ impl Default for AmbFilter {
     }
 }
 
-/// Marker + identity for the currently playing music track.
 #[derive(Component)]
 pub struct AreaMusicTrack {
-    #[allow(dead_code)] // retained for future intensity-layer queries
+    #[allow(dead_code)]
     pub cue: MusicCue,
 }
 
-/// Marker + identity for the currently playing ambience loop.
 #[derive(Component)]
 pub struct AreaAmbienceTrack {
-    #[allow(dead_code)] // retained for future intensity-layer queries
+    #[allow(dead_code)]
     pub cue: AmbienceCue,
 }
 
@@ -103,7 +90,6 @@ pub struct AreaAudioFader {
     pub despawn_on_finish: bool,
 }
 
-/// Map route/secret area to its base music cue.
 pub fn music_for_area(area: AreaId) -> MusicCue {
     match area {
         AreaId::Desert => MusicCue::Desert,
@@ -123,12 +109,11 @@ pub fn music_for_area(area: AreaId) -> MusicCue {
         AreaId::HQ => MusicCue::Hq,
         AreaId::City => MusicCue::City,
         AreaId::Campfire => MusicCue::Campfire,
-        // Post-loop limbo slot; never produced by the current router.
+
         AreaId::Loop => MusicCue::Desert,
     }
 }
 
-/// Map route/secret area to ambience cue.
 pub fn ambience_for_area(area: AreaId) -> AmbienceCue {
     match area {
         AreaId::Desert => AmbienceCue::DesertWind,
@@ -148,13 +133,11 @@ pub fn ambience_for_area(area: AreaId) -> AmbienceCue {
         AreaId::HQ => AmbienceCue::HqSirens,
         AreaId::City => AmbienceCue::CityNoise,
         AreaId::Campfire => AmbienceCue::CampfireCrackle,
-        // Post-loop limbo slot; never produced by the current router.
+
         AreaId::Loop => AmbienceCue::DesertWind,
     }
 }
 
-/// Boss themes override area music. Loop variants reuse their family theme;
-/// unknown bosses fall through to area music.
 pub fn boss_music_for_kind(kind: EnemyKind) -> Option<MusicCue> {
     match kind {
         EnemyKind::BigBandit | EnemyKind::BigBanditLoop => Some(MusicCue::BossBigBandit),
@@ -466,7 +449,6 @@ const MUSIC_FADE_SECS: f32 = 1.2;
 const AMBIENCE_FADE_SECS: f32 = 0.8;
 const AMBIENCE_BASE_SCALE: f32 = 0.55;
 
-/// GML `MusCont/Step_0.gml` filter: 0.2 while paused or `SpiralCont` exists.
 pub fn update_amb_filter(
     time: Res<Time>,
     paused: Res<Paused>,
@@ -478,7 +460,7 @@ pub fn update_amb_filter(
     } else {
         1.0
     };
-    // GML moves 0.1 per 30-Hz tick → ~3.0 per second.
+
     let rate = 3.0;
     let dt = time.delta_secs();
     let step = rate * dt;
@@ -491,11 +473,6 @@ pub fn update_amb_filter(
 
 const MUSIC_PAUSE_DIM: f32 = 0.45;
 
-/// Swap music/ambience entities when the resolved cues change.
-///
-/// Outgoing tracks receive a fade-out fader that despawns them; incoming
-/// tracks start silent and fade in. Missing audio keeps the cue "selected"
-/// but spawns nothing, so adding a file later just works.
 pub fn sync_area_audio(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -509,10 +486,7 @@ pub fn sync_area_audio(
     music_entities: Query<Entity, With<AreaMusicTrack>>,
     ambience_entities: Query<Entity, With<AreaAmbienceTrack>>,
 ) {
-    // Outside InGame (Splash/MainMenu/Title/Loading) play the title theme
-    // `MusCont/Create_0.gml` (musThemeA → musThemeB) – not silence.
-    // Splash keeps its own jingle/logo-loop; theme starts after the
-    // nuclear-throne anim (MainMenu/Title).
+
     let (wanted_music, wanted_ambience): (Option<MusicCue>, Option<AmbienceCue>) =
         if *app_state.get() != AppState::InGame {
             if *app_state.get() == AppState::Loading {
@@ -535,9 +509,7 @@ pub fn sync_area_audio(
         };
 
     if state.current_music != wanted_music {
-        // Fade out whatever is currently playing.
-        // Death: TopCont/Step_2.gml audio_stop_sound(song) is instant;
-        // use a very short fade to avoid a click but match the hard cut.
+
         let fade_secs = if wanted_music.is_none() && run.game_over {
             0.18
         } else {
@@ -689,7 +661,6 @@ pub fn despawn_area_audio(
     *state = AreaAudioState::default();
 }
 
-/// Live volume-bus sync so slider moves affect playing tracks immediately.
 pub fn sync_area_audio_volumes(
     channels: Res<AudioChannels>,
     paused: Res<Paused>,

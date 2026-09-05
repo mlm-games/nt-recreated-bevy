@@ -1,5 +1,3 @@
-//! Game components, resources, and cleanup markers.
-
 use bevy::prelude::*;
 
 use crate::game::content::*;
@@ -8,23 +6,20 @@ use serde::{Deserialize, Serialize};
 pub const ARENA_W: f32 = 2560.0;
 pub const ARENA_H: f32 = 1664.0;
 pub const WALL_THICK: f32 = 60.0;
-pub const PLAYER_RADIUS: f32 = 8.0; // upstream mskPlayer is a 16x16 mask
-/// Base max speed: GML maxspeed 4 px/frame * 30 Hz = 120 px/s.
+pub const PLAYER_RADIUS: f32 = 8.0;
+
+// Base speed 4 px/frame = 120 px/s.
 pub const PLAYER_BASE_SPEED: f32 = 120.0;
-/// GML Player/Step_0 _movspeed=3 px/frame =90 px/s per tick. Bevy dt=1/30 -> need 2700 to match 90.
-/// Previous 900 gave only 30 px/s (1 px/frame) – 3× sluggish turn-in.
+
 pub const PLAYER_ACCEL: f32 = 2700.0;
-/// GML friction is subtractive: Player/Step_0 friction=0.45 (+ 2 on slime,
-/// 0.1 on ice), enemy/Create_0 friction=0.4. This is subtracted per frame
-/// (px/frame), not multiplied. See player_move subtractive branch.
+
 pub const PLAYER_FRICTION: f32 = 0.45;
 pub const NT_CAM_SCALE: f32 = 0.45;
 
-/// GML subtractive friction (px/frame) -> px/s, FixedUpdate@30 lockstep-safe.
-/// One Fixed tick ≈ one GML step: subtract `friction_f * 30` from |v|.
+// Friction is subtractive per tick.
 #[inline]
 pub fn apply_gml_friction(vel: &mut Vec2, friction_f: f32, dt: f32) {
-    // frames this tick (1.0 at exact 30Hz; >1 if catch-up)
+
     let frames = dt * crate::app::NT_SIM_HZ as f32;
     let sp = vel.length();
     if sp > 0.0 {
@@ -37,13 +32,11 @@ pub fn apply_gml_friction(vel: &mut Vec2, friction_f: f32, dt: f32) {
     }
 }
 
-/// GML `motion_add(dir, impulse_f)` then `if speed > cap_f speed = cap_f`.
-/// GML speed is px/frame; Bevy Velocity is px/s ⇒ multiply by 30.
+// Scale impulse by 30, not dt.
 #[inline]
 pub fn gml_motion_add_clamp(vel: &mut Vec2, dir: Vec2, impulse_f: f32, cap_f: f32, dt: f32) {
     let frames = dt * crate::app::NT_SIM_HZ as f32;
-    // CRITICAL: was `(impulse_f * 30.0) * dt` → only +impulse_f px/s per tick (30× weak).
-    // Correct: +impulse_f px/frame * 30 = impulse_f*30 px/s per GML frame.
+
     *vel += dir.normalize_or_zero() * (impulse_f * 30.0) * frames;
     let cap = cap_f * 30.0;
     if vel.length() > cap {
@@ -51,7 +44,7 @@ pub fn gml_motion_add_clamp(vel: &mut Vec2, dir: Vec2, impulse_f: f32, cap_f: f3
     }
 }
 
-/// 32px NT floor grid - walkable cells only (like Floor / Wall solids).
+// Floor grid is 32 px tiles.
 pub const TILE: f32 = 32.0;
 
 #[derive(Resource, Default, Clone)]
@@ -62,7 +55,7 @@ pub struct FloorMask {
 }
 
 impl FloorMask {
-    /// Cells are origin-centered tile coords matching LevelPlan exactly.
+
     pub fn world_to_cell(&self, p: Vec2) -> (i32, i32) {
         ((p.x / TILE).floor() as i32, (p.y / TILE).floor() as i32)
     }
@@ -78,13 +71,12 @@ impl FloorMask {
         self.cells.contains(&self.world_to_cell(p))
     }
 
-    /// Push a circle back onto floor tiles (NT-style floor solids).
     pub fn resolve_circle(&self, pos: &mut Vec3, radius: f32) {
         let p = pos.truncate();
         if self.is_walkable(p) {
             return;
         }
-        // Snap toward nearest walkable cell center.
+
         let mut best = None::<(f32, Vec2)>;
         let (cx, cy) = self.world_to_cell(p);
         for dy in -3..=3 {
@@ -125,31 +117,25 @@ impl FloorMask {
     }
 }
 
-/// Solid wall tile (collides like Prop, not destructible).
 #[derive(Component)]
 pub struct WallTile;
 
-/// Lattice coords of a wall solid (16px grid, matching LevelPlan
-/// `wall_cells` / `small_walls`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WallCell(pub i32, pub i32);
 
-/// Linked visual entities (out / bot / top) for a wall solid; despawned with it.
 #[derive(Component, Clone, Debug, Default)]
 pub struct WallVisuals {
     pub parts: Vec<Entity>,
 }
 
-/// Queued wall destruction so combat/AI systems don't fight Prop queries.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PendingWallBreak {
     pub cell: (i32, i32),
     pub pos: Vec2,
-    /// Expand the floor mask under the broken wall (walkable hole).
+
     pub spawn_floor: bool,
 }
 
-/// Hammerhead wall-chew budget for the current floor (upstream max 20).
 #[derive(Resource, Debug)]
 pub struct HammerheadBudget {
     pub remaining: u32,
@@ -161,7 +147,6 @@ impl Default for HammerheadBudget {
     }
 }
 
-/// Last damage that touched the player (Game Over "killed by").
 #[derive(Resource, Default, Debug, Clone)]
 pub struct LastDamageTaken {
     pub hit_id: Option<HitId>,
@@ -198,7 +183,6 @@ impl LastDamageTaken {
     }
 }
 
-/// Brief intro marker spawned when a delayed boss bursts in.
 #[derive(Component)]
 pub struct BossIntro {
     pub timer: Timer,
@@ -207,8 +191,6 @@ pub struct BossIntro {
 #[derive(Resource, Default)]
 pub struct Score(pub u32);
 
-/// Set when in-memory save data diverges from disk; a throttled system flushes it
-/// so the high score isn't written on every kill.
 #[derive(Resource, Default)]
 pub struct SaveDirty(pub bool);
 
@@ -223,7 +205,7 @@ pub struct Run {
     pub portal_open: bool,
     pub game_over: bool,
     pub total_kills: u32,
-    /// Desert 1-1 chicken swords left at level end (`Portal/Alarm_1`).
+
     pub blackswords: u32,
 }
 
@@ -253,19 +235,16 @@ impl Default for SelectedCharacter {
     }
 }
 
-/// Active level-up: the game is paused and the player must pick one.
 #[derive(Resource)]
 pub struct PendingMutation {
     pub choices: Vec<MutationId>,
 }
 
-/// Level-10 ultra choice. Uses the same `MutationChoice` click/number input.
 #[derive(Resource)]
 pub struct PendingUltra {
     pub choices: Vec<UltraMutationId>,
 }
 
-/// Set by the UI (Repose buttons) when the player clicks a mutation choice.
 #[derive(Resource, Default)]
 pub struct MutationChoice(pub Option<usize>);
 
@@ -284,29 +263,21 @@ impl Default for Toast {
     }
 }
 
-/// Scarier Face: new enemies spawn with 80% HP.
 #[derive(Resource, Default)]
 pub struct ScarierFace(pub bool);
 
-/// Euphoria: enemy projectiles spawn slower.
 #[derive(Resource, Default)]
 pub struct Euphoria(pub bool);
 
-/// Open Mind: extra chests spawn with each level clear.
 #[derive(Resource, Default)]
 pub struct OpenMind(pub bool);
 
-/// Heavy Heart: enemies can drop weapons.
 #[derive(Resource, Default)]
 pub struct HeavyHeart(pub bool);
 
-/// Marker for everything that belongs to the whole run (despawned when leaving
-/// the InGame state).
 #[derive(Component)]
 pub struct GameCleanup;
 
-/// Marker for everything that belongs to the current floor (despawned when
-/// taking a portal to the next floor).
 #[derive(Component)]
 pub struct LevelCleanup;
 
@@ -321,7 +292,7 @@ pub struct Player {
     pub next_level_rads: u32,
     pub pickup_range: f32,
     pub fire_rate_mult: f32,
-    pub spread_mult: f32, // GML accuracy: Steroids 1.8, Eagle Eyes 0.4 -> multiplied into spread
+    pub spread_mult: f32,
     pub accuracy: f32,
     pub knockback_mult: f32,
     pub melee_range_mult: f32,
@@ -354,16 +325,16 @@ pub struct Player {
     pub recycle_gland: bool,
     pub shotgun_shoulders: bool,
     pub throne_butt: bool,
-    /// Eyes' Projectile Style ultra: enemy projectiles slow further.
+
     pub euphoria: bool,
-    /// Patience is a one-time skip; next mutation roll gets four choices.
+
     pub patience_bonus: bool,
     pub patience_used: bool,
-    /// Chosen level-10 ultra, if any.
+
     pub ultra: Option<UltraMutationId>,
-    /// Generic damage scaling granted by some ultras.
+
     pub ultra_damage_mult: f32,
-    /// Generic ability scaling used by Throne Butt / ultras.
+
     pub ultra_ability_mult: f32,
     pub mutations: Vec<MutationId>,
 }
@@ -425,7 +396,7 @@ impl Default for Player {
 }
 
 impl Player {
-    /// Ammo capacity for `kind`, including Back Muscle stacks.
+
     pub fn ammo_cap(&self, kind: AmmoKind) -> i32 {
         ammo_cap_with(self.back_muscle, kind)
     }
@@ -454,7 +425,6 @@ impl Player {
     }
 }
 
-/// NT ammo caps with Back Muscle (+300 bullets / +44 other families per stack).
 pub fn ammo_cap_with(back_muscle: u32, kind: AmmoKind) -> i32 {
     let base = crate::game::content::ammo_max(kind);
     if back_muscle == 0 || kind == AmmoKind::None {
@@ -479,13 +449,9 @@ pub struct Health {
     pub invuln: Timer,
 }
 
-/// GML `nexthurt` i-frames: `scr_hit` sets `nexthurt = current_frame + 5`,
-/// `scr_can_hit` blocks re-hits while `current_frame < nexthurt`.
-/// Applied to enemies and destructible props (shotgun pellets must not all land).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct NextHurt(pub u64);
 
-/// Global lockstep frame counter backing `NextHurt` (30Hz FixedUpdate).
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct CurrentFrame(pub u64);
 
@@ -505,8 +471,7 @@ pub struct FireCooldown {
     pub timer: Timer,
     pub burst_left: usize,
     pub burst_timer: Timer,
-    /// GML Steroids `breload`/`bcan_shoot`/burst state for the second gun
-    /// (`bwep`). Only used when race is Steroids; otherwise stays idle.
+
     pub timer_b: Timer,
     pub burst_left_b: usize,
     pub burst_timer_b: Timer,
@@ -518,7 +483,7 @@ pub const MAX_AMMO_TYPES: usize = 6;
 #[derive(Component, Clone, Debug)]
 pub struct Inventory {
     pub weapons: [WeaponId; MAX_WEAPON_SLOTS],
-    pub weapon_slots: usize, // 2 normally, 3 for Cuz
+    pub weapon_slots: usize,
     pub current: usize,
     pub ammo: [i32; MAX_AMMO_TYPES],
 }
@@ -554,7 +519,6 @@ pub struct RaceState {
     pub skin: SkinLetter,
 }
 
-/// Runtime state for the equipped crown's per-floor behaviors.
 #[derive(Component)]
 pub struct CrownState {
     pub crown: CrownKind,
@@ -587,8 +551,6 @@ impl CrownState {
     }
 }
 
-/// Emitted once per floor (initial spawn and every portal transition) so
-/// floor-start effects (crown bonuses, etc.) can react.
 #[derive(bevy::ecs::message::Message, Clone, Copy, Debug)]
 pub struct FloorStarted {
     pub floor: u32,
@@ -600,7 +562,7 @@ pub struct FloorStarted {
 pub struct RaceLoadout {
     pub unlocked: bool,
     pub unlocked_skins: [bool; 4],
-    /// Persisted per-race skin pick (UberCont.cskin; A=0).
+
     pub preferred_skin: u8,
     pub stored_weapon: WeaponId,
     pub start_weapon: WeaponId,
@@ -617,7 +579,7 @@ impl Default for WeaponId {
 pub enum HitId {
     Weapon(WeaponId),
     Explosion(WeaponId),
-    /// Discriminant = `enemy_kind as u16`.
+
     Enemy(u16),
     Contact,
     Fire,
@@ -639,7 +601,7 @@ pub struct DamageSource {
     pub owner: Entity,
     pub team: Team,
     pub hit_id: HitId,
-    /// Cached so Game Over still works after the shooter is despawned.
+
     pub enemy_kind: Option<EnemyKind>,
 }
 
@@ -666,8 +628,6 @@ impl DamageSource {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ProjectileFriction(pub f32);
 
-/// Grenade launcher fuse / flash state (GML Grenade alarm0/alarm1)
-/// `flash_at = 10` frames remaining, `smoke_tick` after 6 frames, bounce retention 0.6
 #[derive(Component, Debug)]
 pub struct GrenadeFuse {
     pub smoke_armed: bool,
@@ -700,20 +660,15 @@ pub struct BouncesLeft(pub u8);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PiercesLeft(pub u8);
 
-/// Projectile hits every team (Disc Gun family). NT discs are notorious for self-hits.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct HitsAllTeams;
 
-/// Brief grace so a freshly spawned projectile does not insta-hit its owner at the muzzle.
 #[derive(Component, Debug)]
 pub struct SpawnGrace(pub Timer);
 
-/// Entities already damaged by this piercing projectile this lifetime.
 #[derive(Component, Default, Debug, Clone)]
 pub struct ProjectileHitSet(pub Vec<Entity>);
 
-/// Marks a hazard cloud as coming from a race ability (no Team component).
-/// Weapon clouds always carry `Team` instead.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct AbilityHazard;
 
@@ -723,14 +678,12 @@ pub struct SpawnHazardOnDeath(pub HazardDef);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SplitOnDeath(pub SplitDef);
 
-/// Smart / seeker projectiles steer toward the nearest enemy.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Homing {
     pub turn_rate: f32,
     pub acquire_range: f32,
 }
 
-/// Sticky grenade: freezes on first solid contact, explodes when life ends.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Sticky {
     pub armed: bool,
@@ -748,14 +701,12 @@ impl Default for Sticky {
     }
 }
 
-/// Continuous flame: leaves fire hazard while projectile flies.
 #[derive(Component, Debug)]
 pub struct FlameTrail {
     pub timer: Timer,
     pub spec: HazardDef,
 }
 
-/// Lightning jumps between distinct targets instead of piercing linearly.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ChainLightning {
     pub jumps_left: u8,
@@ -763,13 +714,11 @@ pub struct ChainLightning {
     pub falloff: f32,
 }
 
-/// Short-lived lightning arc visual.
 #[derive(Component, Debug)]
 pub struct LightningArc {
     pub timer: Timer,
 }
 
-/// Projectile payload that deploys an autonomous turret on death.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct DeploysSentry {
     pub life: f32,
@@ -779,26 +728,21 @@ pub struct DeploysSentry {
     pub projectile_damage: i32,
 }
 
-/// Overrides the default explosion radius for this projectile's death.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct CustomExplosion {
     pub radius: f32,
 }
 
-/// When the weapon's ammo pool is empty, firing spends HP instead.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct BloodAmmo {
     pub hp_cost: i32,
 }
 
-/// On projectile death, spawn a weapon pickup.
-/// `weapon = None` rolls a random weapon.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SpawnsWeaponPickup {
     pub weapon: Option<WeaponId>,
 }
 
-/// Plasma secondary shrapnel ring emitted on death.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PlasmaBurst {
     pub pellets: u8,
@@ -811,7 +755,6 @@ pub struct PlasmaBurst {
     pub size: Vec2,
 }
 
-/// Persistent line-damage segment (Ion / Laser Cannon).
 #[derive(Component, Clone, Debug)]
 pub struct Beam {
     pub team: Team,
@@ -840,11 +783,9 @@ impl Default for IdpdVanBrain {
     }
 }
 
-/// Marker for shield units (frontal advance, reduced strafe).
 #[derive(Component)]
 pub struct IdpdShieldUnit;
 
-/// Loop-only raid director state.
 #[derive(Resource)]
 pub struct IdpdRaidState {
     pub cooldown: Timer,
@@ -876,19 +817,13 @@ pub enum RaidWave {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CampfirePhase {
-    /// Normal quiet campfire delay.
+
     Sitting,
 
-    /// An IDPD wave was already active or pending when the Throne died.
-    ///
-    /// The campfire remains active, portal opening stays blocked, and the
-    /// sequence only continues after every IDPD unit is gone.
     WaitingForIdpd,
 
-    /// The fire is transforming into the Throne II spawn.
     Rising,
 
-    /// Short final delay before emitting PendingEnemySpawn.
     SpawnThroneII,
 }
 
@@ -896,17 +831,10 @@ pub enum CampfirePhase {
 pub struct CampfireState {
     pub phase: CampfirePhase,
 
-    /// Timer for the ordinary sitting/rising/spawn sequence.
     pub timer: Timer,
 
-    /// Short confirmation timer after the last IDPD disappears.
-    ///
-    /// This avoids advancing on the same fixed tick that a death was queued
-    /// through Commands but has not yet been fully observed by every system.
     pub idpd_clear_confirm: Timer,
 
-    /// Records whether this interlude used the alternate IDPD-clear path.
-    /// It also prevents repeating the gate toast.
     pub idpd_gate_armed: bool,
 
     pub spawned_throne_ii: bool,
@@ -943,7 +871,6 @@ impl CampfireState {
 #[derive(Component)]
 pub struct CampfireProp;
 
-/// Tracks the Throne -> campfire -> Throne II -> loop-portal sequence.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct LoopTransition {
     pub campfire_active: bool,
@@ -957,12 +884,6 @@ impl LoopTransition {
         self.campfire_active || self.throne_ii_alive
     }
 
-    /// Blocks creation of new IDPD raids during the post-Throne sequence.
-    ///
-    /// `loop_ready` is included because the portal is open at that point, but
-    /// starting another raid before the player enters it would make the loop
-    /// transition inconsistent. A wave already pending before the Throne died
-    /// is allowed to finish its warning and spawn.
     pub fn blocks_new_idpd_raids(&self) -> bool {
         self.campfire_active || self.throne_ii_alive || self.loop_ready
     }
@@ -992,7 +913,6 @@ impl LoopTransition {
     }
 }
 
-/// Deferred enemy spawn for systems that do not hold asset handles.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PendingEnemySpawn {
     pub kind: EnemyKind,
@@ -1000,15 +920,12 @@ pub struct PendingEnemySpawn {
     pub difficulty: f32,
 }
 
-/// Big Bandit (and similar bosses) wait until a fraction of the floor's trash
-/// is dead before bursting in from a wall. The marker holds the floor's
-/// initial trash count so `tick_delayed_boss_spawns` can compute kills.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct PendingDelayedBoss {
     pub kind: EnemyKind,
     pub initial_trash: u32,
     pub kill_fraction: f32,
-    /// Prefer a wall-adjacent floor cell near the player when true.
+
     pub from_wall: bool,
 }
 
@@ -1018,7 +935,6 @@ impl PendingDelayedBoss {
     }
 }
 
-/// Laser crystal orbiting a Hyper Crystal core.
 #[derive(Component)]
 pub struct HyperOrbitCrystal {
     pub owner: Entity,
@@ -1028,7 +944,6 @@ pub struct HyperOrbitCrystal {
     pub fire_timer: Timer,
 }
 
-/// Autonomous friendly turret deployed by the Sentry Gun pod.
 #[derive(Component, Clone, Debug)]
 pub struct SentryTurret {
     pub life: Timer,
@@ -1061,11 +976,11 @@ pub struct EnemyBrain {
     pub strafe_dir: f32,
     pub strafe_timer: Timer,
     pub melee: Timer,
-    /// GML `walk` remaining frames (Bandit/Scorpion). 0 = not walking.
+
     pub walk: f32,
-    /// Bandit/Scorpion ammo for burst attacks (GML `ammo`).
+
     pub ammo: u8,
-    /// Current gun angle (degrees rad) for aimed shots.
+
     pub gunangle: f32,
 }
 
@@ -1080,13 +995,12 @@ pub enum BossPhase {
     Radial,
     Beam,
     Enraged,
-    // Mom / Captain extras
+
     Spawning,
     Teleport,
     CarpetBeam,
 }
 
-/// Phase state machine driving the bespoke boss behaviors in `boss_ai`.
 #[derive(Component)]
 pub struct BossBrain {
     pub phase: BossPhase,
@@ -1157,8 +1071,6 @@ pub struct Pickup {
     pub kind: PickupKind,
 }
 
-/// GML `WepPickup.ammo`: fresh/chest drops carry a one-shot ammo bonus,
-/// consumed on first touch (`other.ammo = 0`). Swap/death drops spawn dry.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct WepPickupAmmo(pub bool);
 
@@ -1171,7 +1083,6 @@ pub enum PickupKind {
     Chest(ChestKind),
 }
 
-/// Upstream chest flavours (scrPopChests).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChestKind {
     Weapon,
@@ -1179,7 +1090,6 @@ pub enum ChestKind {
     Rad,
 }
 
-// Back-compat for legacy WeaponKind pickups
 impl From<WeaponKind> for PickupKind {
     fn from(k: WeaponKind) -> Self {
         PickupKind::Weapon(k.into())
@@ -1189,30 +1099,22 @@ impl From<WeaponKind> for PickupKind {
 #[derive(Component)]
 pub struct Portal;
 
-/// Expanding shock spawned with the portal (GML PortalShock).
-/// Kills nearby props (`other.hp = 0`) and opens chests, then despawns.
-/// `alarm[0] = 2` ticks at 30Hz.
 #[derive(Component)]
 pub struct PortalShock {
     pub timer: Timer,
     pub radius: f32,
 }
 
-/// Wall-clearing pulse spawned with the portal (GML PortalClear).
 #[derive(Component)]
 pub struct PortalClear {
     pub timer: Timer,
 }
 
-/// Portal close latch (GML Portal `close` + `endgame = 30`, `alarm[1] = 90`).
 #[derive(Component)]
 pub struct PortalClosing {
     pub timer: Timer,
 }
 
-/// Persistent weapon ids touched to the portal (GML persistent WepPickup).
-/// Respawned around the player on the next floor; also feeds the
-/// Desert blacksword count (`Portal/Alarm_1`).
 #[derive(Resource, Default)]
 pub struct PortalCarriedWeapons(pub Vec<WeaponId>);
 
@@ -1225,8 +1127,6 @@ pub struct HurtAnim {
     pub was_moving: bool,
 }
 
-/// GML `spr_fire`: firing strip shown per pellet during bursts (Alarm_2),
-/// preserved by `enemy/Step_0` until the burst ends. Hurt takes precedence.
 #[derive(Component)]
 pub struct FireAnim {
     pub idle: &'static str,
@@ -1234,17 +1134,14 @@ pub struct FireAnim {
     pub timer: Timer,
 }
 
-/// Marker: chest already opened (loot granted); the open-corpse sprite stays.
 #[derive(Component)]
 pub struct OpenedChest;
 
-/// Rad/HP/ammo pickups blink out and despawn after their upstream lifetime.
 #[derive(Component)]
 pub struct PickupLifetime {
     pub timer: Timer,
 }
 
-/// Ground items (dropped weapons): pop velocity + spin while sliding.
 #[derive(Component)]
 pub struct GroundPhysics {
     pub vel: Vec2,
@@ -1264,8 +1161,7 @@ pub struct WeaponVisual {
     pub owner: Entity,
     pub wkick: f32,
     pub wep_id: WeaponId,
-    /// GML Steroids second gun (`bwep`) needs its own visual + kick.
-    /// 0 = primary (`wep` / `weapons[current]`), 1 = secondary.
+
     pub slot: u8,
 }
 
@@ -1287,9 +1183,6 @@ pub struct Prop {
     pub explosive: bool,
 }
 
-/// Idle / hurt / dead strips for destructible props (GML prop + hitme).
-/// `hurt`/`dead` equal a real WAD strip; missing art bails via `require`
-/// instead of silent fallback (see `tools/gen_assets.py`).
 #[derive(Component, Clone, Copy)]
 pub struct PropSprites {
     pub idle: &'static str,
@@ -1298,13 +1191,11 @@ pub struct PropSprites {
     pub flip_x: bool,
 }
 
-/// Tracks last known prop HP so hurt anim only fires on actual damage.
 #[derive(Component, Clone, Copy)]
 pub struct PropHpTracker {
     pub last_hp: i32,
 }
 
-/// A destructible prop that leads to a secret area when destroyed.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SecretEntrance {
     pub target: crate::game::secret_areas::SecretTarget,
@@ -1322,36 +1213,30 @@ pub struct GoldCar;
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct BloodFlower;
 
-/// Visual for a melee swing (fades out quickly).
 #[derive(Component)]
 pub struct SwingFx {
     pub timer: Timer,
 }
 
-/// Fish's Flip: short dash with i-frames.
 #[derive(Component)]
 pub struct Dash {
     pub timer: Timer,
     pub dir: Vec2,
 }
 
-/// Crystal's Shield: absorbs enemy projectiles while active.
 #[derive(Component)]
 pub struct Shield {
     pub timer: Timer,
 }
 
-/// Eyes' Telekinesis: pulls pickups toward the player while active.
 #[derive(Component)]
 pub struct Telekinesis {
     pub timer: Timer,
 }
 
-/// Y.V. Pop Pop - next successful shot fires a second volley.
 #[derive(Component)]
 pub struct PopPopCharges(pub u8);
 
-/// Plant snare zone - slows enemies while alive.
 #[derive(Component)]
 pub struct SnareZone {
     pub timer: Timer,
@@ -1359,21 +1244,18 @@ pub struct SnareZone {
     pub slow: f32,
 }
 
-/// Temporary enemy slow applied by Snare / toxic.
 #[derive(Component)]
 pub struct Slowed {
     pub timer: Timer,
     pub factor: f32,
 }
 
-/// Rebel ally that shoots toward nearest enemy.
 #[derive(Component)]
 pub struct Ally {
     pub life: Timer,
     pub shoot: Timer,
 }
 
-/// Rogue portal strike telegraphed blast.
 #[derive(Component)]
 pub struct PortalStrike {
     pub timer: Timer,
@@ -1381,7 +1263,6 @@ pub struct PortalStrike {
     pub damage: i32,
 }
 
-/// Frog / Horror residual hazard cloud
 #[derive(Component)]
 pub struct HazardCloud {
     pub kind: HazardKind,
@@ -1391,25 +1272,22 @@ pub struct HazardCloud {
     pub tick: Timer,
 }
 
-/// Chicken headless grace (one lethal soak per floor).
 #[derive(Component, Default)]
 pub struct HeadlessReady(pub bool);
 
-/// Vault reward: touching the pedestal swaps the player's active crown.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct CrownPedestal {
     pub kind: CrownKind,
 }
 
-/// Palace loop-gate state (floor 7-3 / Throne room).
 #[derive(Resource, Debug, Clone)]
 pub struct ThroneRoomState {
     pub generators_total: u8,
     pub generators_destroyed: u8,
     pub all_generators_down: bool,
-    /// When true, Throne death opens campfire/loop path.
+
     pub loop_eligible: bool,
-    /// Player is standing on the red carpet this tick.
+
     pub player_on_carpet: bool,
     pub halved_throne: bool,
 }
@@ -1448,29 +1326,24 @@ pub struct BigGenerator {
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneStatueProp {
-    /// Guardians to spawn on break (1 + loop_count).
+
     pub guardian_count: u8,
 }
 
-/// Snowman prop hiding a bandit (upstream SnowMan Destroy: 1 Bandit + 1 Rad).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SnowmanAmbush;
 
-/// Gold barrel (Y.V. Mansion): drops a gold weapon when destroyed.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct GoldBarrelDrop;
 
-/// Rad container (RadChest): destructible prop that drops 25 rads on break.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RadChestContainer;
 
-/// Red carpet volume in the Throne room (axis-aligned).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneCarpet {
     pub half_extents: Vec2,
 }
 
-/// Enemy corpse for necromancy / gore linger.
 #[derive(Component, Debug)]
 pub struct Corpse {
     pub kind: EnemyKind,
@@ -1478,9 +1351,7 @@ pub struct Corpse {
     pub pos: Vec2,
 }
 
-/// Marks an entity whose death has already been processed this tick.
-/// Prevents double `kills++` / double Corpse when multiple damage systems
-/// set hp<=0 the same FixedUpdate before despawn is flushed.
+// Flag Dying before deferred despawn.
 #[derive(Component, Debug, Default)]
 pub struct Dying;
 
@@ -1489,18 +1360,16 @@ pub struct PlayerDying {
     pub timer: Timer,
 }
 
-/// Marks a wall lattice cell as a "screen end" (preferentially broken by bosses).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct ScreenEnd;
 
-/// Between-floor loading state mirroring GML GenCont (spiral + GENERATING + tip + roadmap).
 #[derive(Resource, Debug, Clone)]
 pub struct FloorTransition {
     pub active: bool,
-    /// 0 = portal closing, 1 = generating overlay, 2 = spawn & fade in
+
     pub stage: u8,
     pub timer: Timer,
-    pub progress: f32, // 0..1 for GENERATING %
+    pub progress: f32,
     pub tip: String,
 }
 

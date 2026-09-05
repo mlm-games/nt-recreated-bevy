@@ -1,6 +1,3 @@
-//! The Nuclear Throne-style game module. Built entirely on the template's
-//! ecosystem (game-utils / game-utils-bevy) with placeholder sprites and
-
 pub mod ambience;
 pub mod anim;
 pub mod areas;
@@ -83,9 +80,7 @@ impl Plugin for GamePlugin {
             .init_resource::<reactive_audio::CombatIntensityState>()
             .add_message::<FloorStarted>()
             .add_systems(Startup, scan_assets_and_audio)
-            // Nuclear Throne's shake is positional-only: rotation jitter pivots on the
-            // camera center, so it reads as near-zero when the player is centered and
-            // increasingly violent toward screen edges. Disable it.
+
             .insert_resource(ScreenEffectsConfig {
                 rotation_jitter_2d: 0.0,
                 ..Default::default()
@@ -351,7 +346,6 @@ fn scan_assets_and_audio(mut commands: Commands, asset_server: Res<AssetServer>)
     commands.insert_resource(audio);
 }
 
-/// GML `current_frame` counter backing `nexthurt` i-frames (30Hz lockstep).
 fn tick_current_frame(mut frame: ResMut<CurrentFrame>) {
     frame.0 = frame.0.wrapping_add(1);
 }

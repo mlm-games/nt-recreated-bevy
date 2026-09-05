@@ -1,6 +1,3 @@
-//! Combat: projectile movement, projectile/world collisions, projectile/entity
-//! hits, explosion AoE, contact damage, and death resolution.
-
 use bevy::input::gamepad::{Gamepad, GamepadRumbleRequest};
 use bevy::prelude::*;
 use rand::RngExt;
@@ -21,8 +18,6 @@ use game_utils_bevy::screen_effects::{ChromaticAberration, FlashWhite, ScreenEff
 use game_utils_bevy::transitions::Transition;
 use game_utils_bevy::vfx::VfxSpawner;
 
-/// A pending explosion; applies damage once its short fuse expires so queries
-/// never conflict with projectile iteration.
 #[derive(Component)]
 pub struct Explosion {
     pub timer: Timer,
@@ -33,14 +28,12 @@ pub struct Explosion {
     pub source: Option<DamageSource>,
 }
 
-/// Bundled asset handles (Bevy caps systems at 16 flat SystemParams).
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct RadSpawnCtx<'w> {
     catalog: Res<'w, AssetCatalog>,
     asset_server: Res<'w, AssetServer>,
 }
 
-/// Read-only prop-death lookups bundled to stay under the param limit.
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct PropDeathQueries<'w, 's> {
     entrances: Query<'w, 's, &'static SecretEntrance>,
@@ -156,6 +149,7 @@ pub fn tick_beams(
                 continue;
             }
 
+            // Hit invuln lasts 5 frames.
             if *target_team == Team::Player && !health.invuln.is_finished() {
                 continue;
             }
@@ -270,8 +264,7 @@ pub fn tick_flame_trails(
             continue;
         }
         let pos = tf.translation.truncate();
-        // Spawn a small lingering fire hazard at the projectile's current position.
-        // Use the weapon's hazard spec but with short lifetime so trail fades.
+
         spawn_hazard_cloud(&mut commands, pos, *team, trail.spec);
     }
 }
@@ -300,6 +293,7 @@ pub fn tick_projectile_friction(
     }
 }
 
+// Grenade fuse flips friction at 6 ticks.
 pub fn tick_grenade_fuse(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -313,7 +307,7 @@ pub fn tick_grenade_fuse(
     )>,
 ) {
     for (e, mut fuse, mut friction, proj, tf, mut sprite) in &mut q {
-        // GML alarm[1]=6 → friction 0.4 + 4×Smoke
+
         if !fuse.friction_switched {
             fuse.alarm1.tick(time.delta());
             if fuse.alarm1.just_finished() {
@@ -321,7 +315,7 @@ pub fn tick_grenade_fuse(
                 fuse.friction_switched = true;
                 if !fuse.smoke_armed {
                     fuse.smoke_armed = true;
-                    // GML Grenade Alarm_1: repeat 4 Smoke motion_add random 2
+
                     use bevy::prelude::Color;
                     use game_utils_bevy::vfx::VfxSpawner;
                     VfxSpawner::spawn_burst(
@@ -334,11 +328,10 @@ pub fn tick_grenade_fuse(
                 }
             }
         }
-        // GML Draw_0: flash black/white last 10 frames (alarm0 <=10)
-        // Bevy life 2.0s → flash when remaining <= 10/30 = 0.333s
+
         let remaining = proj.life.remaining_secs();
         if remaining <= 0.334 && remaining > 0.01 {
-            // toggle every ~0.06s (~2 frames) like GML %5>2
+
             let phase = (remaining * 30.0).floor() as i32 % 5;
             let flash_white = phase <= 2;
             sprite.color = if flash_white {
@@ -347,7 +340,7 @@ pub fn tick_grenade_fuse(
                 Color::BLACK
             };
         } else if fuse.friction_switched {
-            // restore white after smoke phase, before flash
+
             sprite.color = Color::WHITE;
         }
         let _ = e;
@@ -459,8 +452,6 @@ pub fn move_projectiles(
     {
         p.life.tick(time.delta());
 
-        // Armed sticky grenades hold position until their fuse (Projectile
-        // life) expires, then run the normal terminal path.
         if sticky.as_ref().is_some_and(|s| s.armed) {
             if p.life.just_finished() {
                 on_projectile_removed(
@@ -533,7 +524,7 @@ pub fn move_projectiles(
         }
 
         if let Some(normal) = hit_normal {
-            // Sticky: arm and stick (prop path keeps stuck_to when available)
+
             if let Some(mut sticky_inner) = sticky {
                 sticky_inner.armed = true;
                 if let Some((prop_e, center, _, _)) = hit_prop {
@@ -547,8 +538,6 @@ pub fn move_projectiles(
                 continue;
             }
 
-            // Bounce remaining? OG Bullet2: speed*=0.8 then +wallbounce 5*0.95
-            // GML Grenade: speed*=0.6 (no wallbounce bonus)
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
             {
@@ -572,7 +561,7 @@ pub fn move_projectiles(
                 vel.0 = bounced;
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
                 tf.translation += (normal * (p.radius * 0.6 + 0.5)).extend(0.0);
-                // Original `Bullet2/Collision_Wall.gml:24` spawns Dust each bounce
+
                 VfxSpawner::spawn_burst(
                     &mut commands,
                     pos,
@@ -580,14 +569,13 @@ pub fn move_projectiles(
                     Color::srgb(0.62, 0.60, 0.55),
                     (12.0, 35.0),
                 );
-                // `sndShotgunHitWall` gated on speed>6 (Bevy 6*30=180)
+
                 if bounced.length() > 180.0 {
                     audio.play_hit(&mut commands);
                 }
                 continue;
             }
 
-            // Terminal solid hit: damage destructible prop once, then remove projectile.
             if let Some((prop_e, center, destructible, death_effect)) = hit_prop {
                 if destructible {
                     let mut dead = false;
@@ -595,9 +583,7 @@ pub fn move_projectiles(
                     let mut death_copy = death_effect;
                     let mut sprites_copy: Option<PropSprites> = None;
                     if let Ok((_, mut prop, _, de, sprites, nexthurt)) = props.get_mut(prop_e) {
-                        // GML parity: bullets use scr_can_hit(..., false) and
-                        // ignore nexthurt, so bursts/shotguns all connect.
-                        // Stamp it anyway for contact/melee paths that check it.
+
                         prop.hp -= p.damage.max(1);
                         if let Some(mut nh) = nexthurt {
                             nh.0 = frame.0 + 5;
@@ -655,7 +641,7 @@ pub fn move_projectiles(
                             );
                         }
                         if rad_chests.get(prop_e).is_ok() {
-                            // RadChest Destroy: 25 rad burst + ExploderExplo + smoke
+
                             for _ in 0..25 {
                                 let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
                                 let d = rand::rng().random_range(6.0..26.0);
@@ -682,7 +668,7 @@ pub fn move_projectiles(
                     Color::srgb(0.62, 0.60, 0.55),
                     (20.0, 55.0),
                 );
-                // Dust-like quads: faint smoke; if catalog has sprDust use it as single puff
+
                 if catalog.has("images/sprDust.png") {
                     if let Some(def) = catalog.anim_def("images/sprDust.png") {
                         let sprite = crate::game::content::sprite_exact(
@@ -725,7 +711,7 @@ pub fn move_projectiles(
                         ));
                     }
                 }
-                // Wall chip sound – `sndHitWall` (Shotgun variant gated on speed>6 is handled in bounce branch)
+
                 audio.play_hit(&mut commands);
             }
             on_projectile_removed(
@@ -840,7 +826,6 @@ fn spawn_split_projectiles(
     }
 }
 
-/// Plasma secondary burst: an even ring of children around the impact point.
 fn spawn_plasma_children(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -913,7 +898,7 @@ fn spawn_weapon_pickup_from_projectile(
     pos: Vec2,
     spec: SpawnsWeaponPickup,
 ) {
-    // Do not spawn pickups outside the playfield.
+
     if pos.x.abs() > ARENA_W / 2.0 + 32.0 || pos.y.abs() > ARENA_H / 2.0 + 32.0 {
         return;
     }
@@ -932,7 +917,6 @@ fn spawn_weapon_pickup_from_projectile(
     );
 }
 
-/// Shared terminal path for timeout, wall, prop, and entity hits.
 #[allow(clippy::type_complexity)]
 fn on_projectile_removed(
     commands: &mut Commands,
@@ -995,8 +979,6 @@ fn on_projectile_removed(
     }
 }
 
-/// Weapon / team-tagged hazard clouds only.
-/// Ability clouds are handled by `player::tick_hazard_clouds`.
 pub fn tick_hazard_clouds(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -1035,7 +1017,7 @@ pub fn tick_hazard_clouds(
             health.hp -= cloud.damage;
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
-                // Hazard damage disqualifies the Oasis secret for this floor.
+
                 secrets.mark_damage_taken();
                 let hid = match cloud.kind {
                     crate::game::content::HazardKind::Toxic => HitId::Toxic,
@@ -1153,7 +1135,6 @@ pub fn apply_explosions(
                     boom.source,
                 );
 
-                // Explosions can also open secret entrances.
                 if let Ok(entrance) = death_ctx.entrances.get(prop_e) {
                     secrets.queue(entrance.target);
                 }
@@ -1189,7 +1170,6 @@ pub fn apply_explosions(
                     );
                 }
 
-                // Rad chests drop 25 rads on any destroy (bullet or explosion)
                 if death_ctx.rad_chests.get(prop_e).is_ok() {
                     for _ in 0..25 {
                         let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
@@ -1209,7 +1189,6 @@ pub fn apply_explosions(
                 commands.entity(prop_e).try_despawn();
             }
 
-            // Explosions chew nearby walls.
             for (_, cell, wtf) in &walls {
                 if wtf.translation.truncate().distance(pos) < boom.radius * 0.85 {
                     commands.spawn((
@@ -1225,8 +1204,6 @@ pub fn apply_explosions(
             }
         }
 
-        // Friendly fire: explosions can hurt the player too (Boiling Veins
-        // clamps the damage so HP can't drop below the threshold).
         if boom.hits_player
             && let Ok((player_e, ptf, mut health, player)) = player_q.single_mut()
             && ptf.translation.truncate().distance(pos) < boom.radius
@@ -1303,7 +1280,7 @@ pub fn projectile_hits(
     >,
 ) {
     let player = player_state.single().ok();
-    // Build fast lookup for HitsAllTeams / SpawnGrace (Bevy Query cap is 16).
+
     let hits_all_set: std::collections::HashSet<Entity> = hits_all_q.iter().collect();
     let grace_set: std::collections::HashSet<Entity> = grace_q.iter().collect();
 
@@ -1325,8 +1302,7 @@ pub fn projectile_hits(
         plasma_burst,
     ) in projectiles.iter_mut()
     {
-        // Armed sticky grenades do not deal contact damage; they wait for the
-        // fuse handled in move_projectiles.
+
         if sticky.as_ref().is_some_and(|s| s.armed) {
             continue;
         }
@@ -1346,7 +1322,7 @@ pub fn projectile_hits(
             if !hits_all && *target_team == *proj_team {
                 continue;
             }
-            // Grace: ignore owner for ~2 frames so muzzle doesn't instant self-kill.
+
             if grace_set.contains(&proj_e)
                 && let Some(src) = proj.source
                 && target_e == src.owner
@@ -1365,7 +1341,6 @@ pub fn projectile_hits(
                 continue;
             }
 
-            // Sticky grenades (explosive) attach instead of dealing immediate damage.
             if let Some(ref mut sticky) = sticky
                 && !sticky.armed
                 && proj.explosive
@@ -1408,7 +1383,7 @@ pub fn projectile_hits(
             }
             health.hp -= dmg;
             damaged = true;
-            // GML scr_hit sets nexthurt = frame + 5 for enemies.
+
             if *target_team == Team::Enemy
                 && let Some(mut nh) = nexthurt
             {
@@ -1441,7 +1416,7 @@ pub fn projectile_hits(
                 target_pos,
                 Color::srgb(1.0, 0.92, 0.35),
             );
-            // OG hit spark - sprBulletHit for player, sprEnemyBulletHit for enemy
+
             {
                 let hit_sprite = match *proj_team {
                     Team::Player => "images/sprBulletHit.png",
@@ -1488,7 +1463,7 @@ pub fn projectile_hits(
             if proj.explosive {
                 hitstop.trigger(0.12, 0.09);
             }
-            // Bolt stick: deal damage then remain stuck to target
+
             if let Some(ref mut sticky) = sticky
                 && !sticky.armed
                 && !proj.explosive
@@ -1549,7 +1524,6 @@ pub fn projectile_hits(
             commands.entity(proj_e).despawn();
         };
 
-        // Lightning weapons jump between distinct targets instead of piercing.
         if damaged && let Some(ref chain) = chain {
             chain_to_nearby_targets(
                 &mut commands,
@@ -1579,8 +1553,6 @@ pub fn projectile_hits(
     }
 }
 
-/// Chain lightning: hop from the just-hit target to the nearest unvisited
-/// enemy within range, applying falloff damage and zap VFX per jump.
 #[allow(clippy::type_complexity)]
 fn chain_to_nearby_targets(
     commands: &mut Commands,
@@ -1614,7 +1586,7 @@ fn chain_to_nearby_targets(
     let mut damage = proj.damage.max(1);
 
     for _ in 0..jumps {
-        // Find nearest unvisited enemy to current point.
+
         let mut best: Option<(Entity, Vec2, f32)> = None;
         let mut snapshot: Vec<(Entity, Vec2)> = Vec::new();
         for (target_e, target_tf, target_team, ..) in targets.iter() {
@@ -1664,7 +1636,7 @@ fn chain_to_nearby_targets(
                 Color::srgb(0.75, 0.95, 1.0),
                 (30.0, 90.0),
             );
-            // Lightning arc mesh - thin line that fades
+
             let mid = (current_pos + next_pos) * 0.5;
             let dist = current_pos.distance(next_pos);
             let ang = (next_pos - current_pos).y.atan2((next_pos - current_pos).x);
@@ -1691,7 +1663,6 @@ fn chain_to_nearby_targets(
     }
 }
 
-/// Sharp Teeth: incoming damage is dealt back (x2) to all enemies on screen.
 fn retaliate_sharp_teeth(
     commands: &mut Commands,
     damage: i32,
@@ -1756,8 +1727,6 @@ pub fn contact_damage(
         return;
     };
 
-    // Contact damage must respect the same invulnerability window as
-    // projectile and explosion damage.
     if !health.invuln.is_finished() {
         return;
     }
@@ -1775,7 +1744,6 @@ pub fn contact_damage(
             continue;
         }
 
-        // Gamma Guts: weak enemies are vaporized on contact instead of meleeing.
         if player.gamma_guts && ehealth.hp <= 6 {
             continue;
         }
@@ -1792,15 +1760,14 @@ pub fn contact_damage(
         health.hp -= damage;
         took_damage = damage;
         health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
-        // GML enemy/Collision_Player: canmelee=false, alarm[11]=30 (1.0s).
+
         brain.melee = Timer::from_seconds(1.0, TimerMode::Once);
         secrets.mark_damage_taken();
         last_damage.note(Some(HitId::Contact), Some(enemy.kind));
 
-        // GML motion_add(away_from_enemy, 4) = 120px/s knockback to player.
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
         GameFeel::apply_knockback(&mut player_vel.0, away, 120.0);
-        // GML size<=2 pushback: motion_add(away_from_player, 1) = 30px/s to enemy.
+
         if enemy_def(enemy.kind).size <= 2.0
             && let Some(mut evel) = enemy_vel
         {
@@ -1821,7 +1788,6 @@ pub fn contact_damage(
             (80.0, 220.0),
         );
 
-        // Crystal's passive: brief shield after taking a hit.
         if player.shield_on_hit {
             commands.entity(player_e).insert(Shield {
                 timer: Timer::from_seconds(0.7, TimerMode::Once),
@@ -1839,8 +1805,6 @@ pub fn contact_damage(
     }
 }
 
-/// Gamma Guts: the player's aura deals 6 damage to any enemy touching it
-/// (enemies with <= 6 HP are killed on contact instead of meleeing).
 pub fn gamma_guts_aura(
     mut commands: Commands,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
@@ -1866,6 +1830,7 @@ pub fn gamma_guts_aura(
     }
 }
 
+// No free revive on death.
 pub fn resolve_deaths(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
@@ -1951,7 +1916,6 @@ pub fn resolve_deaths(
 
     let mut rng = rand::rng();
 
-    // GML enemy/Destroy: sndLastEnemy when 2 enemies remain (this + one other).
     let enemy_total = q
         .iter()
         .filter(|(_, _, team, _, _, _)| **team == Team::Enemy)
@@ -1964,17 +1928,7 @@ pub fn resolve_deaths(
         if *team != Team::Enemy || health.hp > 0 {
             continue;
         }
-        // Prevent double-count if this entity was already marked Dying this
-        // tick by a previous query iteration before despawn flushes.
-        // The Dying check needs an extra query; use Commands existence via
-        // try_insert which is idempotent - but also skip if health still
-        // observed after second damage source.
-        // Bevy despawn is deferred, so we insert Dying and skip if it already
-        // existed (commands will dedup, so use a separate Has check via
-        // `q` filter would need Without<Dying> - add guard via `commands`).
-        // Simplest: rely on `run.total_kills` dedup by checking entity
-        // still alive via `commands.get_entity(e).is_some()` - instead we
-        // use a local HashSet.
+
         let enemy = enemy.copied().unwrap_or(Enemy {
             kind: EnemyKind::Maggot,
             score: 1,
@@ -1986,8 +1940,6 @@ pub fn resolve_deaths(
         let def = enemy_def(enemy.kind);
         let pos = tf.translation.truncate();
 
-        // Mark as dying to avoid re-entry before despawn flushes; if already
-        // despawned this tick the command is no-op, but we still guard kills.
         commands.entity(e).insert(Dying);
         commands.entity(e).despawn();
         if !def.boss && !matches!(enemy.kind, EnemyKind::IdpdVan | EnemyKind::FrogEgg) {
@@ -1997,8 +1949,7 @@ pub fn resolve_deaths(
             let (mut corpse_sprite, corpse_anim) =
                 crate::game::anim::sprite_anim(&catalog, &asset_server, dead);
             corpse_sprite.color = Color::WHITE;
-            // GML CorpseActive: inherits killer direction/speed, cap 16/size,
-            // Impact Wrists +8. Approximate with enemy velocity capped.
+
             let mut slide = enemy_vel.map(|v| v.0).unwrap_or(Vec2::ZERO);
             if player.mutations.contains(&MutationId::ImpactWrists) {
                 slide += slide.normalize_or_zero() * 8.0 * 30.0;
@@ -2026,7 +1977,6 @@ pub fn resolve_deaths(
             }
         }
 
-        // interlude starts while loot still pops.
         let player_pos_now = player_tf.translation.truncate();
         match enemy.kind {
             EnemyKind::Throne => {
@@ -2039,7 +1989,7 @@ pub fn resolve_deaths(
                         player_pos_now,
                     );
                 } else {
-                    // Sit ending - run over, no loop (generators still up).
+
                     run.game_over = true;
                     toast.show("THE NUCLEAR THRONE");
                     ScreenEffects::flash_white(&mut flash, 0.2);
@@ -2064,7 +2014,7 @@ pub fn resolve_deaths(
 
         ScreenEffects::add_trauma(&mut trauma, 0.25);
         ScreenEffects::chromatic_pulse(&mut chroma, 0.08);
-        // GML enemy/Destroy: sleep(20 + size*15). Size-scaled hitstop.
+
         let size_f = enemy_def(enemy.kind).size;
         let stop_dur = 0.02 + size_f * 0.015;
         hitstop.trigger(stop_dur.min(0.28), 0.055);
@@ -2078,8 +2028,6 @@ pub fn resolve_deaths(
             ));
         }
 
-        // Kill-gated unlocks (Big Dog, Frog/Mom, …); some B-skins require
-        // the killing race (scrOnBossKill).
         let newly = crate::game::generated::unlocks::check_kill_unlocks(
             &mut save,
             enemy.kind,
@@ -2132,9 +2080,8 @@ pub fn resolve_deaths(
 
         audio.play_hit(&mut commands);
 
-        // Kind-specific death effects (upstream Exploder / ExploFreak).
         match enemy.kind {
-            // Exploder (Ballguy): bursts into a ring of bullets.
+
             EnemyKind::Ballguy => {
                 let art_path = "images/sprBouncerBullet.png";
                 let ballguy_sprite = if catalog.has(art_path) {
@@ -2171,7 +2118,7 @@ pub fn resolve_deaths(
                     ));
                 }
             }
-            // Explo Freak: detonates on death.
+
             EnemyKind::ExploFreak => {
                 commands.spawn((
                     GameCleanup,
@@ -2203,15 +2150,13 @@ pub fn resolve_deaths(
             _ => {}
         }
 
-        // Kill effects: Bloodlust heals, Lucky Shot grants ammo, Trigger
-        // Fingers shortens the next reload.
         if player.bloodlust && rng.random_range(0..15) == 0 {
             phealth.hp = (phealth.hp + 2).min(phealth.max);
         }
         if player.lucky_shot && rng.random_range(0..10) == 0 {
             give_ammo(&mut pinv, &player);
         }
-        // Trigger Fingers: a kill cuts the in-progress reload by 40%.
+
         if player.mutations.contains(&MutationId::TriggerFingers)
             && let Ok(mut fc) = fire_q.single_mut()
         {
@@ -2240,7 +2185,7 @@ pub fn resolve_deaths(
                 pos,
                 (enemy.rad_drop as u32).min(24) + melting_bonus,
             );
-            // Boss drops a chest with a weapon plus two drops.
+
             spawn_chest(
                 &mut commands,
                 &catalog,
@@ -2262,8 +2207,7 @@ pub fn resolve_deaths(
                 );
             }
         } else {
-            // Melting's passive: enemy deaths chain-explode (does not hurt the
-            // player).
+
             if player.chain_explosions {
                 commands.spawn((
                     GameCleanup,
@@ -2279,7 +2223,7 @@ pub fn resolve_deaths(
                     Transform::from_translation(pos.extend(20.0)),
                 ));
             }
-            // GML enemy/Destroy: scrRadDrop(raddrop + Melting) with BigRad chunking.
+
             let melting_bonus = if race_state.race == RaceId::Melting {
                 1
             } else {
@@ -2307,7 +2251,6 @@ pub fn resolve_deaths(
         }
     }
 
-    // Chicken headless soak: one lethal hit per floor buffered to 1 HP.
     if phealth.hp <= 0 && player.headless_ready && !run.game_over {
         player.headless_ready = false;
         phealth.hp = 1;
@@ -2323,9 +2266,9 @@ pub fn resolve_deaths(
         );
         return;
     }
-    // Player death (Strong Spirit / Melting→Skeleton). NO free Last Wish revive.
+
     if phealth.hp <= 0 && !run.game_over {
-        // Strong Spirit: survive at 1 HP, once, until recharged next area + full HP.
+
         if player.strong_spirit_ready {
             player.strong_spirit_ready = false;
             player.strong_spirit_spent = true;
@@ -2336,7 +2279,6 @@ pub fn resolve_deaths(
             return;
         }
 
-        // Melting → Skeleton: die within ~96px of a living Necromancer.
         if race_state.race == RaceId::Melting {
             let ppos = player_tf.translation.truncate();
             let near_necro = q.iter().any(|(_, ntf, team, health, enemy, _)| {
@@ -2359,7 +2301,7 @@ pub fn resolve_deaths(
                 player.chain_explosions = false;
                 player.shield_on_hit = false;
                 player.headless_ready = false;
-                // Skeleton is frail.
+
                 phealth.max = sk.max_hp.max(2);
                 phealth.hp = phealth.max;
                 phealth.invuln = Timer::from_seconds(1.25, TimerMode::Once);
@@ -2390,7 +2332,7 @@ pub fn resolve_deaths(
         }
 
         run.game_over = true;
-        // Keep player entity for dead strip (GML sprMutant*Dead) – don’t despawn immediately
+
         if let (Some(anim), Some(sprite), Some(anchor), Some(pa)) = (
             player_anim.as_deref_mut(),
             player_sprite.as_deref_mut(),
@@ -2460,7 +2402,7 @@ pub fn resolve_deaths(
             },
         ));
         if let Some(mut anim) = corpse_anim {
-            // GML Corpse/Other_7: freeze on the last dead frame, never loop.
+
             anim.oneshot = true;
             corpse_e.insert(anim);
         }
@@ -2545,7 +2487,7 @@ pub fn resolve_deaths(
                 },
             ));
         }
-        // Keep a modest burst for juice (was 60+40 green/gold – now reduced)
+
         VfxSpawner::spawn_burst(
             &mut commands,
             pos,
@@ -2571,9 +2513,6 @@ pub fn resolve_deaths(
         paused.0 = false;
         toast.show(&format!("KILLED BY {}", last_damage.source_name));
 
-        // Keep the game running in InGame so the death slow-mo plays; the
-        // gameplay gate on `run.game_over` freezes actions. The UI overlay
-        // handles retry/quit.
         let _ = transition;
     }
 }
@@ -2597,7 +2536,6 @@ fn give_ammo(inv: &mut Inventory, player: &Player) {
     *slot = (*slot + add).min(player.ammo_cap(def.ammo));
 }
 
-/// Sum of per-weapon ammo need factors (0.1 well-stocked .. 0.75 low).
 fn scrub_need(inv: &Inventory, player: &Player) -> f32 {
     let mut need = 0.0;
     for w in inv.weapons.iter().take(inv.weapon_slots) {
@@ -2644,8 +2582,6 @@ pub fn spawn_rad(
     );
 }
 
-/// GML scrRadDrop chunking: while amount > 15 spawn BigRad (−10 each),
-/// rest as single rads. BigRad is Rad(10) pickup.
 pub fn spawn_rad_burst(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -2669,12 +2605,6 @@ fn random_offset() -> Vec2 {
     Vec2::new(a.cos(), a.sin()) * d
 }
 
-/// scrDrop-equivalent: `chance` is a per-mille chance scaled by ammo need and
-/// Rabbit Paw; if it lands, drop a medkit (when hurt) or ammo. Otherwise, roll
-/// the weapon chance.
-/// scrDrop-equivalent: `chance` is a per-mille chance scaled by ammo need and
-/// Rabbit Paw; if it lands, drop a medkit (when hurt) or ammo. Otherwise, roll
-/// the weapon chance.
 pub fn maybe_spawn_drop(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -2691,7 +2621,7 @@ pub fn maybe_spawn_drop(
 
     let need = scrub_need(inv, player);
     let paw = player.drop_mult;
-    // GML scrDrop: Crown Guns +9 weapon chance; Crown Risk ×1.5 full / ×0.5 hurt.
+
     let mut weapon_chance = weapon_chance;
     if player.crown == crate::game::content::CrownKind::Guns {
         weapon_chance += 9;
@@ -2701,11 +2631,11 @@ pub fn maybe_spawn_drop(
         chance *= if health.hp >= health.max { 1.5 } else { 0.5 };
     }
     let roll = rng.random_range(0.0..100.0);
-    // GML HP/Ammo Create_0: haste crown divides the despawn alarm by 3.
+
     let hasted = player.crown == crate::game::content::CrownKind::Haste;
 
     if roll < (chance * (need + paw)) {
-        // Health: random(max_hp)>hp && random(3)<advantage (2 normal, 1.5 hardmode).
+
         let hardmode = loops > 0;
         let medkit_win = if hardmode {
             rng.random_range(0..30) < 15
@@ -2723,8 +2653,7 @@ pub fn maybe_spawn_drop(
                 hasted,
             );
         } else {
-            // GML scrDrop spawns a generic box; the granted type is decided
-            // at pickup (scrAmmoDecideType), so spawn untyped.
+
             spawn_pickup(
                 commands,
                 catalog,
@@ -2760,7 +2689,7 @@ fn random_ammo_kind(rng: &mut impl rand::RngExt) -> AmmoKind {
 }
 
 pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
-    // Map from legacy 8-weapon pool to WeaponId
+
     match rng.random_range(0..8) {
         0 => WeaponId::MACHINEGUN,
         1 => WeaponId(5),
@@ -2773,7 +2702,6 @@ pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
     }
 }
 
-/// Random gold weapon (gold barrels / mansion drops).
 pub fn random_gold_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
     let gold: Vec<WeaponId> = crate::game::weapons_data::WEAPONS
         .iter()
