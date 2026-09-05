@@ -2189,9 +2189,11 @@ mod portal_vortex_parity_tests {
             .spawn((
                 Player::default(),
                 Velocity(Vec2::new(120.0, 0.0)),
-                Transform::from_translation(Vec2::new(80.0, 0.0).extend(20.0)),
+                Transform::from_translation((portal + Vec2::new(-80.0, 0.0)).extend(20.0)),
             ))
             .id();
+        // First update only inits fixed time; the 5 measured ticks are real steps.
+        app.update();
         for _ in 0..5 {
             app.update();
         }

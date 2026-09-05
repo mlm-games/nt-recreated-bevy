@@ -29,7 +29,7 @@ pub struct MeleeTargets<'w, 's> {
             Option<&'static mut Velocity>,
             Option<&'static mut NextHurt>,
         ),
-        (With<Enemy>, Without<Player>),
+        (With<Enemy>, Without<Player>, Without<Prop>),
     >,
     props: Query<
         'w,
@@ -42,7 +42,7 @@ pub struct MeleeTargets<'w, 's> {
             Option<&'static PropSprites>,
             Option<&'static mut NextHurt>,
         ),
-        (With<Prop>, Without<Player>),
+        (With<Prop>, Without<Player>, Without<Enemy>),
     >,
     frame: Res<'w, CurrentFrame>,
 }
@@ -2392,6 +2392,36 @@ fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
         );
     }
     path
+}
+
+#[cfg(test)]
+mod fire_schedule_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+    use bevy::time::TimeUpdateStrategy;
+
+    #[test]
+    fn fire_system_inits_without_query_conflict() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        app.init_asset::<AudioSource>();
+        app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
+        app.insert_resource(NtInput::default());
+        app.insert_resource(Trauma::default());
+        app.insert_resource(HitStop::default());
+        app.insert_resource(Toast::default());
+        app.insert_resource(AssetCatalog::default());
+        app.init_resource::<CurrentFrame>();
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        app.insert_resource(GameAudio::load(&asset_server, &AssetCatalog::default()));
+        app.add_message::<GamepadRumbleRequest>();
+        app.add_systems(FixedUpdate, player_fire);
+        for _ in 0..3 {
+            app.update();
+        }
+    }
 }
 
 #[cfg(test)]
