@@ -304,8 +304,7 @@ impl SpiralCtl {
                 {
                     // Rare 1/50 area variant goes the CPU route (own texture).
                     if rand::random::<f32>() * 50.0 < 1.0
-                        && let Some((path, frame)) =
-                            variant_debris_for_gml_area(self.gml_area)
+                        && let Some((path, frame)) = variant_debris_for_gml_area(self.gml_area)
                     {
                         self.push_vard(x, y, path, frame);
                     } else {
@@ -699,10 +698,6 @@ fn sync_spiral_cpu_layer(
         -885.0
     };
 
-    // --- Stars (Venuz): white sprite, alpha fades in with xscale. This is
-    // exact on the black background: GML's black pass (alpha 1 - xscale)
-    // over black equals white at alpha xscale, and past xscale 1 both are
-    // pure white.
     for (i, s) in ctl.stars.iter_mut().enumerate() {
         if !s.alive {
             continue;
@@ -737,13 +732,14 @@ fn sync_spiral_cpu_layer(
             Some(e) => {
                 if let Ok((_, dot, mut tf, mut spr)) = star_q.get_mut(e) {
                     debug_assert_eq!(dot.0, i);
-                    place_dot(&map, &mut tf, &mut spr, gx, gy, 3.0, 3.0, 1.0, 1.0, s.xscale, 0.0, alpha);
+                    place_dot(
+                        &map, &mut tf, &mut spr, gx, gy, 3.0, 3.0, 1.0, 1.0, s.xscale, 0.0, alpha,
+                    );
                 }
             }
         }
     }
 
-    // --- Variant debris: same treatment with per-dot texture + rotation.
     for (i, v) in ctl.vards.iter_mut().enumerate() {
         if !v.alive {
             continue;
@@ -779,7 +775,7 @@ fn sync_spiral_cpu_layer(
                 if let Ok((_, dot, mut tf, mut spr)) = vard_q.get_mut(e) {
                     debug_assert_eq!(dot.0, i);
                     // Frame geometry varies per path; resolve once per frame
-                    // is overkill — paths are fixed per dot, read dims cheap.
+                    // is overkill - paths are fixed per dot, read dims cheap.
                     let m = sprite_dims(&catalog, v.path);
                     place_dot(
                         &map,
@@ -800,7 +796,6 @@ fn sync_spiral_cpu_layer(
         }
     }
 
-    // --- Center figures: alive spiral + a player, like `with SpiralCont`.
     for e in &fig_q {
         commands.entity(e).try_despawn();
     }
@@ -968,8 +963,7 @@ fn vortex_tick(
     // (birth rewind) so survivors stagger-pop through the table max just
     // like GML's compounding grow crossing xscale 3. kindpacked selects the
     // growth table/art and the debris frame size (see glob_b docs).
-    let kindpacked =
-        ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
+    let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
     mat.glob_a = Vec4::new(ctl.ticks, ctl.drain_bias, r, g);
     mat.glob_b = Vec4::new(b, bg_alpha, 2.5, kindpacked);
     // Bilinear like GameMaker (app default is nearest): stamp once the
@@ -1050,8 +1044,7 @@ fn ensure_vortex_quad(
     } else {
         0.0
     };
-    let kindpacked =
-        ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
+    let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
         debris: debris_to_uniform(&ctl.debris_ring),
@@ -1059,8 +1052,7 @@ fn ensure_vortex_quad(
         glob_b: Vec4::new(b, bg_alpha, 2.5, kindpacked),
         spiral_tex: asset_server.load("images/sprSpiral.png"),
         bolt_tex: asset_server.load("images/sprPortalLightning.png"),
-        debris_tex: asset_server
-            .load(format!("images/sprDebris{}.png", ctl.gml_area)),
+        debris_tex: asset_server.load(format!("images/sprDebris{}.png", ctl.gml_area)),
         spiral_proto_tex: asset_server.load("images/sprSpiralProto.png"),
         spiral_idpd_tex: asset_server.load("images/sprSpiralIDPD.png"),
         spiral_idpd2_tex: asset_server.load("images/sprSpiralIDPD2.png"),
@@ -1247,8 +1239,7 @@ mod tests {
         // B0001 (conflicting queries) fires at system init, so initializing
         // the system on an empty world reproduces the startup panic headless.
         let mut world = World::new();
-        let mut sys =
-            bevy::ecs::system::IntoSystem::into_system(sync_spiral_cpu_layer);
+        let mut sys = bevy::ecs::system::IntoSystem::into_system(sync_spiral_cpu_layer);
         bevy::ecs::system::System::initialize(&mut sys, &mut world);
     }
 
@@ -1341,7 +1332,10 @@ mod tests {
         let wisps = ctl.ring.iter().filter(|s| s[2] >= 0.0).count();
         assert_eq!(wisps, 0, "venuz must not emit normal wisps");
         let stars = ctl.stars.iter().filter(|s| s.alive).count();
-        assert!(stars > 40, "venuz warmup should hold a starfield, got {stars}");
+        assert!(
+            stars > 40,
+            "venuz warmup should hold a starfield, got {stars}"
+        );
     }
 
     #[test]
@@ -1352,9 +1346,20 @@ mod tests {
             assert!((s[0] - 160.0).abs() < 1e-3, "idpd wisp off-center x");
             assert!((s[1] - 120.0).abs() < 1e-3, "idpd wisp off-center y");
         }
-        let neg = ctl.ring.iter().filter(|s| s[2] >= 0.0 && s[3] < 0.0).count();
-        let pos = ctl.ring.iter().filter(|s| s[2] >= 0.0 && s[3] >= 0.0).count();
-        assert!(neg > 0 && pos > 0, "idpd2 variant never/always taken ({neg}/{pos})");
+        let neg = ctl
+            .ring
+            .iter()
+            .filter(|s| s[2] >= 0.0 && s[3] < 0.0)
+            .count();
+        let pos = ctl
+            .ring
+            .iter()
+            .filter(|s| s[2] >= 0.0 && s[3] >= 0.0)
+            .count();
+        assert!(
+            neg > 0 && pos > 0,
+            "idpd2 variant never/always taken ({neg}/{pos})"
+        );
     }
 
     #[test]

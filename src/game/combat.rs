@@ -594,24 +594,21 @@ pub fn move_projectiles(
                     let mut legacy_explosive = false;
                     let mut death_copy = death_effect;
                     let mut sprites_copy: Option<PropSprites> = None;
-                    if let Ok((_, mut prop, _, de, sprites, nexthurt)) =
-                        props.get_mut(prop_e)
-                    {
-                        // GML scr_can_hit: props respect nexthurt i-frames too.
-                        let gated = nexthurt.as_ref().is_some_and(|nh| nh.0 > frame.0);
-                        if !gated {
-                            prop.hp -= p.damage.max(1);
-                            if let Some(mut nh) = nexthurt {
-                                nh.0 = frame.0 + 5;
-                            }
-                            legacy_explosive = prop.explosive;
-                            death_copy = de.copied();
-                            sprites_copy = sprites.copied();
-                            if prop.hp <= 0 {
-                                dead = true;
-                            }
-                            audio.play_hit(&mut commands);
+                    if let Ok((_, mut prop, _, de, sprites, nexthurt)) = props.get_mut(prop_e) {
+                        // GML parity: bullets use scr_can_hit(..., false) and
+                        // ignore nexthurt, so bursts/shotguns all connect.
+                        // Stamp it anyway for contact/melee paths that check it.
+                        prop.hp -= p.damage.max(1);
+                        if let Some(mut nh) = nexthurt {
+                            nh.0 = frame.0 + 5;
                         }
+                        legacy_explosive = prop.explosive;
+                        death_copy = de.copied();
+                        sprites_copy = sprites.copied();
+                        if prop.hp <= 0 {
+                            dead = true;
+                        }
+                        audio.play_hit(&mut commands);
                     }
                     if dead {
                         if let Some(ps) = sprites_copy {
@@ -1368,15 +1365,6 @@ pub fn projectile_hits(
                 continue;
             }
 
-            // GML scr_can_hit i-frames: skip enemies still in nexthurt window.
-            // Player uses invuln instead; bosses/enemies use frame gate.
-            if *target_team == Team::Enemy
-                && let Some(nh) = nexthurt.as_ref()
-                && nh.0 > frame.0
-            {
-                continue;
-            }
-
             // Sticky grenades (explosive) attach instead of dealing immediate damage.
             if let Some(ref mut sticky) = sticky
                 && !sticky.armed
@@ -1730,10 +1718,6 @@ fn retaliate_sharp_teeth(
         if etf.translation.truncate().distance(center) > 900.0 {
             continue;
         }
-        // Respect nexthurt i-frames like any other hit.
-        if nexthurt.as_ref().is_some_and(|nh| nh.0 > frame.0) {
-            continue;
-        }
         health.hp -= damage * 2;
         if let Some(mut nh) = nexthurt {
             nh.0 = frame.0 + 5;
@@ -1756,7 +1740,14 @@ pub fn contact_damage(
         (With<Player>, Without<Enemy>),
     >,
     mut enemies: Query<
-        (&Transform, &Enemy, &mut EnemyBrain, &mut Health, &Hitbox, Option<&mut Velocity>),
+        (
+            &Transform,
+            &Enemy,
+            &mut EnemyBrain,
+            &mut Health,
+            &Hitbox,
+            Option<&mut Velocity>,
+        ),
         (With<Enemy>, Without<Player>),
     >,
 ) {
@@ -2237,7 +2228,11 @@ pub fn resolve_deaths(
             audio.play_boom(&mut commands);
             GameFeel::rumble_controller(&mut rumble, &gamepads, 0.8, 1.0, 0.4);
             GameFeel::slow_motion(&mut slow_mo, 0.35, 0.6);
-            let melting_bonus = if race_state.race == RaceId::Melting { 1 } else { 0 };
+            let melting_bonus = if race_state.race == RaceId::Melting {
+                1
+            } else {
+                0
+            };
             spawn_rad_burst(
                 &mut commands,
                 &catalog,
@@ -2285,7 +2280,11 @@ pub fn resolve_deaths(
                 ));
             }
             // GML enemy/Destroy: scrRadDrop(raddrop + Melting) with BigRad chunking.
-            let melting_bonus = if race_state.race == RaceId::Melting { 1 } else { 0 };
+            let melting_bonus = if race_state.race == RaceId::Melting {
+                1
+            } else {
+                0
+            };
             spawn_rad_burst(
                 &mut commands,
                 &catalog,

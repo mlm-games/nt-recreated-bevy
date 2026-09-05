@@ -2236,38 +2236,17 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
 
         "SLEDGEHAMMER" => {
             // GML Sledge: Slash damage 24, HeavySlash sprite
-            set_melee(
-                def,
-                24,
-                80.0,
-                2.45,
-                6.0,
-                Color::srgb(0.88, 0.78, 0.48),
-            );
+            set_melee(def, 24, 80.0, 2.45, 6.0, Color::srgb(0.88, 0.78, 0.48));
         }
 
         "GUITAR" | "ELECTRIC GUITAR" => {
             // GML Guitar: Slash damage 26 (+electric flag for electric)
-            set_melee(
-                def,
-                26,
-                80.0,
-                2.45,
-                6.0,
-                Color::srgb(0.9, 0.7, 0.3),
-            );
+            set_melee(def, 26, 80.0, 2.45, 6.0, Color::srgb(0.9, 0.7, 0.3));
         }
 
         "BLACK SWORD" => {
             // GML BlackSword: 12 normal, 80 MegaSlash when dying
-            set_melee(
-                def,
-                12,
-                66.0,
-                2.1,
-                4.0,
-                Color::srgb(0.2, 0.2, 0.25),
-            );
+            set_melee(def, 12, 66.0, 2.1, 4.0, Color::srgb(0.2, 0.2, 0.25));
         }
 
         "HEAVY SLUGGER" => {
@@ -2387,7 +2366,7 @@ fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
     if name.starts_with("ULTRA ") {
         def.color = Color::srgb(0.95, 0.4, 1.0);
         // Explicit ULTRA profiles already carry GML Ultra projectile damages
-        // (UltraBullet 18, UltraShell 6, etc.) — do not re-multiply those.
+        // (UltraBullet 18, UltraShell 6, etc.) - do not re-multiply those.
         let explicit_ultra = matches!(
             name,
             "ULTRA REVOLVER" | "ULTRA SHOTGUN" | "ULTRA CROSSBOW" | "ULTRA GRENADE LAUNCHER"

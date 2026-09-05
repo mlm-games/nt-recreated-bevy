@@ -89,6 +89,14 @@ pub fn sync_hud(
             0
         };
         ui.weapon_ammo = [inv.ammo[t1.min(5)], inv.ammo[t2.min(5)]];
+        // GML scrDrawPlayerHUD draws ammo text only `if _type != Ammo.None`.
+        // Melee shows no count: use -1 sentinel so the HUD skips it.
+        if t1 == 0 {
+            ui.weapon_ammo[0] = -1;
+        }
+        if t2 == 0 || inv.weapon_slots <= 1 {
+            ui.weapon_ammo[1] = -1;
+        }
         ui.ability = ability_name(player.ability).to_string();
         ui.ability_ready = player.ability_cooldown.is_finished();
         ui.crown = crown_short_name(player.crown.to_u8()).to_string();

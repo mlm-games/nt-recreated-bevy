@@ -2401,8 +2401,13 @@ fn nt_hud_overlay(st: &SharedUi) -> View {
 
     // Ammo counts left-aligned at (dx + 18, dy + 5) per weapon slot; the
     // stored weapon renders in silver (c_silver) like upstream.
+    // GML scrDrawPlayerHUD draws this only `if _type != Ammo.None` -
+    // melee weapons show no count at all (not "0").
     for slot in 0..2usize {
-        let amount = hud_weapon_ammo(st, slot);
+        let amount = st.weapon_ammo.get(slot).copied().unwrap_or(-1);
+        if amount < 0 {
+            continue;
+        }
         let color = if slot == st.current_weapon {
             col(255, 255, 255)
         } else {

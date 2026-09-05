@@ -311,8 +311,7 @@ pub fn tick_hurt_anims(
 /// Begin the firing strip on an enemy that just shot (GML `Alarm_2` sets
 /// `sprite_index = spr_fire`). Refresh the timer every pellet so the strip
 /// stays up through the whole burst; `tick_fire_anims` restores after.
-/// Skipped silently when the WAD lacks the strip — firing must never crash
-/// a run the way a missing spawn sprite should bail floor gen.
+/// Skipped silently when the WAD lacks the strip.
 pub fn play_fire(
     commands: &mut Commands,
     entity: Entity,
@@ -780,7 +779,7 @@ pub fn derive_dead_path(idle: &'static str) -> &'static str {
 }
 
 /// GML spr_dead naming for props (verified against objects/*/Create_0.gml).
-/// Static table only — no dynamic string building, no silent fallback.
+/// Static table only.
 pub fn derive_prop_dead_path(idle: &'static str) -> &'static str {
     match idle {
         "images/sprBarrel.png" => "images/sprBarrelDead.png",
@@ -860,7 +859,7 @@ pub fn derive_prop_dead_path_checked(catalog: &AssetCatalog, idle: &'static str)
 /// GML `spr_fire` per enemy idle (verified against objects/*/Create_0.gml).
 /// `None` means vanilla NT has no firing strip for this enemy (regular
 /// Bandit/Maggot/etc. use wkick gun visuals instead). HyperCrystal's fire
-/// *is* its idle, and CrownGuardian has no Bevy kind — both map to None.
+/// *is* its idle, and CrownGuardian has no Bevy kind.
 pub fn derive_fire_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditBossIdle.png" => Some("images/sprBanditBossFire.png"),
@@ -1124,10 +1123,9 @@ mod hurt_race_tests {
         let mut catalog = AssetCatalog::default();
         catalog.images.insert(IDLE.to_string());
         catalog.images.insert(HURT.to_string());
-        catalog.anims.insert(
-            HURT.to_string(),
-            [3.0, 8.0, 8.0, 12.0, 4.0, 4.0],
-        );
+        catalog
+            .anims
+            .insert(HURT.to_string(), [3.0, 8.0, 8.0, 12.0, 4.0, 4.0]);
         catalog
     }
 
@@ -1244,14 +1242,12 @@ mod fire_anim_tests {
         catalog
             .anims
             .insert(FIRE.to_string(), [2.0, 48.0, 48.0, 8.0, 24.0, 24.0]);
-        catalog.anims.insert(
-            IDLE.to_string(),
-            [4.0, 48.0, 48.0, 8.0, 24.0, 24.0],
-        );
-        catalog.anims.insert(
-            WALK.to_string(),
-            [4.0, 48.0, 48.0, 8.0, 24.0, 24.0],
-        );
+        catalog
+            .anims
+            .insert(IDLE.to_string(), [4.0, 48.0, 48.0, 8.0, 24.0, 24.0]);
+        catalog
+            .anims
+            .insert(WALK.to_string(), [4.0, 48.0, 48.0, 8.0, 24.0, 24.0]);
         catalog
     }
 
@@ -1272,10 +1268,7 @@ mod fire_anim_tests {
         // Regular Bandit has no firing strip (wkick gun visuals instead).
         assert_eq!(derive_fire_path("images/sprBanditIdle.png"), None);
         // HyperCrystal's "fire" is its idle; unknown idles map to None.
-        assert_eq!(
-            derive_fire_path("images/sprHyperCrystalIdle.png"),
-            None
-        );
+        assert_eq!(derive_fire_path("images/sprHyperCrystalIdle.png"), None);
         assert_eq!(derive_fire_path("images/sprMaggotIdle.png"), None);
     }
 

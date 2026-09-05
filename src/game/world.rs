@@ -266,10 +266,7 @@ fn turn_table(rng: &mut StdRng, area: i32) -> i32 {
         }
         6 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180]),
         7 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180]),
-        100 => rng_choose(
-            rng,
-            &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180, 180],
-        ),
+        100 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, Z, 90, -90, 180, 180]),
         101 => rng_choose(rng, &[Z, Z, Z, Z, 90, -90, 90, -90, 180]),
         103 => rng_choose(rng, &[Z, Z, Z, Z, 90, -90, 180]),
         105 => rng_choose(rng, &[Z, Z, Z, Z, Z, Z, 90, -90, 90, -90, 180]),
@@ -496,7 +493,11 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                         for dy2 in -2..=2i32 {
                             for dx2 in -2..=2i32 {
                                 if dx2.abs() == 2 || dy2.abs() == 2 || dx2 == 0 || dy2 == 0 {
-                                    stamp_cell((nx + dx2, ny + dy2), &mut seen, &mut plan.floor_cells);
+                                    stamp_cell(
+                                        (nx + dx2, ny + dy2),
+                                        &mut seen,
+                                        &mut plan.floor_cells,
+                                    );
                                 }
                             }
                         }
@@ -658,10 +659,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
             }
 
             // HQ AmmoChest drip: 1/10 per maker step when far from spawn.
-            if area == 106
-                && dist_from_spawn > 48.0 * 48.0
-                && rng.random::<f32>() * 10.0 < 1.0
-            {
+            if area == 106 && dist_from_spawn > 48.0 * 48.0 && rng.random::<f32>() * 10.0 < 1.0 {
                 plan.chests.push(ChestSpawn::Ammo(cell_center_px(mx, my)));
                 stamp_cell((mx, my), &mut seen, &mut plan.floor_cells);
             }
@@ -698,8 +696,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                 _ => false,
             };
             // GML area 7 runs both its own 1/16 and the shared 7/102 1/5.
-            let branches = branches
-                || (area == 7 && rng.random::<f32>() * 5.0 < 1.0);
+            let branches = branches || (area == 7 && rng.random::<f32>() * 5.0 < 1.0);
             if branches {
                 new_branches.push(Maker {
                     x: mx,
@@ -967,7 +964,8 @@ fn populate(
                 | crate::game::areas::AreaId::CrownVault
                 | crate::game::areas::AreaId::Labs
                 | crate::game::areas::AreaId::Campfire
-        ) && !(((run.floor.max(1) - 1) % 15) + 1 == 15
+        )
+        && !(((run.floor.max(1) - 1) % 15) + 1 == 15
             && run.area == crate::game::areas::AreaId::Palace);
     for &(cx, cy) in floors {
         let (px, py) = cell_center_i(cx, cy);
@@ -1759,16 +1757,14 @@ fn populate(
         crate::game::areas::AreaId::Campfire
             | crate::game::areas::AreaId::Vault
             | crate::game::areas::AreaId::CrownVault
-    ) || (run.area == crate::game::areas::AreaId::HQ && run.floor_in_area >= 3);
+    ) || (run.area == crate::game::areas::AreaId::HQ
+        && run.floor_in_area >= 3);
     if !is_no_chest_area {
         let has_weapon = plan
             .chests
             .iter()
             .any(|c| matches!(c, ChestSpawn::Weapon(_)));
-        let has_ammo = plan
-            .chests
-            .iter()
-            .any(|c| matches!(c, ChestSpawn::Ammo(_)));
+        let has_ammo = plan.chests.iter().any(|c| matches!(c, ChestSpawn::Ammo(_)));
         if !has_weapon || !has_ammo {
             // Furthest solid prop beyond 160px.
             let mut best: Option<(f32, usize)> = None;
@@ -2021,7 +2017,7 @@ fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
 
 /// GML scrPopChests Open Mind bonus: `repeat (open_mind * 2)` extra chests
 /// of random kind. Applied AFTER trim (which keeps one of each kind) at the
-/// two production gen sites — never on portal open. Skipped where GML spawns
+/// two production gen sites - never on portal open. Skipped where GML spawns
 /// zero chests (campfire/vault/HQ-last).
 pub fn apply_open_mind_bonus(
     plan: &mut LevelPlan,
@@ -2029,10 +2025,8 @@ pub fn apply_open_mind_bonus(
     floor_in_area: u32,
 ) {
     use crate::game::areas::AreaId;
-    let no_chests = matches!(
-        area,
-        AreaId::Campfire | AreaId::Vault | AreaId::CrownVault
-    ) || (area == AreaId::HQ && floor_in_area >= 3);
+    let no_chests = matches!(area, AreaId::Campfire | AreaId::Vault | AreaId::CrownVault)
+        || (area == AreaId::HQ && floor_in_area >= 3);
     if no_chests || plan.floor_cells.is_empty() {
         return;
     }
@@ -2050,7 +2044,8 @@ pub fn apply_open_mind_bonus(
     }
 }
 
-fn trim_chests(chests: &mut Vec<ChestSpawn>) {    use std::collections::HashMap;
+fn trim_chests(chests: &mut Vec<ChestSpawn>) {
+    use std::collections::HashMap;
     let mut furthest: HashMap<u8, ChestSpawn> = HashMap::new();
     for c in chests.iter().copied() {
         let key = match c {

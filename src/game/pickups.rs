@@ -199,7 +199,7 @@ pub fn spawn_chest(
 }
 
 /// Native NT art per pickup kind.
-/// GML AmmoPickup sprite is the single shared sprAmmo box for every type —
+/// GML AmmoPickup sprite is the single shared sprAmmo box for every type -
 /// the granted type is decided at pickup (scrAmmoDecideType), not at spawn.
 fn pickup_sprite(kind: PickupKind, _catalog: &AssetCatalog) -> (String, f32) {
     match kind {
@@ -332,10 +332,7 @@ pub fn collect_pickups(
                 commands.entity(pickup_e).try_despawn();
                 continue;
             }
-            let ammo_or_hp = matches!(
-                pickup.kind,
-                PickupKind::Ammo(..) | PickupKind::Medkit(_)
-            );
+            let ammo_or_hp = matches!(pickup.kind, PickupKind::Ammo(..) | PickupKind::Medkit(_));
             if ammo_or_hp && lt.timer.remaining_secs() < 62.0 / 30.0 {
                 let phase = (lt.timer.elapsed_secs() * 30.0) as i32;
                 let vis = if (phase / 2) % 2 == 0 {
@@ -373,15 +370,17 @@ pub fn collect_pickups(
         } else if is_rad {
             // GML rad range 80 (+60 plutonium hunger). Portal-global magnet
             // lives in tick_pickup_drag (runs before this system).
-            let has_hunger = player
-                .mutations
-                .contains(&MutationId::PlutoniumHunger);
+            let has_hunger = player.mutations.contains(&MutationId::PlutoniumHunger);
             let rad_range = 80.0 + if has_hunger { 60.0 } else { 0.0 };
             let magnet_to_player = dist < rad_range || (telek_active && dist < magnet);
             if magnet_to_player {
                 let dir = (player_pos - pickup_pos).normalize_or_zero();
                 // GML mp_potential_step 12px/step = 360px/s.
-                let pull = if telek_active { 900.0 * telek_mult } else { 360.0 };
+                let pull = if telek_active {
+                    900.0 * telek_mult
+                } else {
+                    360.0
+                };
                 pickup_tf.translation += (dir * pull * dt).extend(0.0);
             }
         } else if !is_chest && dist < magnet {
@@ -566,6 +565,13 @@ pub fn collect_pickups(
                     player_pos,
                     Color::srgb(0.35, 0.7, 1.0),
                 );
+                // GML scrPlayerGiveAmmo popup: "+N TYPE" or "MAX TYPE" when capped.
+                let type_name = ammo_type_name(ammo);
+                if *slot >= cap {
+                    toast.show(&format!("MAX {type_name}"));
+                } else {
+                    toast.show(&format!("+{gained} {type_name}"));
+                }
                 audio.play_pickup(&mut commands);
             }
             PickupKind::Weapon(weapon) => {
@@ -676,7 +682,7 @@ fn gauge_frame(fill: f32) -> usize {
 /// GML scrDrawInteractionHUD weapon branch: the nearest dropped gun
 /// overlapping the player shows its name 31px above, an ammo-fill gauge
 /// (icon frames proportional to player ammo / capacity) and the interact
-/// prompt — the same frame the press-to-pick collision would fire.
+/// prompt.
 #[allow(clippy::too_many_arguments)]
 pub fn sync_weapon_label(
     mut commands: Commands,
@@ -877,6 +883,18 @@ fn open_chest(
     commands.entity(e).insert(OpenedChest);
 }
 
+/// GML typ_name table (scrAmmoInit): popup type labels for ammo pickups.
+pub fn ammo_type_name(kind: AmmoKind) -> &'static str {
+    match kind {
+        AmmoKind::None => "NONE",
+        AmmoKind::Bullets => "BULLETS",
+        AmmoKind::Shells => "SHELLS",
+        AmmoKind::Bolts => "BOLTS",
+        AmmoKind::Explosives => "EXPLOSIVES",
+        AmmoKind::Energy => "ENERGY",
+    }
+}
+
 /// scrAmmoDecideType: primary weapon's type first (while not full), then the
 /// stored weapon's, else a random type.
 fn decide_ammo_type(inv: &Inventory) -> AmmoKind {
@@ -967,21 +985,11 @@ fn grant_pickup_ammo(
 ) {
     let def = crate::game::weapon_runtime::weapon_runtime_def(weapon);
     let second_stomach = player.mutations.contains(&MutationId::SecondStomach);
-    match weapon_pickup_grant(
-        has_ammo,
-        def.melee.is_some(),
-        player.crown,
-        second_stomach,
-    ) {
+    match weapon_pickup_grant(has_ammo, def.melee.is_some(), player.crown, second_stomach) {
         WeaponPickupGrant::Nothing => {}
         WeaponPickupGrant::Heal(heal) => {
             health.hp = (health.hp + heal).min(health.max);
-            VfxSpawner::spawn_damage_number(
-                commands,
-                heal,
-                player_pos,
-                Color::srgb(0.3, 1.0, 0.3),
-            );
+            VfxSpawner::spawn_damage_number(commands, heal, player_pos, Color::srgb(0.3, 1.0, 0.3));
         }
         WeaponPickupGrant::Ammo => {
             let slot = inv.ammo_mut(def.ammo);

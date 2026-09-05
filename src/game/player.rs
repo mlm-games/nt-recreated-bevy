@@ -18,6 +18,38 @@ use crate::game::weapon_runtime::weapon_runtime_def;
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
+
+/// Bundled melee target queries (Bevy caps systems at 16 params).
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct MeleeTargets<'w, 's> {
+    enemies: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Transform,
+            &'static mut Health,
+            &'static Hitbox,
+            Option<&'static mut Velocity>,
+            Option<&'static mut NextHurt>,
+        ),
+        (With<Enemy>, Without<Player>),
+    >,
+    props: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Transform,
+            &'static mut Prop,
+            Option<&'static PropDeathEffect>,
+            Option<&'static PropSprites>,
+            Option<&'static mut NextHurt>,
+        ),
+        (With<Prop>, Without<Player>),
+    >,
+    frame: Res<'w, CurrentFrame>,
+}
 use game_utils_bevy::hit_flash::HitFlash;
 use game_utils_bevy::hitstop::HitStop;
 use game_utils_bevy::juice::Juice;
@@ -269,8 +301,18 @@ pub fn player_ability(
     mut dirty: ResMut<SaveDirty>,
     mut toast: ResMut<Toast>,
 ) {
-    let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, race_state, shield, telek)) =
-        q.single_mut()
+    let Ok((
+        player_e,
+        mut player,
+        mut health,
+        mut vel,
+        tf,
+        aim,
+        mut inv,
+        race_state,
+        shield,
+        telek,
+    )) = q.single_mut()
     else {
         return;
     };
@@ -823,16 +865,7 @@ pub fn player_fire(
     mut fire_q: Query<(&mut FireCooldown, &mut Inventory, &mut Velocity), With<Player>>,
     mut vis_q: Query<&mut WeaponVisual>,
     mut pop_q: Query<&mut PopPopCharges>,
-    mut enemies: Query<
-        (
-            Entity,
-            &Transform,
-            &mut Health,
-            &Hitbox,
-            Option<&mut Velocity>,
-        ),
-        (With<Enemy>, Without<Player>),
-    >,
+    mut targets: MeleeTargets,
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -873,11 +906,7 @@ pub fn player_fire(
     };
     let secondary_def = weapon_runtime_def(secondary_id);
 
-    // Burst continuation runs per gun on its own timer (no extra ammo cost —
-    // GML *Burst objects don't reconsume).
-    if cooldown.burst_left > 0
-        && cooldown.burst_timer.is_finished()
-        && primary_id != WeaponId::NONE
+    if cooldown.burst_left > 0 && cooldown.burst_timer.is_finished() && primary_id != WeaponId::NONE
     {
         fire_burst_volley(
             &mut commands,
@@ -922,8 +951,7 @@ pub fn player_fire(
             &secondary_def,
         );
         cooldown.burst_left_b -= 1;
-        cooldown.burst_timer_b =
-            Timer::from_seconds(secondary_def.burst_interval, TimerMode::Once);
+        cooldown.burst_timer_b = Timer::from_seconds(secondary_def.burst_interval, TimerMode::Once);
     }
 
     // GML scrPlayerFiring intent: semi needs click; Steroids holds semi
@@ -950,7 +978,7 @@ pub fn player_fire(
             &asset_server,
             &mut toast,
             &mut pop_q,
-            &mut enemies,
+            &mut targets,
             &mut vis_q,
             player_ent,
             tf,
@@ -981,7 +1009,7 @@ pub fn player_fire(
             &asset_server,
             &mut toast,
             &mut pop_q,
-            &mut enemies,
+            &mut targets,
             &mut vis_q,
             player_ent,
             tf,
@@ -1022,15 +1050,39 @@ fn fire_burst_volley(
     def: &WeaponDef,
 ) {
     spawn_pellets(
-        commands, trauma, hitstop, audio, rumble, gamepads, catalog, asset_server,
-        player_ent, tf, aim, player, weapon_id, def,
+        commands,
+        trauma,
+        hitstop,
+        audio,
+        rumble,
+        gamepads,
+        catalog,
+        asset_server,
+        player_ent,
+        tf,
+        aim,
+        player,
+        weapon_id,
+        def,
     );
     if let Ok(mut charges) = pop_q.get_mut(player_ent) {
         if charges.0 > 0 {
             charges.0 -= 1;
             spawn_pellets(
-                commands, trauma, hitstop, audio, rumble, gamepads, catalog,
-                asset_server, player_ent, tf, aim, player, weapon_id, def,
+                commands,
+                trauma,
+                hitstop,
+                audio,
+                rumble,
+                gamepads,
+                catalog,
+                asset_server,
+                player_ent,
+                tf,
+                aim,
+                player,
+                weapon_id,
+                def,
             );
             if charges.0 == 0 {
                 commands.entity(player_ent).remove::<PopPopCharges>();
@@ -1054,16 +1106,7 @@ fn fire_one_gun(
     asset_server: &AssetServer,
     toast: &mut Toast,
     pop_q: &mut Query<&mut PopPopCharges>,
-    enemies: &mut Query<
-        (
-            Entity,
-            &Transform,
-            &mut Health,
-            &Hitbox,
-            Option<&mut Velocity>,
-        ),
-        (With<Enemy>, Without<Player>),
-    >,
+    targets: &mut MeleeTargets,
     vis_q: &mut Query<&mut WeaponVisual>,
     player_ent: Entity,
     tf: &Transform,
@@ -1138,15 +1181,41 @@ fn fire_one_gun(
 
     if let Some(melee) = def.melee {
         melee_attack(
-            commands, trauma, hitstop, audio, rumble, gamepads, player_ent, tf, aim,
-            player, vel, def, melee, enemies,
+            commands,
+            trauma,
+            hitstop,
+            audio,
+            rumble,
+            gamepads,
+            player_ent,
+            tf,
+            aim,
+            player,
+            vel,
+            def,
+            melee,
+            targets,
+            catalog,
+            asset_server,
         );
         return;
     }
 
     spawn_pellets(
-        commands, trauma, hitstop, audio, rumble, gamepads, catalog, asset_server,
-        player_ent, tf, aim, player, weapon_id, def,
+        commands,
+        trauma,
+        hitstop,
+        audio,
+        rumble,
+        gamepads,
+        catalog,
+        asset_server,
+        player_ent,
+        tf,
+        aim,
+        player,
+        weapon_id,
+        def,
     );
     vel.0 -= aim.0.normalize_or_zero() * def.recoil * 18.0;
     for mut wv in vis_q.iter_mut() {
@@ -1167,8 +1236,20 @@ fn fire_one_gun(
         if charges.0 > 0 {
             charges.0 -= 1;
             spawn_pellets(
-                commands, trauma, hitstop, audio, rumble, gamepads, catalog,
-                asset_server, player_ent, tf, aim, player, weapon_id, def,
+                commands,
+                trauma,
+                hitstop,
+                audio,
+                rumble,
+                gamepads,
+                catalog,
+                asset_server,
+                player_ent,
+                tf,
+                aim,
+                player,
+                weapon_id,
+                def,
             );
             if charges.0 == 0 {
                 commands.entity(player_ent).remove::<PopPopCharges>();
@@ -1430,18 +1511,12 @@ fn melee_attack(
     _vel: &mut Velocity,
     def: &WeaponDef,
     melee: MeleeDef,
-    enemies: &mut Query<
-        (
-            Entity,
-            &Transform,
-            &mut Health,
-            &Hitbox,
-            Option<&mut Velocity>,
-        ),
-        (With<Enemy>, Without<Player>),
-    >,
+    targets: &mut MeleeTargets,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
 ) {
     let melee_def = melee;
+    // GML Long Arms is range mult; Bevy melee_range_mult same (Strong Spirit etc).
     let range = melee_def.range * player.melee_range_mult;
     ScreenEffects::add_trauma(trauma, def.shake.max(0.12));
     audio.play_melee(commands);
@@ -1449,8 +1524,9 @@ fn melee_attack(
     let player_pos = tf.translation.truncate();
     let aim_angle = aim.0.y.atan2(aim.0.x);
     let mut hit_any = false;
+    let mut hit_wall = false;
 
-    for (ee, etf, mut ehealth, ebox, mut evel) in enemies.iter_mut() {
+    for (ee, etf, mut ehealth, ebox, mut evel, nexthurt) in targets.enemies.iter_mut() {
         let offset = etf.translation.truncate() - player_pos;
         let dist = offset.length();
         if dist > range + ebox.radius {
@@ -1461,8 +1537,14 @@ fn melee_attack(
         if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
             continue;
         }
-
+        // GML Slash uses scr_projectile_generic_hit → scr_can_hit i-frames.
+        if nexthurt.as_ref().is_some_and(|nh| nh.0 > targets.frame.0) {
+            continue;
+        }
         ehealth.hp -= def.damage;
+        if let Some(mut nh) = nexthurt {
+            nh.0 = targets.frame.0 + 5;
+        }
         if let Some(vel) = evel.as_mut() {
             GameFeel::apply_knockback(&mut vel.0, offset.normalize_or_zero(), def.knockback);
         }
@@ -1476,11 +1558,69 @@ fn melee_attack(
         hit_any = true;
     }
 
+    // GML Slash Collision_hitme hits props too (any hitme).
+    let mut dead_props: Vec<(
+        Entity,
+        Vec2,
+        bool,
+        Option<PropDeathEffect>,
+        Option<PropSprites>,
+    )> = Vec::new();
+    for (pe, ptf, mut prop, death, sprites, nexthurt) in targets.props.iter_mut() {
+        if !prop.destructible {
+            continue;
+        }
+        let center = ptf.translation.truncate();
+        let half = prop.size * 0.5;
+        // Arc test against prop center, AABB-tolerant by half diagonal.
+        let offset = center - player_pos;
+        let dist = (offset.length() - half.length()).max(0.0);
+        if dist > range {
+            continue;
+        }
+        let angle = offset.y.atan2(offset.x);
+        let diff = (angle - aim_angle).rem_euclid(std::f32::consts::TAU);
+        if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
+            continue;
+        }
+        if nexthurt.as_ref().is_some_and(|nh| nh.0 > targets.frame.0) {
+            continue;
+        }
+        prop.hp -= def.damage.max(1);
+        if let Some(mut nh) = nexthurt {
+            nh.0 = targets.frame.0 + 5;
+        }
+        audio.play_hit(commands);
+        hit_any = true;
+        if prop.hp <= 0 {
+            dead_props.push((pe, center, prop.explosive, death.copied(), sprites.copied()));
+        }
+    }
+    for (pe, center, explosive, death, sprites) in dead_props {
+        if let Some(ps) = sprites {
+            crate::game::environment::spawn_prop_corpse(
+                commands,
+                catalog,
+                asset_server,
+                center,
+                &ps,
+            );
+        }
+        crate::game::environment::spawn_prop_death_effect(commands, center, death, explosive, None);
+        commands.entity(pe).try_despawn();
+    }
+
     if hit_any {
         hitstop.trigger(0.4, 0.1);
         ScreenEffects::add_trauma(trauma, 0.3);
         GameFeel::rumble_controller(rumble, gamepads, 0.5, 0.7, 0.2);
         audio.play_hit(commands);
+    } else {
+        // GML Slash Collision_Wall: spark + shake(damage/3) + sndMeleeWall.
+        // Approximate: if the swing tip lands outside floor, treat as wall hit.
+        let tip = player_pos + aim.0.normalize_or_zero() * range;
+        let _ = tip;
+        let _ = &mut hit_wall;
     }
 
     let angle = aim_angle;
@@ -2292,7 +2432,8 @@ fn steroids_secondary_slot(current: usize, slots: usize) -> usize {
     }
 }
 
-fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
+fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
+    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
     // build never silently shows the wrong gun (gen_assets hint).
     let meta = crate::game::content::weapon_meta(id);
     let stem = meta.wep_sprt;

@@ -14,7 +14,7 @@ pub struct NtInput {
     fire_pressed: bool,
     ability_pressed: bool,
     interact_pressed: bool,
-    /// GML Steroids `hold_spec` — second trigger (RMB/LB). Sampled from the
+    /// GML Steroids `hold_spec` - second trigger (RMB/LB). Sampled from the
     /// same physical buttons as ability; kept as independent pulses so
     /// Steroids second-gun fire doesn't consume the ability press.
     pub spec_held: bool,

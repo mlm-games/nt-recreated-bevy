@@ -1143,7 +1143,7 @@ pub fn portal_check(
         (60.0, 160.0),
     );
     // GML Portal/Create_0 appears instantly (shock + PortalL FX + sound);
-    // no scale pop-in. NOTE: no chest spawns here — GML Open Mind adds
+    // no scale pop-in. NOTE: no chest spawns here - GML Open Mind adds
     // chests at level-gen time (scrPopChests), never on portal open.
     ScreenEffects::add_trauma(&mut trauma, 0.25);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.25);
@@ -1159,7 +1159,6 @@ pub fn portal_attract(
         (
             Entity,
             &mut Transform,
-            &mut Velocity,
             Option<&mut crate::game::anim::SpriteAnim>,
             Option<&mut Sprite>,
             Option<&crate::game::anim::PlayerAnim>,
@@ -1199,13 +1198,9 @@ pub fn portal_attract(
         Some((dir, spd, dist))
     };
 
-    // --- Player (GML also sets angle/spr_hurt when dist<=half) ---
-    if let Ok((player_e, mut ptf, mut vel, mut anim, mut sprite, pa, aim)) =
-        player_q.single_mut()
-    {
+    if let Ok((player_e, mut ptf, mut anim, mut sprite, pa, aim)) = player_q.single_mut() {
         let ppos = ptf.translation.truncate();
         if let Some((dir, spd, dist)) = attract_step(ppos) {
-            // place_free stepped move: try x then y separately.
             let delta = dir * spd * 30.0 * dt;
             let nx = Vec2::new(ppos.x + delta.x, ppos.y);
             let ny = Vec2::new(ppos.x, ppos.y + delta.y);
@@ -1215,15 +1210,13 @@ pub fn portal_attract(
             if mask.is_walkable(ny) {
                 ptf.translation.y = ny.y;
             }
-            // Keep velocity consistent so player_move doesn't snap back.
-            vel.0 = dir * spd * 30.0;
             if dist <= 48.0 {
                 // GML: angle -= 30*right, sprite spr_hurt img 1.
-                let right = aim.map(|a| if a.0.x < 0.0 { -1.0 } else { 1.0 }).unwrap_or(1.0);
+                let right = aim
+                    .map(|a| if a.0.x < 0.0 { -1.0 } else { 1.0 })
+                    .unwrap_or(1.0);
                 ptf.rotation *= Quat::from_rotation_z((-30.0_f32.to_radians()) * right * frames);
-                if let (Some(anim), Some(sprite), Some(pa)) =
-                    (anim.as_mut(), sprite.as_mut(), pa)
-                {
+                if let (Some(anim), Some(sprite), Some(pa)) = (anim.as_mut(), sprite.as_mut(), pa) {
                     // Trigger hurt strip once; tick_hurt_anims restores.
                     // Skip while a hurt oneshot is already playing.
                     if !(anim.oneshot && !anim.finished) {
@@ -1247,7 +1240,6 @@ pub fn portal_attract(
         }
     }
 
-    // --- Dropped weapons (GML attract_objects(WepPickup,96)) ---
     for (e, mut wtf, pickup, gp) in &mut weapon_q {
         let PickupKind::Weapon(_) = pickup.kind else {
             continue;
@@ -1317,8 +1309,13 @@ pub fn tick_portal_shock(
         let center = shock_tf.translation.truncate();
         // Collision_prop: other.hp = 0 → lethal via existing death path.
         // Apply immediately so barrels chain before the shock despawns.
-        let mut killed: Vec<(Entity, Vec2, bool, Option<PropDeathEffect>, Option<PropSprites>)> =
-            Vec::new();
+        let mut killed: Vec<(
+            Entity,
+            Vec2,
+            bool,
+            Option<PropDeathEffect>,
+            Option<PropSprites>,
+        )> = Vec::new();
         for (prop_e, mut prop, prop_tf, death, ps) in &mut props {
             if !prop.destructible || prop.hp <= 0 {
                 continue;
@@ -1346,7 +1343,11 @@ pub fn tick_portal_shock(
                 );
             }
             crate::game::environment::spawn_prop_death_effect(
-                &mut commands, ppos, death, explosive, None,
+                &mut commands,
+                ppos,
+                death,
+                explosive,
+                None,
             );
             if let Ok(entrance) = entrances.get(prop_e) {
                 secrets.queue(entrance.target);
@@ -1374,8 +1375,7 @@ pub fn tick_portal_shock(
             );
             match kind {
                 ChestKind::Weapon => {
-                    let weapon =
-                        crate::game::combat::random_weapon(&mut rand::rng());
+                    let weapon = crate::game::combat::random_weapon(&mut rand::rng());
                     crate::game::pickups::spawn_pickup(
                         &mut commands,
                         &catalog,
@@ -1485,13 +1485,12 @@ pub fn portal_enter(
     let Ok((portal_e, portal_tf, closing)) = portal_q.single() else {
         return;
     };
-    // GML Portal/Collision_Player: `if (close) exit` — latch on first touch.
+    // GML Portal/Collision_Player: `if (close) exit` - latch on first touch.
     if closing.is_some() {
         return;
     }
 
-    let Ok((player_e, player_tf, mut vel, race_state, mut inv, player)) =
-        player_q.single_mut()
+    let Ok((player_e, player_tf, mut vel, race_state, mut inv, player)) = player_q.single_mut()
     else {
         return;
     };
@@ -1637,7 +1636,7 @@ pub fn tick_portal_suck(
 
     // Clean current floor. Carried weapons already live in the
     // PortalCarriedWeapons resource (despawned on portal touch), so the
-    // wipe only removes floor entities — GML room_restart persistence.
+    // wipe only removes floor entities - GML room_restart persistence.
     for e in &level_q {
         commands.entity(e).despawn();
     }
@@ -2145,7 +2144,9 @@ mod portal_vortex_parity_tests {
         app.init_resource::<PortalCarriedWeapons>();
         app.init_resource::<SecretTriggers>();
         let mut catalog = AssetCatalog::default();
-        catalog.images.insert("images/sprBarrelDead.png".to_string());
+        catalog
+            .images
+            .insert("images/sprBarrelDead.png".to_string());
         // Chest loot falls back to the Revolver sprite when the rolled
         // weapon art is absent; sprite_exact requires every path.
         catalog.images.insert("images/sprRevolver.png".to_string());
@@ -2171,10 +2172,8 @@ mod portal_vortex_parity_tests {
     fn weapons_drag_toward_vortex_then_persist() {
         let mut app = harness();
         let portal = portal_pos();
-        app.world_mut().spawn((
-            Portal,
-            Transform::from_translation(portal.extend(5.0)),
-        ));
+        app.world_mut()
+            .spawn((Portal, Transform::from_translation(portal.extend(5.0))));
         // Dropped gun 64px away: inside the 96px GML attract ring.
         let gun = app
             .world_mut()
@@ -2224,6 +2223,43 @@ mod portal_vortex_parity_tests {
             app.world().get_entity(gun).is_err(),
             "carried gun entity should despawn"
         );
+    }
+
+    #[test]
+    fn far_ring_drag_never_overrides_player_velocity() {
+        let mut app = harness();
+        let portal = portal_pos();
+        app.world_mut()
+            .spawn((Portal, Transform::from_translation(portal.extend(5.0))));
+        // Player in the far ring, sprinting directly away at full run speed.
+        let player = app
+            .world_mut()
+            .spawn((
+                Player::default(),
+                Velocity(Vec2::new(120.0, 0.0)),
+                Transform::from_translation(Vec2::new(80.0, 0.0).extend(20.0)),
+            ))
+            .id();
+        for _ in 0..5 {
+            app.update();
+        }
+        // Input authority: GML attract only nudges position, so velocity
+        // must be untouched (the old code overwrote it toward the portal,
+        // making the whole ring inescapable).
+        let vel = app.world().get::<Velocity>(player).unwrap().0;
+        assert!(
+            (vel - Vec2::new(120.0, 0.0)).length() < 0.01,
+            "drag stole player velocity: {vel}"
+        );
+        // Only the GML 2px/step nudge applied: 80 - 5*2 = 70.
+        let p = app
+            .world()
+            .get::<Transform>(player)
+            .unwrap()
+            .translation
+            .truncate();
+        let d = p.distance(portal);
+        assert!((d - 70.0).abs() < 1.0, "far-ring nudge wrong: {d}");
     }
 
     #[test]
