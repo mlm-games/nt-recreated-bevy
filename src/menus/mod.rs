@@ -127,27 +127,35 @@ pub fn compose_root(
     let content = match st.phase {
         AppState::Splash => splash_ui(&st),
         AppState::Loading => loading_ui(&st),
-        AppState::MainMenu => ZStack(Modifier::new().fill_max_size()).child((
-            main_menu_ui(&st, actions.clone()),
-            AnimatedVisibility(
+        AppState::MainMenu => {
+            let mut layers: Vec<View> = vec![main_menu_ui(&st, actions.clone())];
+            if st.overlay == OverlayMenu::Settings {
+                layers.push(scrim());
+            }
+            layers.push(AnimatedVisibility(
                 st.overlay == OverlayMenu::Settings,
                 settings_view.clone(),
                 popup_anim_config("menu_settings"),
-            ),
-        )),
-        AppState::Title => ZStack(Modifier::new().fill_max_size()).child((
-            title_screen::title_screen(&st, actions.clone()),
-            AnimatedVisibility(
+            ));
+            ZStack(Modifier::new().fill_max_size()).child(layers)
+        }
+        AppState::Title => {
+            let mut layers: Vec<View> = vec![title_screen::title_screen(&st, actions.clone())];
+            if st.overlay == OverlayMenu::Settings || st.overlay == OverlayMenu::Credits {
+                layers.push(scrim());
+            }
+            layers.push(AnimatedVisibility(
                 st.overlay == OverlayMenu::Settings,
                 settings_view.clone(),
                 popup_anim_config("title_settings"),
-            ),
-            AnimatedVisibility(
+            ));
+            layers.push(AnimatedVisibility(
                 st.overlay == OverlayMenu::Credits,
                 credits_ui(&st, actions.clone()),
                 popup_anim_config("title_credits"),
-            ),
-        )),
+            ));
+            ZStack(Modifier::new().fill_max_size()).child(layers)
+        }
         AppState::InGame => {
             // GenCont / between-floor loading owns the screen completely.
             // Do not draw HUD, pause, mutation, or death UI over it.
@@ -164,6 +172,13 @@ pub fn compose_root(
                     children.push(game_over_panel(&st, actions.clone()));
                 } else if !st.mutation_choices.is_empty() {
                     children.push(mutation_panel(&st, actions.clone()));
+                }
+
+                if matches!(
+                    st.overlay,
+                    OverlayMenu::Pause | OverlayMenu::Settings | OverlayMenu::Credits
+                ) {
+                    children.push(scrim());
                 }
 
                 children.push(AnimatedVisibility(
@@ -349,20 +364,23 @@ fn roadmap_text(st: &SharedUi) -> String {
     format!("{}-{}  LOOP {}", st.world, st.floor_in_world, st.loop_count)
 }
 
-fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML scrMakePauseButtons + PauseButton/Draw_0 + PauseImage exact:
-    // 4 bigname buttons at corners with appear 1..3, left gray else white on hover,
-    // confirm replaces them with BACK + QUIT/RETRY at (52,192) & (268,192).
-    let v = nt_view(st);
-    let mut layers: Vec<View> = Vec::new();
-    // Draw_0 ingame: black 0.9 rect over view; we use 230/255 ≈ 0.9
-    layers.push(Column(
+/// Full-screen scrim (~/temp Dialog scrim pattern): rendered as a direct
+/// child of the root `ZStack` (definite 800x600), OUTSIDE `AnimatedVisibility`.
+/// The inflow wrapper (`fill_max_width`, auto height) collapses `fill_max_size`
+/// percent children to h=0, so a dim inside the animated content never paints.
+fn scrim() -> View {
+    Column(
         Modifier::new()
             .fill_max_size()
             .background(RColor::from_rgba(0, 0, 0, 230))
             .clickable()
             .on_click(|| {}),
-    ));
+    )
+}
+
+fn pause_overlay(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
+    let v = nt_view(st);
+    let mut layers: Vec<View> = Vec::new();
     if st.pause_confirm.is_none() {
         layers.push(nt_text_at(
             "PAUSED".to_string(),
@@ -490,16 +508,8 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
     // Draw mirrors Other_10 generic item loop (slider/switch/list/category/button).
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
-    layers.push(Column(
-        Modifier::new()
-            .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 230))
-            .clickable()
-            .on_click(|| {}),
-    ));
     match st.settings_page {
         0 => {
-            // Main: GML OptionCategory.Main  cats + extras (DISPLAY/PROFILE etc hidden but reachable via parents)
             layers.push(nt_text_at(
                 "OPTIONS".to_string(),
                 160.0,
@@ -576,50 +586,19 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                 let v_up = (val + 0.1).clamp(0.0, 1.0);
                 let a_down = actions.clone();
                 let a_up = actions.clone();
-                layers.push(hitbox_at(
-                    40.0,
-                    gy - 6.0,
-                    24.0,
-                    16.0,
-                    &v,
-                    move || match kind {
-                        0 => push(&a_down, UiAction::SetMasterVol(v_down)),
-                        1 => push(&a_down, UiAction::SetMusicVol(v_down)),
-                        2 => push(&a_down, UiAction::SetAmbienceVol(v_down)),
-                        _ => push(&a_down, UiAction::SetSfxVol(v_down)),
-                    },
-                ));
-                layers.push(hitbox_at(
-                    240.0,
-                    gy - 6.0,
-                    24.0,
-                    16.0,
-                    &v,
-                    move || match kind {
-                        0 => push(&a_up, UiAction::SetMasterVol(v_up)),
-                        1 => push(&a_up, UiAction::SetMusicVol(v_up)),
-                        2 => push(&a_up, UiAction::SetAmbienceVol(v_up)),
-                        _ => push(&a_up, UiAction::SetSfxVol(v_up)),
-                    },
-                ));
-                layers.push(nt_text_at(
-                    "<".to_string(),
-                    44.0,
-                    gy,
-                    &v,
-                    col(238, 239, 225),
-                    true,
-                ));
-                layers.push(nt_text_at(
-                    ">".to_string(),
-                    252.0,
-                    gy,
-                    &v,
-                    col(238, 239, 225),
-                    true,
-                ));
+                layers.push(arrow_button_at("<", 44.0, gy, &v, move || match kind {
+                    0 => push(&a_down, UiAction::SetMasterVol(v_down)),
+                    1 => push(&a_down, UiAction::SetMusicVol(v_down)),
+                    2 => push(&a_down, UiAction::SetAmbienceVol(v_down)),
+                    _ => push(&a_down, UiAction::SetSfxVol(v_down)),
+                }));
+                layers.push(arrow_button_at(">", 252.0, gy, &v, move || match kind {
+                    0 => push(&a_up, UiAction::SetMasterVol(v_up)),
+                    1 => push(&a_up, UiAction::SetMusicVol(v_up)),
+                    2 => push(&a_up, UiAction::SetAmbienceVol(v_up)),
+                    _ => push(&a_up, UiAction::SetSfxVol(v_up)),
+                }));
             }
-            // 3D SOUND separate bool (volume_3dsound) – GML volume_3dsound switch
             let a_sw = actions.clone();
             let cur3d = st.volume_3dsound;
             layers.push(nt_text_at(
@@ -1159,7 +1138,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             let u = (st.controls_scale + 0.1).clamp(0.0, 1.0);
             let a_d = actions.clone();
             let a_u = actions.clone();
-            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+            layers.push(arrow_button_at("<", 44.0, y, &v, move || {
                 push(
                     &a_d,
                     UiAction::SettingSlider {
@@ -1168,7 +1147,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                     },
                 )
             }));
-            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+            layers.push(arrow_button_at(">", 252.0, y, &v, move || {
                 push(
                     &a_u,
                     UiAction::SettingSlider {
@@ -1177,24 +1156,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
                     },
                 )
             }));
-            layers.push(nt_text_at(
-                "<".to_string(),
-                44.0,
-                y,
-                &v,
-                col(238, 239, 225),
-                true,
-            ));
-            layers.push(nt_text_at(
-                ">".to_string(),
-                252.0,
-                y,
-                &v,
-                col(238, 239, 225),
-                true,
-            ));
             y += 18.0;
-            // subcats
             let a_rem = actions.clone();
             layers.push(bigname_button_at(
                 "REMAP".to_string(),
@@ -1611,6 +1573,45 @@ fn bigname_button_at(
     )
 }
 
+fn arrow_button_at(
+    glyph: &str,
+    gx: f32,
+    gy: f32,
+    v: &NtView,
+    on_click: impl Fn() + 'static,
+) -> View {
+    let font_px = (7.0 * v.s).clamp(8.0, 96.0);
+    Column(
+        Modifier::new()
+            .fill_max_size()
+            .padding_values(PaddingValues {
+                left: v.ox + (gx - 12.0) * v.s,
+                right: 0.0,
+                top: v.oy + (gy - 3.0) * v.s,
+                bottom: 0.0,
+            })
+            .align_items(AlignItems::FLEX_START),
+    )
+    .child(
+        Column(
+            Modifier::new()
+                .width(24.0 * v.s)
+                .height(16.0 * v.s)
+                .justify_content(JustifyContent::CENTER)
+                .align_items(AlignItems::CENTER)
+                .clickable()
+                .on_click(on_click),
+        )
+        .child(
+            RText(glyph.to_string())
+                .size(font_px)
+                .font_family("Silkscreen")
+                .color(col(238, 239, 225))
+                .single_line(),
+        ),
+    )
+}
+
 fn hitbox_at(x: f32, y: f32, w: f32, h: f32, v: &NtView, on_click: impl Fn() + 'static) -> View {
     Column(
         Modifier::new()
@@ -1638,13 +1639,6 @@ fn credits_ui(st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
     let a = actions.clone();
     let tr = &st.translations;
     let mut layers: Vec<View> = Vec::new();
-    layers.push(Column(
-        Modifier::new()
-            .fill_max_size()
-            .background(RColor::from_rgba(0, 0, 0, 230))
-            .clickable()
-            .on_click(|| {}),
-    ));
     layers.push(nt_text_at(
         t(tr, "credits", "CREDITS").to_ascii_uppercase(),
         160.0,
