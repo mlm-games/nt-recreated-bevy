@@ -2121,3 +2121,220 @@ mod mutation_progression_tests {
         }
     }
 }
+
+/// Headless parity tests for GML portal/vortex level-end drag
+/// (`Portal/Create_0 attract_objects`, `WepPickup/Collision_Portal`,
+/// `Rad/Step_0`, `PortalShock/Collision_prop`, chest `Collision_PortalShock`).
+/// Also guards against Bevy B0001 query-conflict panics in these systems.
+#[cfg(test)]
+mod portal_vortex_parity_tests {
+    use super::*;
+    use crate::game::pickups::portal_pickup_carry;
+    use bevy::asset::AssetPlugin;
+    use bevy::time::TimeUpdateStrategy;
+
+    /// Minimal harness: fixed-step systems exactly like production, one fixed
+    /// tick per `update()` so `Time<Fixed>` deltas are deterministic.
+    fn harness() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        // Sprite-producing systems call AssetServer::load::<Image>, which
+        // requires the Image asset type to be registered.
+        app.init_asset::<Image>();
+        app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
+        let mut run = Run::default();
+        run.portal_open = true;
+        app.insert_resource(run);
+        // Floor cells covering x in [-32, 96] so LOS/stepping is walkable.
+        let mut mask = FloorMask::default();
+        for cx in -1..=3 {
+            mask.cells.insert((cx, 0));
+        }
+        app.insert_resource(mask);
+        app.init_resource::<Toast>();
+        app.init_resource::<PortalCarriedWeapons>();
+        app.init_resource::<SecretTriggers>();
+        let mut catalog = AssetCatalog::default();
+        catalog.images.insert("images/sprBarrelDead.png".to_string());
+        // Chest loot falls back to the Revolver sprite when the rolled
+        // weapon art is absent; sprite_exact requires every path.
+        catalog.images.insert("images/sprRevolver.png".to_string());
+        app.insert_resource(catalog);
+        app.add_systems(
+            FixedUpdate,
+            (
+                portal_attract,
+                portal_pickup_carry,
+                tick_portal_shock,
+                tick_portal_clear,
+                portal_enter,
+            ),
+        );
+        app
+    }
+
+    fn portal_pos() -> Vec2 {
+        Vec2::new(64.0, 0.0)
+    }
+
+    #[test]
+    fn weapons_drag_toward_vortex_then_persist() {
+        let mut app = harness();
+        let portal = portal_pos();
+        app.world_mut().spawn((
+            Portal,
+            Transform::from_translation(portal.extend(5.0)),
+        ));
+        // Dropped gun 64px away: inside the 96px GML attract ring.
+        let gun = app
+            .world_mut()
+            .spawn((
+                Pickup {
+                    kind: PickupKind::Weapon(WeaponId::REVOLVER),
+                },
+                GroundPhysics {
+                    vel: Vec2::ZERO,
+                    rotspeed: 0.8,
+                },
+                Transform::from_translation(Vec2::ZERO.extend(8.0)),
+            ))
+            .id();
+        // Player needed for rad targeting; also attracted itself.
+        app.world_mut().spawn((
+            Player::default(),
+            Velocity(Vec2::ZERO),
+            Transform::from_translation(Vec2::ZERO.extend(20.0)),
+        ));
+
+        let dist = |app: &App| {
+            app.world()
+                .get::<Transform>(gun)
+                .map(|tf| tf.translation.truncate().distance(portal))
+                .unwrap_or(0.0)
+        };
+        let start = dist(&app);
+        assert!((start - 64.0).abs() < 0.01);
+        for _ in 0..5 {
+            app.update();
+        }
+        // GML speed 2px/step: must have moved closer, never teleported.
+        let mid = dist(&app);
+        assert!(mid < start, "gun not dragged: {mid} vs {start}");
+        assert!(mid > 1.0, "gun teleported instead of dragged");
+        for _ in 0..40 {
+            app.update();
+        }
+        // GML WepPickup/Collision_Portal: persistent → carried, floor entity gone.
+        let carried = app.world().resource::<PortalCarriedWeapons>();
+        assert!(
+            !carried.0.is_empty(),
+            "gun reaching the vortex was not carried over"
+        );
+        assert!(
+            app.world().get_entity(gun).is_err(),
+            "carried gun entity should despawn"
+        );
+    }
+
+    #[test]
+    fn rads_magnet_globally_while_portal_open() {
+        let mut app = harness();
+        app.world_mut().spawn((
+            Portal,
+            Transform::from_translation(portal_pos().extend(5.0)),
+        ));
+        app.world_mut().spawn((
+            Player::default(),
+            Velocity(Vec2::ZERO),
+            Transform::from_translation(Vec2::ZERO.extend(20.0)),
+        ));
+        // Rad far beyond the normal 80px range: GML targets player anyway.
+        let rad = app
+            .world_mut()
+            .spawn((
+                Pickup {
+                    kind: PickupKind::Rad(1),
+                },
+                Transform::from_translation(Vec2::new(200.0, 0.0).extend(8.0)),
+            ))
+            .id();
+        let player_dist = |app: &App| {
+            app.world()
+                .get::<Transform>(rad)
+                .map(|tf| tf.translation.truncate().distance(Vec2::ZERO))
+                .unwrap_or(f32::MAX)
+        };
+        let start = player_dist(&app);
+        assert!((start - 200.0).abs() < 0.01);
+        for _ in 0..10 {
+            app.update();
+        }
+        let end = player_dist(&app);
+        // GML mp_potential_step 12px/step × 10 ticks = ~120px closer.
+        assert!(end < start - 50.0, "rad not magnetized: {end} vs {start}");
+    }
+
+    #[test]
+    fn shock_kills_props_and_opens_chests() {
+        let mut app = harness();
+        app.world_mut().spawn((
+            Portal,
+            Transform::from_translation(portal_pos().extend(5.0)),
+        ));
+        app.world_mut().spawn((
+            PortalShock {
+                timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                radius: 72.0,
+            },
+            Transform::from_translation(portal_pos().extend(6.0)),
+        ));
+        // Barrel 10px away: GML Collision_prop other.hp = 0.
+        let barrel = app
+            .world_mut()
+            .spawn((
+                Prop {
+                    size: Vec2::splat(18.0),
+                    hp: 10,
+                    destructible: true,
+                    explosive: false,
+                },
+                PropSprites {
+                    idle: "images/sprBarrel.png",
+                    hurt: "images/sprBarrelHurt.png",
+                    dead: "images/sprBarrelDead.png",
+                    flip_x: false,
+                },
+                Transform::from_translation(Vec2::new(74.0, 0.0).extend(-8.0)),
+            ))
+            .id();
+        // Closed weapon chest at origin: inside shock radius, outside carry radius.
+        let chest = app
+            .world_mut()
+            .spawn((
+                Pickup {
+                    kind: PickupKind::Chest(ChestKind::Weapon),
+                },
+                Transform::from_translation(Vec2::ZERO.extend(8.0)),
+            ))
+            .id();
+        for _ in 0..10 {
+            app.update();
+        }
+        assert!(
+            app.world().get_entity(barrel).is_err(),
+            "shock did not kill the barrel prop"
+        );
+        assert!(
+            app.world().get::<OpenedChest>(chest).is_some(),
+            "shock did not auto-open the chest"
+        );
+        // Corpse = PickupLifetime without Pickup (bursts use Particle, rads keep Pickup).
+        let corpses = app
+            .world_mut()
+            .query_filtered::<Entity, (With<PickupLifetime>, Without<Pickup>)>()
+            .iter(app.world())
+            .count();
+        assert!(corpses > 0, "barrel left no spr_dead corpse");
+    }
+}

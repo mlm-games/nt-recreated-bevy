@@ -1147,6 +1147,11 @@ pub struct Pickup {
     pub kind: PickupKind,
 }
 
+/// GML `WepPickup.ammo`: fresh/chest drops carry a one-shot ammo bonus,
+/// consumed on first touch (`other.ammo = 0`). Swap/death drops spawn dry.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct WepPickupAmmo(pub bool);
+
 #[derive(Clone, Copy)]
 pub enum PickupKind {
     Rad(u32),

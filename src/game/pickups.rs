@@ -77,7 +77,7 @@ pub fn spawn_pickup(
     asset_server: &AssetServer,
     kind: PickupKind,
     pos: Vec2,
-) {
+) -> Entity {
     let (path, _size) = pickup_sprite(kind, catalog);
     // Upstream pickup image speeds: Rad spins at 0.4/frame (12 fps @30) from
     // a random start frame; HP/ammo strips are static (image_speed 0).
@@ -109,6 +109,10 @@ pub fn spawn_pickup(
             });
         }
         PickupKind::Weapon(_) => {
+            // GML scrWeaponPickupCreate(has_ammo=true) for fresh/chest drops:
+            // one ammo bonus, consumed on first touch. Swap drops override to
+            // dry in spawn_dropped_weapon.
+            ec.insert(WepPickupAmmo(true));
             // WepPickup: random resting angle + a small pop with spin.
             let ang = rng.random_range(0.0..std::f32::consts::TAU);
             ec.insert(GroundPhysics {
@@ -124,6 +128,7 @@ pub fn spawn_pickup(
     }
     let e = ec.id();
     Juice::pop_in(commands, e, 0.14);
+    e
 }
 
 pub fn spawn_chest(
@@ -222,6 +227,7 @@ pub fn collect_pickups(
             &Pickup,
             Option<&mut GroundPhysics>,
             Option<&mut PickupLifetime>,
+            Option<&WepPickupAmmo>,
         ),
         Without<Player>,
     >,
@@ -254,7 +260,7 @@ pub fn collect_pickups(
 
     // Nearest weapon for press-to-pick (original: instance_nearest + press_pick)
     let mut nearest_weapon: Option<(Entity, f32)> = None;
-    for (e, tf, pickup, _, _) in pickups.iter() {
+    for (e, tf, pickup, _, _, _) in pickups.iter() {
         if matches!(pickup.kind, PickupKind::Weapon(_)) {
             let d = player_pos.distance(tf.translation.truncate());
             if d < 28.0 && nearest_weapon.is_none_or(|(_, bd)| d < bd) {
@@ -263,7 +269,7 @@ pub fn collect_pickups(
         }
     }
 
-    for (pickup_e, mut pickup_tf, pickup, ground, mut lifetime) in &mut pickups {
+    for (pickup_e, mut pickup_tf, pickup, ground, mut lifetime, wep_ammo) in &mut pickups {
         let pickup_pos = pickup_tf.translation.truncate();
         let dist = player_pos.distance(pickup_pos);
 
@@ -496,6 +502,10 @@ pub fn collect_pickups(
                         crate::game::reactive_audio::ReactiveCue::WeaponPickup,
                     ),
                 ));
+                // GML one-shot `ammo` flag: fresh drops grant once, swap drops
+                // (dry) grant nothing. Bevy has no autopick pickups, so the
+                // GotWeapon toast below always shows (GML `!autopick` branch).
+                let has_ammo = wep_ammo.is_some_and(|f| f.0);
                 equip_weapon(
                     &mut commands,
                     &catalog,
@@ -504,6 +514,8 @@ pub fn collect_pickups(
                     weapon,
                     player_pos,
                     &player,
+                    &mut health,
+                    has_ammo,
                 );
 
                 // Fish ultra - Confiscate: weapon pickups grant extra ammo.
@@ -630,17 +642,21 @@ fn spawn_dropped_weapon(
     weapon: WeaponId,
     pos: Vec2,
 ) {
-    spawn_pickup(
+    // GML Player swap drops pass no ammo flag: re-pickup grants nothing.
+    let e = spawn_pickup(
         commands,
         catalog,
         asset_server,
         PickupKind::Weapon(weapon),
         pos + Vec2::new(0.0, 24.0),
     );
+    commands.entity(e).insert(WepPickupAmmo(false));
 }
 
 /// Equips a weapon NT-style: slot-aware for Cuz (3 slots). If an empty slot exists,
 /// fill it and switch to it; otherwise drop the current weapon.
+/// `has_ammo` is the pickup's one-shot GML `ammo` flag: fresh/chest drops grant
+/// one `2x` ammo bonus with a small popup, swap drops grant nothing.
 fn equip_weapon(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -649,16 +665,13 @@ fn equip_weapon(
     weapon: WeaponId,
     player_pos: Vec2,
     player: &Player,
+    health: &mut Health,
+    has_ammo: bool,
 ) {
     if let Some(empty) = first_empty_weapon_slot(inv) {
         inv.weapons[empty] = weapon;
         inv.current = empty;
-        let def = crate::game::weapon_runtime::weapon_runtime_def(weapon);
-        if def.melee.is_none() {
-            let slot = inv.ammo_mut(def.ammo);
-            let add = ammo_pickup_amount(def.ammo) * 2;
-            *slot = (*slot + add).min(player.ammo_cap(def.ammo));
-        }
+        grant_pickup_ammo(commands, inv, weapon, player_pos, player, health, has_ammo);
         return;
     }
 
@@ -668,11 +681,116 @@ fn equip_weapon(
     }
     inv.weapons[inv.current] = weapon;
 
+    grant_pickup_ammo(commands, inv, weapon, player_pos, player, health, has_ammo);
+}
+
+/// GML `Collision_WepPickup` tail: `if other.ammo && type != None`.
+/// Crown of Protection converts the bonus to healing
+/// (`1 + second stomach`), otherwise `2x` ammo with a small amount popup.
+fn grant_pickup_ammo(
+    commands: &mut Commands,
+    inv: &mut Inventory,
+    weapon: WeaponId,
+    player_pos: Vec2,
+    player: &Player,
+    health: &mut Health,
+    has_ammo: bool,
+) {
     let def = crate::game::weapon_runtime::weapon_runtime_def(weapon);
-    if def.melee.is_none() {
-        let slot = inv.ammo_mut(def.ammo);
-        let add = ammo_pickup_amount(def.ammo) * 2;
-        *slot = (*slot + add).min(player.ammo_cap(def.ammo));
+    let second_stomach = player.mutations.contains(&MutationId::SecondStomach);
+    match weapon_pickup_grant(
+        has_ammo,
+        def.melee.is_some(),
+        player.crown,
+        second_stomach,
+    ) {
+        WeaponPickupGrant::Nothing => {}
+        WeaponPickupGrant::Heal(heal) => {
+            health.hp = (health.hp + heal).min(health.max);
+            VfxSpawner::spawn_damage_number(
+                commands,
+                heal,
+                player_pos,
+                Color::srgb(0.3, 1.0, 0.3),
+            );
+        }
+        WeaponPickupGrant::Ammo => {
+            let slot = inv.ammo_mut(def.ammo);
+            let add = ammo_pickup_amount(def.ammo) * 2;
+            let gained = add.min(player.ammo_cap(def.ammo) - *slot).max(0);
+            *slot += gained;
+            VfxSpawner::spawn_damage_number(
+                commands,
+                gained,
+                player_pos,
+                Color::srgb(0.35, 0.7, 1.0),
+            );
+        }
+    }
+}
+
+/// Pure GML `other.ammo` truth table (unit-tested below): dry or melee
+/// pickups grant nothing; Protection crown heals instead of granting ammo.
+#[derive(Debug, PartialEq, Eq)]
+enum WeaponPickupGrant {
+    Nothing,
+    Heal(i32),
+    Ammo,
+}
+
+fn weapon_pickup_grant(
+    has_ammo: bool,
+    melee: bool,
+    crown: CrownKind,
+    second_stomach: bool,
+) -> WeaponPickupGrant {
+    if !has_ammo || melee {
+        return WeaponPickupGrant::Nothing;
+    }
+    if crown == CrownKind::Protection {
+        return WeaponPickupGrant::Heal(1 + i32::from(second_stomach));
+    }
+    WeaponPickupGrant::Ammo
+}
+
+#[cfg(test)]
+mod weapon_pickup_grant_tests {
+    use super::*;
+
+    #[test]
+    fn dry_swap_drops_grant_nothing() {
+        assert_eq!(
+            weapon_pickup_grant(false, false, CrownKind::None, false),
+            WeaponPickupGrant::Nothing
+        );
+    }
+
+    #[test]
+    fn melee_never_grants_ammo() {
+        assert_eq!(
+            weapon_pickup_grant(true, true, CrownKind::None, false),
+            WeaponPickupGrant::Nothing
+        );
+    }
+
+    #[test]
+    fn fresh_ranged_drop_grants_ammo() {
+        assert_eq!(
+            weapon_pickup_grant(true, false, CrownKind::None, false),
+            WeaponPickupGrant::Ammo
+        );
+    }
+
+    #[test]
+    fn protection_crown_heals_instead() {
+        assert_eq!(
+            weapon_pickup_grant(true, false, CrownKind::Protection, false),
+            WeaponPickupGrant::Heal(1)
+        );
+        assert_eq!(
+            weapon_pickup_grant(true, false, CrownKind::Protection, true),
+            WeaponPickupGrant::Heal(2)
+        );
     }
 }
 
