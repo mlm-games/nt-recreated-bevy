@@ -160,12 +160,25 @@ impl AssetCatalog {
     }
 
     /// Strip metadata for an animated sprite, if any.
+    ///
+    /// GML timing: character/prop/portal state strips are owned by objects
+    /// with `image_speed = 0.4` at 30 Hz room speed (Portal, Corpse, enemy,
+    /// Player, prop, hitme `Create_0.gml`), i.e. exactly 12 img/s. The only
+    /// non-0.4 owners in `~/Downloads` are 14 projectile/FX objects whose
+    /// strips never use state suffixes, so state-suffixed strips always play
+    /// at 12 fps regardless of the extractor's guessed value.
     pub fn anim_def(&self, path: &str) -> Option<crate::game::anim::AnimDef> {
-        self.anims.get(path).map(|a| crate::game::anim::AnimDef {
-            frames: a[0] as u32,
-            frame_px: a[1] as u32,
-            height: a[2] as u32,
-            fps: a[3],
+        self.anims.get(path).map(|a| {
+            let mut fps = a[3];
+            if fps > 0.0 && gml_state_strip_fps(path).is_some() {
+                fps = 12.0;
+            }
+            crate::game::anim::AnimDef {
+                frames: a[0] as u32,
+                frame_px: a[1] as u32,
+                height: a[2] as u32,
+                fps,
+            }
         })
     }
 
@@ -186,6 +199,32 @@ impl AssetCatalog {
 
 pub fn scan_asset_catalog() -> AssetCatalog {
     AssetCatalog::scan()
+}
+
+/// fps override for GML `image_speed = 0.4` state strips (12 img/s at 30 Hz).
+/// Returns Some(12.0) when `path` is a state strip owned by a 0.4 object;
+/// None keeps the extractor value (projectile/FX strips with genuine speeds,
+/// and fps-0.0 static variant sheets which must never animate).
+///
+/// Suffix set is deliberately narrow: `Spawn`/`Charge`/`Fire` are excluded
+/// because GuardianBullet (0.7) owns `sprGuardianBulletSpawn` and
+/// BigGuardianBullet (0.5) owns `sprBigGuardianBulletSpawn`.
+fn gml_state_strip_fps(path: &str) -> Option<f32> {
+    let stem = path.rsplit('/').next().unwrap_or(path);
+    let stem = stem.strip_suffix(".png").unwrap_or(stem);
+    let state_suffix = ["Idle", "Walk", "Hurt", "Dead", "Appear", "Disappear", "Burrow"]
+        .iter()
+        .any(|s| stem.ends_with(s));
+    // Portal object (image_speed 0.4) strips carry no state suffix.
+    let portal_family = stem.starts_with("sprPortal")
+        || stem.starts_with("sprProtoPortal")
+        || stem.starts_with("sprPopoPortal")
+        || stem.starts_with("sprBigPortal");
+    if state_suffix || portal_family {
+        Some(12.0)
+    } else {
+        None
+    }
 }
 
 pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {

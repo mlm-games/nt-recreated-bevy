@@ -1067,6 +1067,7 @@ pub fn portal_check(
     open_mind: Res<OpenMind>,
     mask: Res<FloorMask>,
     enemy_q: Query<(), With<Enemy>>,
+    enemy_shots: Query<(Entity, &Team), With<crate::game::components::Projectile>>,
     audio: Res<GameAudio>,
 ) {
     if run.game_over || run.portal_open {
@@ -1078,6 +1079,12 @@ pub fn portal_check(
     }
     if !enemy_q.is_empty() {
         return;
+    }
+
+    for (e, team) in &enemy_shots {
+        if *team != Team::Player {
+            commands.entity(e).despawn();
+        }
     }
 
     run.portal_open = true;
@@ -1103,9 +1110,8 @@ pub fn portal_check(
     if let Some(portal_strip) = portal_strip {
         pc.insert(portal_strip);
     }
-    let e = pc.id();
-
-    Juice::pop_in(&mut commands, e, 0.3);
+    // GML Portal/Create_0 appears instantly (shock + PortalL FX + sound);
+    // no scale pop-in.
     ScreenEffects::add_trauma(&mut trauma, 0.25);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.25);
     audio.play_portal(&mut commands);
@@ -1457,7 +1463,8 @@ pub fn tick_floor_transition(
             tf.scale = Vec3::ONE;
             run.portal_open = false;
             ft.active = false;
-            // Signal vortex to drain (it will despawn itself after InGame 15-tick linger)
+            // Signal vortex to drain (GML survivors pop within ~21 ticks;
+            // the quad despawns itself on a 26-tick margin)
             if let Some(mut s) = spiral {
                 if s.alive {
                     s.alive = false;

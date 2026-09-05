@@ -1,13 +1,14 @@
 //! Portal vortex as a single WGSL quad (replaces the per-wisp entity swarm).
 //!
-//! Fidelity source: `nt-recreated-public-rewrite` `SpiralCont/Step_0.gml`
-//! orbit `80/50` (public rewrite `* 80 / * 50`). Commercial binary uses
-//! `130/90` (recovered from `nuclearthrone` YYC constant pool `921,500,583,130,90`)
-//! but this port tracks the public rewrite per spec.
+//! Fidelity source: `nt-recreated-public-rewrite`:
 //!   - `objects/SpiralCont/Create_0.gml`  (warmup `repeat 150`, orbit drift)
-//!   - `objects/SpiralCont/Step_0.gml`    (angle += 8 + sin_deg(a/300), spawn 1/tick)
+//!   - `objects/SpiralCont/Step_0.gml`    (angle += 8 + sin(a/300), spawn 1/tick)
 //!   - `objects/Spiral/Step_0.gml`        (grow law, destroy xscale>2.5)
 //!   - `scripts/scrDrawSpiral/scrDrawSpiral.gml` (white+black passes, lightning)
+//!
+//! Orbit is `80/50` per the public rewrite (this port tracks `~/Downloads`,
+//! not the commercial YYC `130/90`). Tick rate is exactly 30 Hz like GML;
+//! after SpiralCont dies wisps grow 1.5x (GML `grow *= 1.5`, destroy at 3).
 //!
 //! The CPU only advances the controller clock and maintains a ring of
 //! `[x, y, birth_tick, rot]` vec4s; every wisp's growth, fade, lightning and
@@ -112,6 +113,13 @@ impl SpiralCtl {
     /// One 30 Hz tick: SpiralCont/Step_0 + the debris spawn check and every
     /// SpiralDebris/Step_0 - shared by the warmup and the live clock so the
     /// field state is identical however the controller was armed.
+    ///
+    /// Drain: once SpiralCont is gone, GML compounds `grow *= 1.5` EVERY tick
+    /// (Spiral/Step_0, SpiralDebris/Step_0), so every survivor exceeds the
+    /// xscale-3 kill plane within ~21 ticks (~0.7s: oldest pop in ~4, mid in
+    /// ~8, newborns in ~21). Wisp ages are rewound 5.5 extra ticks per dead
+    /// tick (6.5x aging) for the identical staggered clear through the
+    /// shader growth table; debris compounds for real on the CPU.
     fn tick_once(&mut self) {
         self.ticks += 1.0;
         if self.alive {
@@ -139,10 +147,18 @@ impl SpiralCtl {
                 };
                 self.dhead = (self.dhead + 1) % MAX_DEBRIS;
             }
+        } else {
+            // No new spawns; survivors fast-forward (see method docs).
+            for slot in self.ring.iter_mut() {
+                if slot[2] >= 0.0 {
+                    slot[2] -= 5.5;
+                }
+            }
         }
 
         // SpiralDebris/Step_0 (exact order): position from current state,
         // then advance angle/dist/grow/xscale, then self-rotation.
+        let drain = !self.alive;
         for (i, d) in self.debris.iter_mut().enumerate() {
             if !d.alive {
                 continue;
@@ -155,6 +171,11 @@ impl SpiralCtl {
             d.grow += 0.0005;
             d.xscale += d.grow / 1.5;
             d.grow = (d.grow + 1.0) * (1.0 + 0.001 * d.xscale) - 1.0;
+            if drain {
+                // `if !instance_exists(SpiralCont) grow *= 1.5`, same position
+                // in the sequence as the GML (before the xscale term below).
+                d.grow *= 1.5;
+            }
             d.grow *= d.xscale * 0.05 + 1.0;
             d.image_angle += d.rotspeed;
             if dx + d.xstart < -16.0
@@ -177,8 +198,10 @@ impl SpiralCtl {
     }
 
     fn step(&mut self, dt_ticks: f32) {
-        let speed = if self.alive { 1.25 } else { 1.75 };
-        self.acc += dt_ticks * speed;
+        // Exact GML 30 Hz cadence alive and dead; post-death acceleration is
+        // modelled per-wisp (birth rewind + debris grow compounding in
+        // tick_once), not by overclocking the whole clock.
+        self.acc += dt_ticks;
         while self.acc >= 1.0 {
             self.acc -= 1.0;
             self.tick_once();
@@ -192,13 +215,12 @@ fn spiral_angle_inc(angle: f32) -> f32 {
 }
 
 /// SpiralCont/Step_0.gml:18-19 orbit around the GUI centre (GML sin/cos take
-/// DEGREES; bevy takes radians, hence the conversions). Downloads
-/// `nuclear_throne` YYC uses `130/90` (pool `921,500,583,130,90`) which
-/// fills the 320×240 view - public `80/50` is too small and looks centred.
+/// DEGREES; bevy takes radians, hence the conversions). Public rewrite uses
+/// `* 80 / * 50`.
 fn orbit(angle: f32) -> (f32, f32) {
     (
-        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 130.0,
-        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 90.0,
+        GUI_W / 2.0 + deg_sin(angle / 921.0) * deg_sin(angle / 500.0) * 80.0,
+        GUI_H / 2.0 + deg_cos(angle / 583.0) * deg_sin(angle / 500.0) * 50.0,
     )
 }
 
@@ -339,9 +361,11 @@ fn vortex_tick(
     } else {
         0.0
     };
-    let thresh = if ctl.alive { 2.5 } else { 3.0 };
+    // Kill plane stays 2.5 alive and dead: post-death ages fast-forward
+    // (birth rewind) so survivors stagger-pop through the table max just
+    // like GML's compounding grow crossing xscale 3.
     mat.glob_a = Vec4::new(ctl.ticks, 1.0, r, g);
-    mat.glob_b = Vec4::new(b, bg_alpha, thresh, 0.0);
+    mat.glob_b = Vec4::new(b, bg_alpha, 2.5, 0.0);
 }
 
 /// Spawn the vortex quad once; keeps `SpiralCtl` alive alongside it.
@@ -517,13 +541,10 @@ fn despawn_vortex_when_done(
     if ctl.alive {
         return;
     }
-    let drain = if matches!(*state.get(), AppState::Title) {
-        130.0
-    } else if matches!(*state.get(), AppState::InGame) {
-        90.0
-    } else {
-        130.0
-    };
+    // GML clears every survivor within ~21 ticks of SpiralCont's death
+    // (compounding grow vs the xscale-3 plane), so the quad only needs a
+    // small margin beyond that before the reveal completes.
+    let drain = 26.0;
     if let Some(death) = ctl.death_tick {
         if ctl.ticks - death < drain {
             return;
@@ -562,14 +583,77 @@ mod tests {
 
     #[test]
     fn orbit_matches_public_rewrite() {
-        // public rewrite 80/50, not commercial 130/90
         let (x, y) = orbit(0.0);
         assert!((x - GUI_W / 2.0).abs() < 1e-3);
         assert!((y - GUI_H / 2.0).abs() < 1e-3);
-        let (x2, y2) = orbit(500.0);
-        // sin(500/500)=sin1 ~0.84, so x offset ~80*0.84*sin(500/921) etc, verify within 80
-        assert!((x2 - GUI_W / 2.0).abs() <= 80.0 + 1e-3);
-        assert!((y2 - GUI_H / 2.0).abs() <= 50.0 + 1e-3);
+        let mut max_dx: f32 = 0.0;
+        let mut max_dy: f32 = 0.0;
+        let mut a: f32 = 0.0;
+        while a < 200000.0 {
+            let (x2, y2) = orbit(a);
+            max_dx = max_dx.max((x2 - GUI_W / 2.0).abs());
+            max_dy = max_dy.max((y2 - GUI_H / 2.0).abs());
+            assert!((x2 - GUI_W / 2.0).abs() <= 80.0 + 1e-3);
+            assert!((y2 - GUI_H / 2.0).abs() <= 50.0 + 1e-3);
+            a += 137.0;
+        }
+        assert!(max_dx > 40.0, "orbit never wanders in x: {max_dx}");
+        assert!(max_dy > 25.0, "orbit never wanders in y: {max_dy}");
+    }
+
+    #[test]
+    fn vortex_tick_rate_matches_gml_30hz() {
+        // Exact 30 Hz cadence alive AND dead (post-death acceleration is
+        // per-wisp birth rewind, never a clock overdrive).
+        let mut ctl = SpiralCtl::warmed_up();
+        let t0 = ctl.ticks;
+        ctl.step(30.0);
+        assert!((ctl.ticks - t0 - 30.0).abs() < 1e-3);
+        ctl.alive = false;
+        ctl.death_tick = Some(ctl.ticks);
+        let t1 = ctl.ticks;
+        ctl.step(30.0);
+        assert!((ctl.ticks - t1 - 30.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn vortex_drain_clears_like_gml_compounding() {
+        // GML kills every survivor within ~21 ticks of SpiralCont's death.
+        // Ages must fast-forward (~6.5x) so the youngest wisp (age 0) passes
+        // the shader kill plane (scale 2.5 at table age ~117) by tick ~20.
+        let mut ctl = SpiralCtl::warmed_up();
+        let youngest = ctl
+            .ring
+            .iter()
+            .filter(|s| s[2] >= 0.0)
+            .map(|s| ctl.ticks - s[2])
+            .fold(f32::INFINITY, f32::min);
+        assert!(youngest < 130.0, "warmup left no live wisps");
+        ctl.alive = false;
+        ctl.death_tick = Some(ctl.ticks);
+        for _ in 0..5 {
+            ctl.tick_once();
+        }
+        let youngest_after = ctl
+            .ring
+            .iter()
+            .filter(|s| s[2] >= 0.0)
+            .map(|s| ctl.ticks - s[2])
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            youngest_after - youngest >= 30.0,
+            "drain aging too slow: {youngest} -> {youngest_after}"
+        );
+        for _ in 0..20 {
+            ctl.tick_once();
+        }
+        let stale = ctl
+            .ring
+            .iter()
+            .filter(|s| s[2] >= 0.0)
+            .filter(|s| ctl.ticks - s[2] <= 130.0)
+            .count();
+        assert_eq!(stale, 0, "{stale} wisps still under the kill plane");
     }
 }
 

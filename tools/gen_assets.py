@@ -400,24 +400,26 @@ def extract_wad_sprites(wad_path: Path, src_tex_dir: Path | None, dest_sprites: 
                 if not name.endswith(("Idle", "Walk", "Hurt", "Dead")):
                     return 0.0
             if name.endswith("Idle"):
-                return 8.0
+                return 12.0
             if name.endswith("Walk"):
-                return 10.0
+                return 12.0
             if name.endswith("Hurt"):
-                return 14.0
+                return 12.0
             if name.endswith("Dead"):
-                return 10.0
-            if name.endswith(("Fire", "Spawn", "Appear", "Disappear", "Burrow", "Charge", "Loop")):
-                return 10.0
+                return 12.0
+            if name.endswith(("Appear", "Disappear", "Burrow")):
+                return 12.0
             if "Idle" in name:
-                return 8.0
+                return 12.0
             if "Walk" in name:
-                return 10.0
+                return 12.0
             if "Hurt" in name:
-                return 14.0
+                return 12.0
             if "Dead" in name:
-                return 10.0
-            # Default for small strips: assume 8 fps (upstream image_speed 0.4 at 30 FPS = 12, but we use 8 to match prior art)
+                return 12.0
+            # GML default: image_speed 0.4 at 30 FPS = 12 img/s. Small strips
+            # without known speeds assume the same; true exceptions (e.g.
+            # GuardianBullet Spawn at 0.7) keep their ANIM_SPRITES entries.
             if frames <= 6:
                 return 8.0
             return 6.0

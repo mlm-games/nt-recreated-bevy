@@ -2340,29 +2340,28 @@ pub fn resolve_deaths(
         audio.play_death(&mut commands);
 
         let pos = player_tf.translation.truncate();
-        // Original `Player/Destroy_0.gml:69` `CorpseActive` with `motion_add(dir,speed); speed+=max(0,-hp/5)`
         let mut rng2 = rand::rng();
         let angle = rng2.random_range(0.0..std::f32::consts::TAU);
         let dir = Vec2::new(angle.cos(), angle.sin());
-        let corpse_speed =
-            ((-phealth.hp as f32) * 0.2).clamp(1.0, 8.0) + rng2.random_range(1.0..3.0);
-        let corpse_sprite = if let Some(s) = player_sprite.as_ref() {
-            (**s).clone()
-        } else {
-            Sprite {
-                color: Color::srgb(0.85, 0.12, 0.12),
-                custom_size: Some(Vec2::splat(18.0)),
-                ..default()
-            }
-        };
-        commands.spawn((
+        let extra_frames = ((-phealth.hp as f32) / 5.0).max(0.0);
+        let corpse_frames = (rng2.random_range(1.0..3.0) + extra_frames).clamp(1.0, 16.0);
+        let dead_path = player_anim_comp
+            .map(|pa| crate::game::anim::derive_dead_path(pa.idle))
+            .unwrap_or("images/sprMutant1Dead.png");
+        catalog.require(dead_path);
+        let (mut corpse_sprite, corpse_anim) =
+            crate::game::anim::sprite_anim(&catalog, &asset_server, dead_path);
+        if let Some(s) = player_sprite.as_ref() {
+            corpse_sprite.flip_x = s.flip_x;
+        }
+        let mut corpse_e = commands.spawn((
             GameCleanup,
             LevelCleanup,
             corpse_sprite,
-            crate::game::content::sprite_anchor(&catalog, "images/sprPlayerIdle.png"),
+            crate::game::content::sprite_anchor(&catalog, dead_path),
             Transform::from_translation(pos.extend(4.0)),
             crate::game::components::GroundPhysics {
-                vel: dir * corpse_speed * 30.0,
+                vel: dir * corpse_frames * 30.0,
                 rotspeed: rng2.random_range(-3.0..3.0),
             },
             crate::game::components::PickupLifetime {
@@ -2374,7 +2373,61 @@ pub fn resolve_deaths(
                 pos,
             },
         ));
-        // BloodStreak – original `repeat 12 BloodStreak` for chicken; generic death gets 8-12 small red puffs
+        if let Some(mut anim) = corpse_anim {
+            // GML Corpse/Other_7: freeze on the last dead frame, never loop.
+            anim.oneshot = true;
+            corpse_e.insert(anim);
+        }
+        for slot in [0, 1] {
+            let wid = pinv.weapons[slot];
+            if wid != WeaponId::NONE {
+                spawn_pickup(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    PickupKind::Weapon(wid),
+                    pos + Vec2::new(
+                        rng2.random_range(-10.0..10.0),
+                        rng2.random_range(-10.0..10.0),
+                    ),
+                );
+            }
+        }
+        if race_state.race == RaceId::Horror && player.rads > 0 {
+            spawn_pickup(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                PickupKind::Rad(player.rads),
+                pos,
+            );
+        }
+        if player.crown == CrownKind::Death {
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                60,
+                Color::srgb(1.0, 0.5, 0.15),
+                (100.0, 360.0),
+            );
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                30,
+                Color::srgb(1.0, 0.9, 0.5),
+                (60.0, 220.0),
+            );
+            ScreenEffects::add_trauma(&mut trauma, 0.5);
+        }
+        if race_state.race == RaceId::BigDog {
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                40,
+                Color::srgb(1.0, 0.4, 0.1),
+                (130.0, 400.0),
+            );
+        }
         for _ in 0..12 {
             let a = rng2.random_range(0.0..std::f32::consts::TAU);
             let d = Vec2::new(a.cos(), a.sin());

@@ -5,7 +5,7 @@
 use bevy::prelude::*;
 
 use crate::game::components::{
-    EnemySprites, Health, HurtAnim, Prop, PropHpTracker, PropSprites, Velocity,
+    EnemySprites, Health, HurtAnim, PlayerDying, Prop, PropHpTracker, PropSprites, Velocity,
 };
 use crate::game::content::AssetCatalog;
 
@@ -113,7 +113,9 @@ pub struct PlayerAnim {
     pub moving: bool,
 }
 
-/// Swap the player's strip when movement state changes (skipped during hurt).
+/// Swap the player's strip when movement state changes (skipped during hurt
+/// and while dead: the PlayerDying dead strip must freeze on its last frame,
+/// otherwise it snaps back to idle and loops).
 pub fn player_anim_switch(
     asset_server: Res<AssetServer>,
     catalog: Res<AssetCatalog>,
@@ -125,7 +127,7 @@ pub fn player_anim_switch(
             &mut Sprite,
             &mut bevy::sprite::Anchor,
         ),
-        Without<HurtAnim>,
+        (Without<HurtAnim>, Without<PlayerDying>),
     >,
 ) {
     for (vel, mut pa, mut anim, mut sprite, mut anchor) in &mut q {
