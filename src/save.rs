@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::game::components::RaceLoadout;
 use crate::game::content::{RaceId, WeaponId, character_def};
 
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct SaveData {
@@ -36,7 +36,7 @@ pub struct SaveData {
     pub settings: SettingsData,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct SettingsData {
     pub master_volume: f32,
@@ -44,6 +44,96 @@ pub struct SettingsData {
     pub music_volume: f32,
     pub ambience_volume: f32,
     pub language: String,
+    #[serde(default = "default_volume_3dsound")]
+    pub volume_3dsound: bool,
+    #[serde(default = "default_f")]
+    pub screenshake: f32,
+    #[serde(default = "default_f")]
+    pub freezeframes: f32,
+    #[serde(default)]
+    pub bloom: bool,
+    #[serde(default = "default_true")]
+    pub particles: bool,
+    #[serde(default = "default_true")]
+    pub show_hud: bool,
+    #[serde(default = "default_true")]
+    pub show_timer: bool,
+    #[serde(default = "default_true")]
+    pub show_area: bool,
+    #[serde(default = "default_true")]
+    pub boss_intros: bool,
+    #[serde(default = "default_true")]
+    pub auto_pause: bool,
+    #[serde(default = "default_true")]
+    pub pause_button: bool,
+    #[serde(default)]
+    pub achievements_popup: bool,
+    #[serde(default = "default_true")]
+    pub vsync: bool,
+    #[serde(default = "default_true")]
+    pub fullscreen: bool,
+    #[serde(default)]
+    pub widescreen: bool,
+    #[serde(default)]
+    pub crosshair: u8,
+    #[serde(default)]
+    pub sideart: u8,
+    #[serde(default = "default_pixel_mode")]
+    pub pixel_mode: u8,
+    #[serde(default)]
+    pub gamepad_enabled: bool,
+    #[serde(default)]
+    pub gamepad_type: u8,
+    #[serde(default)]
+    pub aim_assist: bool,
+    #[serde(default)]
+    pub auto_aim: bool,
+    #[serde(default)]
+    pub volume_controls: bool,
+    #[serde(default)]
+    pub split_fire: bool,
+    #[serde(default)]
+    pub fixed_sight: bool,
+    #[serde(default = "default_controls_scale")]
+    pub controls_scale: f32,
+    #[serde(default = "default_true")]
+    pub show_tutorial: bool,
+    #[serde(default)]
+    pub player_color_hex: String,
+    #[serde(default)]
+    pub profile_name: String,
+    #[serde(default)]
+    pub cprefs_eyes: bool,
+    #[serde(default)]
+    pub cprefs_melting: bool,
+    #[serde(default)]
+    pub cprefs_plant: bool,
+    #[serde(default)]
+    pub cprefs_yv: bool,
+    #[serde(default)]
+    pub cprefs_steroids: bool,
+    #[serde(default)]
+    pub cprefs_horror: bool,
+    #[serde(default)]
+    pub cprefs_rogue: bool,
+    #[serde(default)]
+    pub cprefs_skeleton: bool,
+}
+
+fn default_volume_3dsound() -> bool {
+    true
+}
+fn default_f() -> f32 {
+    1.0
+}
+fn default_true() -> bool {
+    true
+}
+fn default_pixel_mode() -> u8 {
+    1
+}
+fn default_controls_scale() -> f32 {
+    0.5
 }
 
 impl Default for SettingsData {
@@ -54,6 +144,43 @@ impl Default for SettingsData {
             music_volume: 0.8,
             ambience_volume: 1.0,
             language: "en".to_string(),
+            volume_3dsound: true,
+            screenshake: 1.0,
+            freezeframes: 1.0,
+            bloom: true,
+            particles: true,
+            show_hud: true,
+            show_timer: false,
+            show_area: true,
+            boss_intros: true,
+            auto_pause: true,
+            pause_button: true,
+            achievements_popup: true,
+            vsync: false,
+            fullscreen: true,
+            widescreen: false,
+            crosshair: 0,
+            sideart: 0,
+            pixel_mode: 1,
+            gamepad_enabled: false,
+            gamepad_type: 0,
+            aim_assist: false,
+            auto_aim: false,
+            volume_controls: false,
+            split_fire: false,
+            fixed_sight: false,
+            controls_scale: 0.5,
+            show_tutorial: true,
+            player_color_hex: String::new(),
+            profile_name: String::new(),
+            cprefs_eyes: true,
+            cprefs_melting: true,
+            cprefs_plant: false,
+            cprefs_yv: true,
+            cprefs_steroids: true,
+            cprefs_horror: true,
+            cprefs_rogue: true,
+            cprefs_skeleton: false,
         }
     }
 }

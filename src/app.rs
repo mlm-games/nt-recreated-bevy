@@ -175,10 +175,41 @@ pub struct SharedUi {
     pub gen_tip: String,
     pub run_id: u32,
     /// MenuOptions category stack: 0 Main, 1 Audio, 2 Video, 3 Game, 4 Controls, 5 Language
+    /// Extended via Other_20 subcategories: 6 Video_Display 7 Game_Profile 8 Game_Color 9 Game_Data ...
     pub settings_page: u8,
     pub settings_page_stack: Vec<u8>,
     /// Ambient volume (GML volume_ambient) – separate from sfx.
     pub ambience_vol: f32,
+    pub volume_3dsound: bool,
+    pub screenshake: f32,
+    pub freezeframes: f32,
+    pub bloom: bool,
+    pub particles: bool,
+    pub show_hud: bool,
+    pub show_timer: bool,
+    pub show_area: bool,
+    pub boss_intros: bool,
+    pub auto_pause: bool,
+    pub pause_button: bool,
+    pub achievements_popup: bool,
+    pub vsync: bool,
+    pub fullscreen: bool,
+    pub widescreen: bool,
+    pub crosshair: u8,
+    pub sideart: u8,
+    pub pixel_mode: u8,
+    pub gamepad_enabled: bool,
+    pub gamepad_type: u8,
+    pub aim_assist: bool,
+    pub auto_aim: bool,
+    pub volume_controls: bool,
+    pub split_fire: bool,
+    pub fixed_sight: bool,
+    pub controls_scale: f32,
+    pub show_tutorial: bool,
+    pub player_color_hex: String,
+    pub profile_name: String,
+    pub cprefs: [bool; 8],
     /// PauseButton confirmation state: None = normal 4 buttons, Some(0)=MENU confirm, Some(1)=RETRY confirm
     pub pause_confirm: Option<u8>,
 }
@@ -256,6 +287,36 @@ impl Default for SharedUi {
             settings_page: 0,
             settings_page_stack: Vec::new(),
             ambience_vol: 1.0,
+            volume_3dsound: true,
+            screenshake: 1.0,
+            freezeframes: 1.0,
+            bloom: true,
+            particles: true,
+            show_hud: true,
+            show_timer: false,
+            show_area: true,
+            boss_intros: true,
+            auto_pause: true,
+            pause_button: true,
+            achievements_popup: true,
+            vsync: false,
+            fullscreen: true,
+            widescreen: false,
+            crosshair: 0,
+            sideart: 0,
+            pixel_mode: 1,
+            gamepad_enabled: false,
+            gamepad_type: 0,
+            aim_assist: false,
+            auto_aim: false,
+            volume_controls: false,
+            split_fire: false,
+            fixed_sight: false,
+            controls_scale: 0.5,
+            show_tutorial: true,
+            player_color_hex: String::new(),
+            profile_name: String::new(),
+            cprefs: [true, true, false, true, true, true, true, false],
             pause_confirm: None,
         }
     }
@@ -406,7 +467,9 @@ fn sync_ui_viewport(windows: Query<&Window, With<PrimaryWindow>>, bridge: Res<Ui
     ui.hud_compact = crate::menus::is_compact_viewport(ui.viewport_width, ui.viewport_height);
 }
 
-fn lock_shared(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
+fn lock_shared(
+    bridge: &crate::menus::UiBridge,
+) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
     match bridge.shared.lock() {
         Ok(g) => Some(g),
         Err(p) => {
@@ -415,7 +478,9 @@ fn lock_shared(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<
         }
     }
 }
-fn lock_actions(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, Vec<crate::menus::UiAction>>> {
+fn lock_actions(
+    bridge: &crate::menus::UiBridge,
+) -> Option<std::sync::MutexGuard<'_, Vec<crate::menus::UiAction>>> {
     match bridge.actions.lock() {
         Ok(g) => Some(g),
         Err(p) => {
@@ -424,7 +489,9 @@ fn lock_actions(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard
         }
     }
 }
-fn lock_shared_mut(bridge: &crate::menus::UiBridge) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
+fn lock_shared_mut(
+    bridge: &crate::menus::UiBridge,
+) -> Option<std::sync::MutexGuard<'_, crate::app::SharedUi>> {
     lock_shared(bridge)
 }
 
@@ -519,6 +586,45 @@ fn sync_shared_ui(
         ui.sfx_vol = save.settings.sfx_volume;
         ui.music_vol = save.settings.music_volume;
         ui.ambience_vol = save.settings.ambience_volume;
+        ui.volume_3dsound = save.settings.volume_3dsound;
+        ui.screenshake = save.settings.screenshake;
+        ui.freezeframes = save.settings.freezeframes;
+        ui.bloom = save.settings.bloom;
+        ui.particles = save.settings.particles;
+        ui.show_hud = save.settings.show_hud;
+        ui.show_timer = save.settings.show_timer;
+        ui.show_area = save.settings.show_area;
+        ui.boss_intros = save.settings.boss_intros;
+        ui.auto_pause = save.settings.auto_pause;
+        ui.pause_button = save.settings.pause_button;
+        ui.achievements_popup = save.settings.achievements_popup;
+        ui.vsync = save.settings.vsync;
+        ui.fullscreen = save.settings.fullscreen;
+        ui.widescreen = save.settings.widescreen;
+        ui.crosshair = save.settings.crosshair;
+        ui.sideart = save.settings.sideart;
+        ui.pixel_mode = save.settings.pixel_mode;
+        ui.gamepad_enabled = save.settings.gamepad_enabled;
+        ui.gamepad_type = save.settings.gamepad_type;
+        ui.aim_assist = save.settings.aim_assist;
+        ui.auto_aim = save.settings.auto_aim;
+        ui.volume_controls = save.settings.volume_controls;
+        ui.split_fire = save.settings.split_fire;
+        ui.fixed_sight = save.settings.fixed_sight;
+        ui.controls_scale = save.settings.controls_scale;
+        ui.show_tutorial = save.settings.show_tutorial;
+        ui.player_color_hex = save.settings.player_color_hex.clone();
+        ui.profile_name = save.settings.profile_name.clone();
+        ui.cprefs = [
+            save.settings.cprefs_eyes,
+            save.settings.cprefs_melting,
+            save.settings.cprefs_plant,
+            save.settings.cprefs_yv,
+            save.settings.cprefs_steroids,
+            save.settings.cprefs_horror,
+            save.settings.cprefs_rogue,
+            save.settings.cprefs_skeleton,
+        ];
     }
     ui.transition_alpha = transition.overlay_alpha;
     ui.flash_alpha = flash.amount;
@@ -857,18 +963,61 @@ fn process_ui_actions(
             UiAction::SetMasterVol(v) => {
                 let v = set_vol(&bridge, |ui| &mut ui.master_vol, v);
                 channels.master = v;
+                save.settings.master_volume = v;
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndSliderLetGo",
+                    0.5,
+                );
             }
             UiAction::SetSfxVol(v) => {
                 let v = set_vol(&bridge, |ui| &mut ui.sfx_vol, v);
                 channels.sfx = v;
+                save.settings.sfx_volume = v;
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndSliderLetGo",
+                    0.5,
+                );
             }
             UiAction::SetMusicVol(v) => {
                 let v = set_vol(&bridge, |ui| &mut ui.music_vol, v);
                 channels.music = v;
+                save.settings.music_volume = v;
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndSliderLetGo",
+                    0.5,
+                );
             }
             UiAction::SetAmbienceVol(v) => {
-                let _ = set_vol(&bridge, |ui| &mut ui.ambience_vol, v);
-                // GML ambience tied to master*music; keep stored for exact UI
+                let v = set_vol(&bridge, |ui| &mut ui.ambience_vol, v);
+                save.settings.ambience_volume = v;
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndSliderLetGo",
+                    0.5,
+                );
             }
             UiAction::SaveSettings => {
                 if let Some(ui) = lock_shared(&bridge) {
@@ -876,9 +1025,48 @@ fn process_ui_actions(
                     save.settings.sfx_volume = ui.sfx_vol;
                     save.settings.music_volume = ui.music_vol;
                     save.settings.ambience_volume = ui.ambience_vol;
+                    save.settings.volume_3dsound = ui.volume_3dsound;
+                    save.settings.screenshake = ui.screenshake;
+                    save.settings.freezeframes = ui.freezeframes;
+                    save.settings.bloom = ui.bloom;
+                    save.settings.particles = ui.particles;
+                    save.settings.show_hud = ui.show_hud;
+                    save.settings.show_timer = ui.show_timer;
+                    save.settings.show_area = ui.show_area;
+                    save.settings.boss_intros = ui.boss_intros;
+                    save.settings.auto_pause = ui.auto_pause;
+                    save.settings.pause_button = ui.pause_button;
+                    save.settings.achievements_popup = ui.achievements_popup;
+                    save.settings.vsync = ui.vsync;
+                    save.settings.fullscreen = ui.fullscreen;
+                    save.settings.widescreen = ui.widescreen;
+                    save.settings.crosshair = ui.crosshair;
+                    save.settings.sideart = ui.sideart;
+                    save.settings.pixel_mode = ui.pixel_mode;
+                    save.settings.gamepad_enabled = ui.gamepad_enabled;
+                    save.settings.gamepad_type = ui.gamepad_type;
+                    save.settings.aim_assist = ui.aim_assist;
+                    save.settings.auto_aim = ui.auto_aim;
+                    save.settings.volume_controls = ui.volume_controls;
+                    save.settings.split_fire = ui.split_fire;
+                    save.settings.fixed_sight = ui.fixed_sight;
+                    save.settings.controls_scale = ui.controls_scale;
+                    save.settings.show_tutorial = ui.show_tutorial;
+                    save.settings.player_color_hex = ui.player_color_hex.clone();
+                    save.settings.profile_name = ui.profile_name.clone();
+                    save.settings.cprefs_eyes = ui.cprefs[0];
+                    save.settings.cprefs_melting = ui.cprefs[1];
+                    save.settings.cprefs_plant = ui.cprefs[2];
+                    save.settings.cprefs_yv = ui.cprefs[3];
+                    save.settings.cprefs_steroids = ui.cprefs[4];
+                    save.settings.cprefs_horror = ui.cprefs[5];
+                    save.settings.cprefs_rogue = ui.cprefs[6];
+                    save.settings.cprefs_skeleton = ui.cprefs[7];
                     save.settings.language = locale.current.clone();
                 }
-                if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
                 if let Some(mut ui) = lock_shared(&bridge) {
                     ui.saved_language = locale.current.clone();
                 }
@@ -904,6 +1092,374 @@ fn process_ui_actions(
                 if locale.available.contains(lang) {
                     locale.set_locale(lang);
                 }
+                // Persist language immediately (mirrors GML scrOptionsUpdate -> save)
+                save.settings.language = lang.clone();
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.saved_language = lang.clone();
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+            }
+            UiAction::SettingToggle(ref key) => {
+                let toggled = match key.as_str() {
+                    "volume_3dsound" => {
+                        let nv = !save.settings.volume_3dsound;
+                        save.settings.volume_3dsound = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.volume_3dsound = nv;
+                        }
+                        nv
+                    }
+                    "bloom" => {
+                        let nv = !save.settings.bloom;
+                        save.settings.bloom = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.bloom = nv;
+                        }
+                        nv
+                    }
+                    "particles" => {
+                        let nv = !save.settings.particles;
+                        save.settings.particles = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.particles = nv;
+                        }
+                        nv
+                    }
+                    "show_hud" => {
+                        let nv = !save.settings.show_hud;
+                        save.settings.show_hud = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.show_hud = nv;
+                        }
+                        nv
+                    }
+                    "show_timer" => {
+                        let nv = !save.settings.show_timer;
+                        save.settings.show_timer = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.show_timer = nv;
+                        }
+                        nv
+                    }
+                    "show_area" => {
+                        let nv = !save.settings.show_area;
+                        save.settings.show_area = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.show_area = nv;
+                        }
+                        nv
+                    }
+                    "boss_intros" => {
+                        let nv = !save.settings.boss_intros;
+                        save.settings.boss_intros = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.boss_intros = nv;
+                        }
+                        nv
+                    }
+                    "auto_pause" => {
+                        let nv = !save.settings.auto_pause;
+                        save.settings.auto_pause = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.auto_pause = nv;
+                        }
+                        nv
+                    }
+                    "pause_button" => {
+                        let nv = !save.settings.pause_button;
+                        save.settings.pause_button = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.pause_button = nv;
+                        }
+                        nv
+                    }
+                    "achievements_popup" => {
+                        let nv = !save.settings.achievements_popup;
+                        save.settings.achievements_popup = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.achievements_popup = nv;
+                        }
+                        nv
+                    }
+                    "vsync" => {
+                        let nv = !save.settings.vsync;
+                        save.settings.vsync = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.vsync = nv;
+                        }
+                        nv
+                    }
+                    "fullscreen" => {
+                        let nv = !save.settings.fullscreen;
+                        save.settings.fullscreen = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.fullscreen = nv;
+                        }
+                        nv
+                    }
+                    "widescreen" => {
+                        let nv = !save.settings.widescreen;
+                        save.settings.widescreen = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.widescreen = nv;
+                        }
+                        nv
+                    }
+                    "gamepad_enabled" => {
+                        let nv = !save.settings.gamepad_enabled;
+                        save.settings.gamepad_enabled = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.gamepad_enabled = nv;
+                        }
+                        nv
+                    }
+                    "aim_assist" => {
+                        let nv = !save.settings.aim_assist;
+                        save.settings.aim_assist = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.aim_assist = nv;
+                        }
+                        nv
+                    }
+                    "auto_aim" => {
+                        let nv = !save.settings.auto_aim;
+                        save.settings.auto_aim = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.auto_aim = nv;
+                        }
+                        nv
+                    }
+                    "volume_controls" => {
+                        let nv = !save.settings.volume_controls;
+                        save.settings.volume_controls = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.volume_controls = nv;
+                        }
+                        nv
+                    }
+                    "split_fire" => {
+                        let nv = !save.settings.split_fire;
+                        save.settings.split_fire = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.split_fire = nv;
+                        }
+                        nv
+                    }
+                    "fixed_sight" => {
+                        let nv = !save.settings.fixed_sight;
+                        save.settings.fixed_sight = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.fixed_sight = nv;
+                        }
+                        nv
+                    }
+                    "show_tutorial" => {
+                        let nv = !save.settings.show_tutorial;
+                        save.settings.show_tutorial = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.show_tutorial = nv;
+                        }
+                        nv
+                    }
+                    s if s.starts_with("cprefs_") => {
+                        let idx: usize = s
+                            .strip_prefix("cprefs_")
+                            .and_then(|x| x.parse().ok())
+                            .unwrap_or(99);
+                        if idx < 8 {
+                            let arr = [
+                                save.settings.cprefs_eyes,
+                                save.settings.cprefs_melting,
+                                save.settings.cprefs_plant,
+                                save.settings.cprefs_yv,
+                                save.settings.cprefs_steroids,
+                                save.settings.cprefs_horror,
+                                save.settings.cprefs_rogue,
+                                save.settings.cprefs_skeleton,
+                            ];
+                            let cur = arr[idx];
+                            let nv = !cur;
+                            match idx {
+                                0 => save.settings.cprefs_eyes = nv,
+                                1 => save.settings.cprefs_melting = nv,
+                                2 => save.settings.cprefs_plant = nv,
+                                3 => save.settings.cprefs_yv = nv,
+                                4 => save.settings.cprefs_steroids = nv,
+                                5 => save.settings.cprefs_horror = nv,
+                                6 => save.settings.cprefs_rogue = nv,
+                                7 => save.settings.cprefs_skeleton = nv,
+                                _ => {}
+                            }
+                            if let Some(mut ui) = lock_shared(&bridge) {
+                                ui.cprefs[idx] = nv;
+                            }
+                            nv
+                        } else {
+                            false
+                        }
+                    }
+                    _ => {
+                        bevy::log::warn!("unknown toggle key {key}");
+                        false
+                    }
+                };
+                let _ = toggled;
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.6);
+            }
+            UiAction::SettingSlider { ref key, value } => {
+                let v = value.clamp(0.0, 2.0);
+                match key.as_str() {
+                    "screenshake" => {
+                        save.settings.screenshake = v;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.screenshake = v;
+                        }
+                    }
+                    "freezeframes" => {
+                        save.settings.freezeframes = v;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.freezeframes = v;
+                        }
+                    }
+                    "controls_scale" => {
+                        let c = v.clamp(0.0, 1.0);
+                        save.settings.controls_scale = c;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.controls_scale = c;
+                        }
+                    }
+                    _ => {
+                        bevy::log::warn!("unknown slider {key}");
+                    }
+                }
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndSliderLetGo",
+                    0.5,
+                );
+            }
+            UiAction::SettingCycle { ref key, dir } => {
+                match key.as_str() {
+                    "crosshair" => {
+                        let nv = (save.settings.crosshair as i16 + dir as i16).rem_euclid(4) as u8;
+                        save.settings.crosshair = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.crosshair = nv;
+                        }
+                    }
+                    "sideart" => {
+                        let nv = (save.settings.sideart as i16 + dir as i16).rem_euclid(4) as u8;
+                        save.settings.sideart = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.sideart = nv;
+                        }
+                    }
+                    "pixel_mode" => {
+                        let nv = ((save.settings.pixel_mode as i16 - 1 + dir as i16).rem_euclid(4)
+                            + 1) as u8;
+                        save.settings.pixel_mode = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.pixel_mode = nv;
+                        }
+                    }
+                    "gamepad_type" => {
+                        let nv =
+                            (save.settings.gamepad_type as i16 + dir as i16).rem_euclid(4) as u8;
+                        save.settings.gamepad_type = nv;
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.gamepad_type = nv;
+                        }
+                    }
+                    _ => {
+                        bevy::log::warn!("unknown cycle {key}");
+                    }
+                }
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.6);
+            }
+            UiAction::SettingInput { ref key, ref value } => {
+                match key.as_str() {
+                    "player_color_hex" => {
+                        save.settings.player_color_hex = value.clone();
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.player_color_hex = value.clone();
+                        }
+                    }
+                    "profile_name" => {
+                        save.settings.profile_name = value.clone();
+                        if let Some(mut ui) = lock_shared(&bridge) {
+                            ui.profile_name = value.clone();
+                        }
+                    }
+                    _ => {
+                        bevy::log::warn!("unknown input {key}");
+                    }
+                }
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.6);
+            }
+            UiAction::SettingResetOptions => {
+                *save = SaveData::default();
+                // Preserve progress-related fields? GML scrOptionsEraseSettings keeps tutorial flag etc but we reset fully for demo.
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    ui.master_vol = save.settings.master_volume;
+                    ui.sfx_vol = save.settings.sfx_volume;
+                    ui.music_vol = save.settings.music_volume;
+                    ui.ambience_vol = save.settings.ambience_volume;
+                    ui.volume_3dsound = save.settings.volume_3dsound;
+                    ui.screenshake = save.settings.screenshake;
+                    ui.bloom = save.settings.bloom;
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+            }
+            UiAction::SettingEraseProgress => {
+                save.high_score = 0;
+                save.best_floor = 0;
+                save.total_runs = 0;
+                save.total_kills = 0;
+                save.unlocked_characters = vec!["Fish".to_string()];
+                save.races.clear();
+                save.crown_got.clear();
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
+            }
+            UiAction::SettingViewCredits => {
+                *overlay = OverlayMenu::Credits;
+                play_ui_sfx(
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    "sndMenuCredits",
+                    0.7,
+                );
+            }
+            UiAction::SettingOpenSubcategory(cat) => {
+                if let Some(mut ui) = lock_shared(&bridge) {
+                    let cur = ui.settings_page;
+                    ui.settings_page_stack.push(cur);
+                    ui.settings_page = cat;
+                }
+                play_ui_sfx(&mut commands, &asset_server, &catalog, "sndClick", 0.7);
             }
             UiAction::SelectCharacter(i) => {
                 let Some(race) = crate::game::content::race_from_gml_id(i) else {
@@ -915,7 +1471,9 @@ fn process_ui_actions(
                     continue;
                 }
 
-                let already_selected = lock_shared(&bridge).map(|ui| ui.selected_character == i).unwrap_or(false);
+                let already_selected = lock_shared(&bridge)
+                    .map(|ui| ui.selected_character == i)
+                    .unwrap_or(false);
 
                 if already_selected {
                     if let Some(mut ui) = lock_shared(&bridge) {
@@ -1001,7 +1559,9 @@ fn process_ui_actions(
                 let already = save.race_loadout(race).preferred_skin == s;
                 if !already && save.skin_unlocked(race, s) {
                     save.race_loadout_mut(race).preferred_skin = s;
-                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                    if let Err(e) = manager.save(&*save) {
+                        bevy::log::error!("save failed: {e}");
+                    }
                     if let Some(mut ui) = lock_shared(&bridge) {
                         ui.selected_skin = s;
                     }
@@ -1033,7 +1593,9 @@ fn process_ui_actions(
                         crate::game::content::WEAPON_NONE
                     };
 
-                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                    if let Err(e) = manager.save(&*save) {
+                        bevy::log::error!("save failed: {e}");
+                    }
                 }
             }
             UiAction::CycleStoredWeapon(_) => {
@@ -1053,7 +1615,9 @@ fn process_ui_actions(
                 }
                 let lo = save.race_loadout_mut(race);
                 lo.start_crown = next;
-                if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                if let Err(e) = manager.save(&*save) {
+                    bevy::log::error!("save failed: {e}");
+                }
             }
             UiAction::SelectCrown(crown_id) => {
                 let race = selected.0;
@@ -1070,7 +1634,9 @@ fn process_ui_actions(
                 if !already && save.crown_unlocked(race, crown_id) {
                     save.race_loadout_mut(race).start_crown =
                         crate::game::content::crown_gml_to_port(crown_id);
-                    if let Err(e) = manager.save(&*save) { bevy::log::error!("save failed: {e}"); }
+                    if let Err(e) = manager.save(&*save) {
+                        bevy::log::error!("save failed: {e}");
+                    }
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndMenuCrown", 1.0);
                 } else if !already {
                     play_ui_sfx(&mut commands, &asset_server, &catalog, "sndNoSelect", 0.5);
@@ -1078,7 +1644,8 @@ fn process_ui_actions(
             }
             UiAction::SelectMutation(idx) => {
                 // GML SkillIcon: first click = select (sndHover), second = confirm
-                let already = lock_shared(&bridge).map(|ui| ui.mutation_selected == Some(idx))
+                let already = lock_shared(&bridge)
+                    .map(|ui| ui.mutation_selected == Some(idx))
                     .unwrap_or(false);
                 if already {
                     mutation_choice.0 = Some(idx);
@@ -1094,7 +1661,8 @@ fn process_ui_actions(
             }
             UiAction::PickMutation(idx) => {
                 // Direct confirm (used when already selected, or via keyboard 1-4 second press)
-                let selected = lock_shared(&bridge).map(|ui| ui.mutation_selected)
+                let selected = lock_shared(&bridge)
+                    .map(|ui| ui.mutation_selected)
                     .unwrap_or(None);
                 if selected == Some(idx) {
                     mutation_choice.0 = Some(idx);
@@ -1204,7 +1772,9 @@ fn handle_pause_input(
             let should_pop = {
                 if let Some(ui) = lock_shared(&bridge) {
                     !ui.settings_page_stack.is_empty() || ui.settings_page != 0
-                } else { false }
+                } else {
+                    false
+                }
             };
             if should_pop {
                 if let Some(mut ui) = lock_shared(&bridge) {
@@ -1262,7 +1832,8 @@ fn handle_mutation_keys(
         // Push via bridge like UI click - respects two-step select/confirm
         if let Some(mut q) = lock_actions(&bridge) {
             // Check if already selected
-            let already = lock_shared(&bridge).map(|ui| ui.mutation_selected == Some(i))
+            let already = lock_shared(&bridge)
+                .map(|ui| ui.mutation_selected == Some(i))
                 .unwrap_or(false);
             if already {
                 q.push(UiAction::PickMutation(i));

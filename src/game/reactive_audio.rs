@@ -398,6 +398,14 @@ pub fn ui_action_to_cue(action: &UiAction) -> Option<ReactiveCue> {
         | UiAction::ShowPauseConfirm(_)
         | UiAction::CancelPauseConfirm
         | UiAction::ConfirmPause(_) => Some(ReactiveCue::UiClick),
+        UiAction::SettingToggle(_)
+        | UiAction::SettingCycle { .. }
+        | UiAction::SettingInput { .. }
+        | UiAction::SettingResetOptions
+        | UiAction::SettingEraseProgress
+        | UiAction::SettingViewCredits
+        | UiAction::SettingOpenSubcategory(_) => Some(ReactiveCue::UiClick),
+        UiAction::SettingSlider { .. } => None,
     }
 }
 

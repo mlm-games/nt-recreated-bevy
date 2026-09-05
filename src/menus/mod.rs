@@ -73,6 +73,28 @@ pub enum UiAction {
     SelectCrown(u8),
     SelectMutation(usize),
     PickMutation(usize),
+    /// Toggle boolean setting by GML save key (e.g. "volume_3dsound", "visual_bloom")
+    SettingToggle(String),
+    /// Set slider 0.0..1.0 (or 0..2 for screenshake) for key
+    SettingSlider {
+        key: String,
+        value: f32,
+    },
+    /// Cycle list setting (-1/1) for key
+    SettingCycle {
+        key: String,
+        dir: i8,
+    },
+    /// Direct input string commit (e.g. profile_name, player_color)
+    SettingInput {
+        key: String,
+        value: String,
+    },
+    /// Reset all options / erase progress disclaimers (from Game_Data)
+    SettingResetOptions,
+    SettingEraseProgress,
+    SettingViewCredits,
+    SettingOpenSubcategory(u8),
 }
 
 #[derive(bevy::prelude::Resource, Clone)]
@@ -134,7 +156,9 @@ pub fn compose_root(
             } else {
                 let mut children: Vec<View> = Vec::new();
 
-                children.push(nt_hud_overlay(&st));
+                if st.show_hud {
+                    children.push(nt_hud_overlay(&st));
+                }
 
                 if st.game_over {
                     children.push(game_over_panel(&st, actions.clone()));
@@ -461,9 +485,9 @@ fn pause_panel(
 }
 
 fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<UiAction>>>) -> View {
-    // GML MenuOptions exact: categories Main/Audio/Video/Game/Controls/Language,
-    // Other_10 Draw_64: dark 0.9 rect ingame, centered bigname list when Main,
-    // Audio sliders at gui with sprOptionSlider track. We replicate layout via nt_view.
+    // GML MenuOptions full fidelity: mirrors Other_20 category definitions.
+    // Categories: 0 Main, 1 Audio, 2 Video, 3 Video_Display, 4 Game, 5 Game_Profile, 6 Game_Color, 7 Game_Data, 8 Controls, 9 Controls_Remapping, 10 Controls_Prefs, 11 Controls_Experimental, 12 Language
+    // Draw mirrors Other_10 generic item loop (slider/switch/list/category/button).
     let v = nt_view(st);
     let mut layers: Vec<View> = Vec::new();
     layers.push(Column(
@@ -475,7 +499,7 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
     ));
     match st.settings_page {
         0 => {
-            // Main: 4 big sprOptionsButtons + LANGUAGE centered at 72+24*i
+            // Main: GML OptionCategory.Main  cats + extras (DISPLAY/PROFILE etc hidden but reachable via parents)
             layers.push(nt_text_at(
                 "OPTIONS".to_string(),
                 160.0,
@@ -487,9 +511,9 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             let cats: [(&str, u8); 5] = [
                 ("AUDIO", 1),
                 ("VIDEO", 2),
-                ("GAME", 3),
-                ("CONTROLS", 4),
-                ("LANGUAGE", 5),
+                ("GAME", 4),
+                ("CONTROLS", 8),
+                ("LANGUAGE", 12),
             ];
             let start_y = 72.0;
             for (i, (label, idx)) in cats.iter().enumerate() {
@@ -516,94 +540,1026 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
             ));
         }
         1 => {
-            // Audio: GML AudioOptions sliders 0..1, draw at gui with value % and < >
-            layers.push(nt_text_at("AUDIO".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
-            let master = st.master_vol;
-            let music = st.music_vol;
-            let amb = st.ambience_vol;
-            let sfx = st.sfx_vol;
+            // Audio: GML Audio category exact: Master/Music/Ambience/Sfx + 3dSound
+            layers.push(nt_text_at(
+                "AUDIO".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
             let rows: [(f32, &str, f32, u8); 4] = [
-                (56.0, "MASTER VOLUME", master, 0),
-                (76.0, "MUSIC VOLUME", music, 1),
-                (96.0, "AMBIENCE VOLUME", amb, 2),
-                (116.0, "EFFECTS VOLUME", sfx, 3),
+                (56.0, "MASTER VOLUME", st.master_vol, 0),
+                (76.0, "MUSIC VOLUME", st.music_vol, 1),
+                (96.0, "AMBIENCE VOLUME", st.ambience_vol, 2),
+                (116.0, "EFFECTS VOLUME", st.sfx_vol, 3),
             ];
             for (gy, label, val, kind) in rows {
-                layers.push(nt_text_at(label.to_string(), 80.0, gy, &v, col(238, 239, 225), false));
-                layers.push(nt_text_at(format!("{:.0}%", val * 100.0), 200.0, gy, &v, col(125, 131, 141), false));
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    gy,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    format!("{:.0}%", val * 100.0),
+                    200.0,
+                    gy,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
                 let v_down = (val - 0.1).clamp(0.0, 1.0);
                 let v_up = (val + 0.1).clamp(0.0, 1.0);
                 let a_down = actions.clone();
                 let a_up = actions.clone();
-                layers.push(hitbox_at(40.0, gy - 6.0, 24.0, 16.0, &v, move || match kind {
-                    0 => push(&a_down, UiAction::SetMasterVol(v_down)),
-                    1 => push(&a_down, UiAction::SetMusicVol(v_down)),
-                    2 => push(&a_down, UiAction::SetAmbienceVol(v_down)),
-                    _ => push(&a_down, UiAction::SetSfxVol(v_down)),
-                }));
-                layers.push(hitbox_at(240.0, gy - 6.0, 24.0, 16.0, &v, move || match kind {
-                    0 => push(&a_up, UiAction::SetMasterVol(v_up)),
-                    1 => push(&a_up, UiAction::SetMusicVol(v_up)),
-                    2 => push(&a_up, UiAction::SetAmbienceVol(v_up)),
-                    _ => push(&a_up, UiAction::SetSfxVol(v_up)),
-                }));
-                layers.push(nt_text_at("<".to_string(), 44.0, gy, &v, col(238, 239, 225), true));
-                layers.push(nt_text_at(">".to_string(), 252.0, gy, &v, col(238, 239, 225), true));
+                layers.push(hitbox_at(
+                    40.0,
+                    gy - 6.0,
+                    24.0,
+                    16.0,
+                    &v,
+                    move || match kind {
+                        0 => push(&a_down, UiAction::SetMasterVol(v_down)),
+                        1 => push(&a_down, UiAction::SetMusicVol(v_down)),
+                        2 => push(&a_down, UiAction::SetAmbienceVol(v_down)),
+                        _ => push(&a_down, UiAction::SetSfxVol(v_down)),
+                    },
+                ));
+                layers.push(hitbox_at(
+                    240.0,
+                    gy - 6.0,
+                    24.0,
+                    16.0,
+                    &v,
+                    move || match kind {
+                        0 => push(&a_up, UiAction::SetMasterVol(v_up)),
+                        1 => push(&a_up, UiAction::SetMusicVol(v_up)),
+                        2 => push(&a_up, UiAction::SetAmbienceVol(v_up)),
+                        _ => push(&a_up, UiAction::SetSfxVol(v_up)),
+                    },
+                ));
+                layers.push(nt_text_at(
+                    "<".to_string(),
+                    44.0,
+                    gy,
+                    &v,
+                    col(238, 239, 225),
+                    true,
+                ));
+                layers.push(nt_text_at(
+                    ">".to_string(),
+                    252.0,
+                    gy,
+                    &v,
+                    col(238, 239, 225),
+                    true,
+                ));
             }
-            // 3D sound switch (GML volume_3dsound) – simple toggle via SetAmbience? we reuse toggle
-            // Show as ON/OFF at 140, using ambience as proxy for 3D toggle (exact GML separate but visual same)
+            // 3D SOUND separate bool (volume_3dsound) – GML volume_3dsound switch
             let a_sw = actions.clone();
-            let cur = st.ambience_vol > 0.5;
-            layers.push(nt_text_at("3D SOUND".to_string(), 80.0, 140.0, &v, col(238, 239, 225), false));
-            layers.push(nt_text_at(if cur { "ON".to_string() } else { "OFF".to_string() }, 200.0, 140.0, &v, col(125, 131, 141), false));
+            let cur3d = st.volume_3dsound;
+            layers.push(nt_text_at(
+                "3D SOUND".to_string(),
+                80.0,
+                140.0,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                if cur3d {
+                    "ON".to_string()
+                } else {
+                    "OFF".to_string()
+                },
+                200.0,
+                140.0,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
             layers.push(hitbox_at(60.0, 134.0, 200.0, 16.0, &v, move || {
-                // toggle between 0 and 1 for demo; real GML stores separately
-                let nv = if cur { 0.0 } else { 1.0 };
-                push(&a_sw, UiAction::SetAmbienceVol(nv));
+                push(&a_sw, UiAction::SettingToggle("volume_3dsound".to_string()));
             }));
             let a_back = actions.clone();
-            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
         }
         2 => {
-            layers.push(nt_text_at("VIDEO".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
-            // GML VideoOptions: Crosshair, SideArt, Screenshake, FreezeFrames, Bloom, Particles, HideHud, PixelMode
-            // We expose placeholders matching names at centered list like MenuOptions Other_10 when not Main
-            let items: [(&str, f32); 5] = [("CROSSHAIR", 60.0), ("SCREENSHAKE", 80.0), ("FREEZE FRAMES", 100.0), ("BLOOM", 120.0), ("PARTICLES", 140.0)];
-            for (label, gy) in items {
-                layers.push(nt_text_at(label.to_string(), 160.0, gy, &v, col(238, 239, 225), true));
+            // VIDEO: Crosshair(list), SideArt(list), Screenshake(slider), FreezeFrames(slider), Bloom(switch), Particles(switch), HideHUD(switch), PixelMode(list), DISPLAY category
+            layers.push(nt_text_at(
+                "VIDEO".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let mut y = 48.0;
+            // Crosshair list – values 0..3 placeholder (real sprCrosshair count)
+            let cross = st.crosshair;
+            layers.push(nt_text_at(
+                "CROSSHAIR".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                format!("< {} >", cross + 1),
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            let a_l = actions.clone();
+            let a_r = actions.clone();
+            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_l,
+                    UiAction::SettingCycle {
+                        key: "crosshair".to_string(),
+                        dir: -1,
+                    },
+                )
+            }));
+            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_r,
+                    UiAction::SettingCycle {
+                        key: "crosshair".to_string(),
+                        dir: 1,
+                    },
+                )
+            }));
+            y += 18.0;
+            let side = st.sideart;
+            layers.push(nt_text_at(
+                "SIDE ART".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                format!("< {} >", side),
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            let a_l = actions.clone();
+            let a_r = actions.clone();
+            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_l,
+                    UiAction::SettingCycle {
+                        key: "sideart".to_string(),
+                        dir: -1,
+                    },
+                )
+            }));
+            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_r,
+                    UiAction::SettingCycle {
+                        key: "sideart".to_string(),
+                        dir: 1,
+                    },
+                )
+            }));
+            y += 18.0;
+            for (label, val, key) in [
+                ("SCREENSHAKE", st.screenshake, "screenshake"),
+                ("FREEZE FRAMES", st.freezeframes, "freezeframes"),
+            ] {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    format!("{:.0}%", (val * 100.0).clamp(0.0, 200.0)),
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let d = (val - 0.1).clamp(0.0, 2.0);
+                let u = (val + 0.1).clamp(0.0, 2.0);
+                let a_d = actions.clone();
+                let a_u = actions.clone();
+                let k1 = key.to_string();
+                let k2 = key.to_string();
+                layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                    push(
+                        &a_d,
+                        UiAction::SettingSlider {
+                            key: k1.clone(),
+                            value: d,
+                        },
+                    )
+                }));
+                layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                    push(
+                        &a_u,
+                        UiAction::SettingSlider {
+                            key: k2.clone(),
+                            value: u,
+                        },
+                    )
+                }));
+                layers.push(nt_text_at(
+                    "<".to_string(),
+                    44.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    true,
+                ));
+                layers.push(nt_text_at(
+                    ">".to_string(),
+                    252.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    true,
+                ));
+                y += 18.0;
             }
+            for (label, cur, key) in [
+                ("BLOOM", st.bloom, "bloom"),
+                ("PARTICLES", st.particles, "particles"),
+                ("HIDE HUD", !st.show_hud, "show_hud"),
+            ] {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    if cur {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    },
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let a_sw = actions.clone();
+                let k = key.to_string();
+                layers.push(hitbox_at(60.0, y - 6.0, 200.0, 16.0, &v, move || {
+                    push(&a_sw, UiAction::SettingToggle(k.clone()))
+                }));
+                y += 18.0;
+            }
+            let pm = st.pixel_mode;
+            layers.push(nt_text_at(
+                "PIXEL MODE".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                format!("< {} >", pm),
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            let a_l = actions.clone();
+            let a_r = actions.clone();
+            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_l,
+                    UiAction::SettingCycle {
+                        key: "pixel_mode".to_string(),
+                        dir: -1,
+                    },
+                )
+            }));
+            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_r,
+                    UiAction::SettingCycle {
+                        key: "pixel_mode".to_string(),
+                        dir: 1,
+                    },
+                )
+            }));
+            y += 18.0;
+            // DISPLAY SETTINGS category button
+            let a_cat = actions.clone();
+            layers.push(bigname_button_at(
+                "DISPLAY SETTINGS".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_cat, UiAction::SettingsCategory(3)),
+            ));
+            y += 18.0;
             let a_back = actions.clone();
-            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
         }
         3 => {
-            layers.push(nt_text_at("GAME".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
-            let items: [(&str, f32); 4] = [("BOSS INTROS", 60.0), ("SHOW TIMER", 80.0), ("SHOW AREA", 100.0), ("PAUSE BUTTON", 120.0)];
-            for (label, gy) in items {
-                layers.push(nt_text_at(label.to_string(), 160.0, gy, &v, col(238, 239, 225), true));
+            // Video_Display
+            layers.push(nt_text_at(
+                "DISPLAY".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let mut y = 56.0;
+            for (label, cur, key) in [
+                ("WIDESCREEN", st.widescreen, "widescreen"),
+                ("FULLSCREEN", st.fullscreen, "fullscreen"),
+                ("VSYNC", st.vsync, "vsync"),
+            ] {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    if cur {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    },
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let a_sw = actions.clone();
+                let k = key.to_string();
+                layers.push(hitbox_at(60.0, y - 6.0, 200.0, 16.0, &v, move || {
+                    push(&a_sw, UiAction::SettingToggle(k.clone()))
+                }));
+                y += 20.0;
             }
             let a_back = actions.clone();
-            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
         }
         4 => {
-            layers.push(nt_text_at("CONTROLS".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
-            layers.push(nt_text_at("KEYBOARD + MOUSE".to_string(), 160.0, 80.0, &v, col(238, 239, 225), true));
-            layers.push(nt_text_at("GAMEPAD".to_string(), 160.0, 100.0, &v, col(125, 131, 141), true));
+            // GAME
+            layers.push(nt_text_at(
+                "GAME".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let mut y = 48.0;
+            for (label, cur, key) in [
+                ("BOSS INTROS", st.boss_intros, "boss_intros"),
+                ("PLAY TUTORIAL", st.show_tutorial, "show_tutorial"),
+                ("SHOW TIMER", st.show_timer, "show_timer"),
+                ("SHOW AREA", st.show_area, "show_area"),
+                ("PAUSE BUTTON", st.pause_button, "pause_button"),
+                (
+                    "ACHIEVEMENT POPUPS",
+                    st.achievements_popup,
+                    "achievements_popup",
+                ),
+                ("AUTO PAUSE", st.auto_pause, "auto_pause"),
+            ] {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    if cur {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    },
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let a_sw = actions.clone();
+                let k = key.to_string();
+                layers.push(hitbox_at(60.0, y - 6.0, 200.0, 16.0, &v, move || {
+                    push(&a_sw, UiAction::SettingToggle(k.clone()))
+                }));
+                y += 18.0;
+            }
+            // VIEW CREDITS button
+            let a_cred = actions.clone();
+            layers.push(bigname_button_at(
+                "VIEW CREDITS".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_cred, UiAction::SettingViewCredits),
+            ));
+            y += 20.0;
+            // subcategories
+            let a_prof = actions.clone();
+            layers.push(bigname_button_at(
+                "PROFILE".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_prof, UiAction::SettingsCategory(5)),
+            ));
+            y += 20.0;
+            let a_col = actions.clone();
+            layers.push(bigname_button_at(
+                "COLOR".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_col, UiAction::SettingsCategory(6)),
+            ));
+            y += 20.0;
+            let a_data = actions.clone();
+            layers.push(bigname_button_at(
+                "DATA".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_data, UiAction::SettingsCategory(7)),
+            ));
+            y += 20.0;
             let a_back = actions.clone();
-            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        8 => {
+            // CONTROLS (main)
+            layers.push(nt_text_at(
+                "CONTROLS".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let mut y = 48.0;
+            for (label, cur, key) in [
+                ("GAMEPAD", st.gamepad_enabled, "gamepad_enabled"),
+                ("AIM ASSIST", st.aim_assist, "aim_assist"),
+                ("AUTO AIM", st.auto_aim, "auto_aim"),
+                ("VOLUME CONTROLS", st.volume_controls, "volume_controls"),
+                ("SPLIT FIRE", st.split_fire, "split_fire"),
+                ("FIXED SIGHT", st.fixed_sight, "fixed_sight"),
+            ] {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    if cur {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    },
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let a_sw = actions.clone();
+                let k = key.to_string();
+                layers.push(hitbox_at(60.0, y - 6.0, 200.0, 16.0, &v, move || {
+                    push(&a_sw, UiAction::SettingToggle(k.clone()))
+                }));
+                y += 18.0;
+            }
+            // Gamepad type list
+            let gt = st.gamepad_type;
+            layers.push(nt_text_at(
+                "GAMEPAD STYLE".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            let names = ["XBONE", "PS4", "Switch", "SteamDeck"];
+            let nm = names[(gt as usize) % names.len()];
+            layers.push(nt_text_at(
+                format!("< {} >", nm),
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            let a_l = actions.clone();
+            let a_r = actions.clone();
+            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_l,
+                    UiAction::SettingCycle {
+                        key: "gamepad_type".to_string(),
+                        dir: -1,
+                    },
+                )
+            }));
+            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_r,
+                    UiAction::SettingCycle {
+                        key: "gamepad_type".to_string(),
+                        dir: 1,
+                    },
+                )
+            }));
+            y += 18.0;
+            layers.push(nt_text_at(
+                "SIZE SCALE".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                format!("{:.0}%", st.controls_scale * 100.0),
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            let d = (st.controls_scale - 0.1).clamp(0.0, 1.0);
+            let u = (st.controls_scale + 0.1).clamp(0.0, 1.0);
+            let a_d = actions.clone();
+            let a_u = actions.clone();
+            layers.push(hitbox_at(40.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_d,
+                    UiAction::SettingSlider {
+                        key: "controls_scale".to_string(),
+                        value: d,
+                    },
+                )
+            }));
+            layers.push(hitbox_at(240.0, y - 6.0, 24.0, 16.0, &v, move || {
+                push(
+                    &a_u,
+                    UiAction::SettingSlider {
+                        key: "controls_scale".to_string(),
+                        value: u,
+                    },
+                )
+            }));
+            layers.push(nt_text_at(
+                "<".to_string(),
+                44.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                true,
+            ));
+            layers.push(nt_text_at(
+                ">".to_string(),
+                252.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                true,
+            ));
+            y += 18.0;
+            // subcats
+            let a_rem = actions.clone();
+            layers.push(bigname_button_at(
+                "REMAP".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_rem, UiAction::SettingsCategory(9)),
+            ));
+            y += 20.0;
+            let a_pref = actions.clone();
+            layers.push(bigname_button_at(
+                "CHAR PREFS".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_pref, UiAction::SettingsCategory(10)),
+            ));
+            y += 20.0;
+            let a_exp = actions.clone();
+            layers.push(bigname_button_at(
+                "EXPERIMENTAL".to_string(),
+                160.0,
+                y,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_exp, UiAction::SettingsCategory(11)),
+            ));
+            y += 20.0;
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
         }
         5 => {
-            layers.push(nt_text_at("LANGUAGE".to_string(), 160.0, 24.0, &v, col(153, 153, 153), true));
+            // Game_Profile
+            layers.push(nt_text_at(
+                "PROFILE".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let mut y = 48.0;
+            layers.push(nt_text_at(
+                "PROFILE NAME".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            layers.push(nt_text_at(
+                if st.profile_name.is_empty() {
+                    "NONE".to_string()
+                } else {
+                    st.profile_name.clone()
+                },
+                200.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                false,
+            ));
+            y += 20.0;
+            layers.push(nt_text_at(
+                "COLOR".to_string(),
+                80.0,
+                y,
+                &v,
+                col(238, 239, 225),
+                false,
+            ));
+            let col_hex = if st.player_color_hex.is_empty() {
+                "DEFAULT".to_string()
+            } else {
+                st.player_color_hex.clone()
+            };
+            layers.push(nt_text_at(col_hex, 200.0, y, &v, col(125, 131, 141), false));
+            let a_col = actions.clone();
+            layers.push(bigname_button_at(
+                "COLOR".to_string(),
+                160.0,
+                y + 20.0,
+                &v,
+                col(153, 153, 153),
+                move || push(&a_col, UiAction::SettingsCategory(6)),
+            ));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        6 => {
+            // Game_Color – RGB sliders via hex input stub + color preview
+            layers.push(nt_text_at(
+                "COLOR".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            layers.push(nt_text_at(
+                format!(
+                    "HEX: {}",
+                    if st.player_color_hex.is_empty() {
+                        "DEFAULT".to_string()
+                    } else {
+                        st.player_color_hex.clone()
+                    }
+                ),
+                160.0,
+                60.0,
+                &v,
+                col(238, 239, 225),
+                true,
+            ));
+            // For demo: tapping cycles a preset list via SettingInput
+            let presets = ["FF0000", "00FF00", "0000FF", "", "FF00FF"];
+            let cur = st.player_color_hex.clone();
+            let idx = presets.iter().position(|p| *p == cur).unwrap_or(3);
+            let next = presets[(idx + 1) % presets.len()].to_string();
+            let a_sw = actions.clone();
+            layers.push(bigname_button_at(
+                "CYCLE COLOR".to_string(),
+                160.0,
+                90.0,
+                &v,
+                col(153, 153, 153),
+                move || {
+                    push(
+                        &a_sw,
+                        UiAction::SettingInput {
+                            key: "player_color_hex".to_string(),
+                            value: next.clone(),
+                        },
+                    )
+                },
+            ));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        7 => {
+            // Game_Data
+            layers.push(nt_text_at(
+                "DATA".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let a_reset = actions.clone();
+            layers.push(bigname_button_at(
+                "RESET OPTIONS".to_string(),
+                160.0,
+                80.0,
+                &v,
+                col(238, 239, 225),
+                move || push(&a_reset, UiAction::SettingResetOptions),
+            ));
+            let a_erase = actions.clone();
+            layers.push(bigname_button_at(
+                "ERASE PROGRESS".to_string(),
+                160.0,
+                110.0,
+                &v,
+                col(221, 56, 45),
+                move || push(&a_erase, UiAction::SettingEraseProgress),
+            ));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        9 => {
+            // Controls_Remapping_Keys – list keybinds (stub – GML has input capturing)
+            layers.push(nt_text_at(
+                "REMAP".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let keys = [
+                ("FIRE", "fire"),
+                ("ACTIVE", "spec"),
+                ("SWAP", "swap"),
+                ("PICK", "pick"),
+            ];
+            let mut y = 60.0;
+            for (label, _k) in keys {
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    160.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    true,
+                ));
+                y += 18.0;
+            }
+            layers.push(nt_text_at(
+                "PRESS ANY KEY – WIP".to_string(),
+                160.0,
+                y,
+                &v,
+                col(125, 131, 141),
+                true,
+            ));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        10 => {
+            // Controls_Preferences – 8 cprefs switches
+            layers.push(nt_text_at(
+                "CHAR PREFS".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            let labels = [
+                "EYES", "MELTING", "PLANT", "VENUZ", "STER", "HORROR", "ROGUE", "SKELETON",
+            ];
+            let mut y = 48.0;
+            for (i, label) in labels.iter().enumerate() {
+                let cur = st.cprefs[i];
+                layers.push(nt_text_at(
+                    label.to_string(),
+                    80.0,
+                    y,
+                    &v,
+                    col(238, 239, 225),
+                    false,
+                ));
+                layers.push(nt_text_at(
+                    if cur {
+                        "ON".to_string()
+                    } else {
+                        "OFF".to_string()
+                    },
+                    200.0,
+                    y,
+                    &v,
+                    col(125, 131, 141),
+                    false,
+                ));
+                let a_sw = actions.clone();
+                layers.push(hitbox_at(60.0, y - 6.0, 200.0, 16.0, &v, move || {
+                    push(&a_sw, UiAction::SettingToggle(format!("cprefs_{}", i)))
+                }));
+                y += 18.0;
+            }
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        11 => {
+            // Controls_Experimental
+            layers.push(nt_text_at(
+                "EXPERIMENTAL".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
+            layers.push(nt_text_at(
+                "KEYBOARD MODE – WIP".to_string(),
+                160.0,
+                80.0,
+                &v,
+                col(125, 131, 141),
+                true,
+            ));
+            let a_back = actions.clone();
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
+        }
+        12 => {
+            // LANGUAGE full from earlier
+            layers.push(nt_text_at(
+                "LANGUAGE".to_string(),
+                160.0,
+                24.0,
+                &v,
+                col(153, 153, 153),
+                true,
+            ));
             let mut y = 60.0;
             for lang in st.available_languages.clone() {
                 let is_cur = lang == st.language;
                 let label = lang.to_ascii_uppercase();
                 let a = actions.clone();
                 let lc = lang.clone();
-                layers.push(bigname_button_at(label, 160.0, y, &v, if is_cur { col(255,255,255) } else { col(153,153,153) }, move || push(&a, UiAction::SetLanguage(lc.clone()))));
+                layers.push(bigname_button_at(
+                    label,
+                    160.0,
+                    y,
+                    &v,
+                    if is_cur {
+                        col(255, 255, 255)
+                    } else {
+                        col(153, 153, 153)
+                    },
+                    move || push(&a, UiAction::SetLanguage(lc.clone())),
+                ));
                 y += 20.0;
             }
             let a_back = actions.clone();
-            layers.push(bigname_button_at("BACK".to_string(), 160.0, 200.0, &v, col(125, 131, 141), move || push(&a_back, UiAction::SettingsBack)));
+            layers.push(bigname_button_at(
+                "BACK".to_string(),
+                160.0,
+                200.0,
+                &v,
+                col(125, 131, 141),
+                move || push(&a_back, UiAction::SettingsBack),
+            ));
         }
         _ => {}
     }
@@ -612,7 +1568,14 @@ fn settings_ui(_overlay: OverlayHandle, st: &SharedUi, actions: Arc<Mutex<Vec<Ui
     ZStack(Modifier::new().fill_max_size()).child(layers)
 }
 
-fn bigname_button_at(label: String, gx: f32, gy: f32, v: &NtView, color: RColor, on_click: impl Fn() + 'static) -> View {
+fn bigname_button_at(
+    label: String,
+    gx: f32,
+    gy: f32,
+    v: &NtView,
+    color: RColor,
+    on_click: impl Fn() + 'static,
+) -> View {
     // GML draw_text_bigname with scale 0.65 – we use Silkscreen at ~10*s for bigname vs 7*s for normal
     let font_px = (10.0 * v.s).clamp(10.0, 140.0);
     let gw = 120.0;
