@@ -223,6 +223,8 @@ pub struct Run {
     pub portal_open: bool,
     pub game_over: bool,
     pub total_kills: u32,
+    /// Desert 1-1 chicken swords left at level end (`Portal/Alarm_1`).
+    pub blackswords: u32,
 }
 
 impl Default for Run {
@@ -237,6 +239,7 @@ impl Default for Run {
             portal_open: false,
             game_over: false,
             total_kills: 0,
+            blackswords: 0,
         }
     }
 }
@@ -1170,6 +1173,33 @@ impl From<WeaponKind> for PickupKind {
 
 #[derive(Component)]
 pub struct Portal;
+
+/// Expanding shock spawned with the portal (GML PortalShock).
+/// Kills nearby props (`other.hp = 0`) and opens chests, then despawns.
+/// `alarm[0] = 2` ticks at 30Hz.
+#[derive(Component)]
+pub struct PortalShock {
+    pub timer: Timer,
+    pub radius: f32,
+}
+
+/// Wall-clearing pulse spawned with the portal (GML PortalClear).
+#[derive(Component)]
+pub struct PortalClear {
+    pub timer: Timer,
+}
+
+/// Portal close latch (GML Portal `close` + `endgame = 30`, `alarm[1] = 90`).
+#[derive(Component)]
+pub struct PortalClosing {
+    pub timer: Timer,
+}
+
+/// Persistent weapon ids touched to the portal (GML persistent WepPickup).
+/// Respawned around the player on the next floor; also feeds the
+/// Desert blacksword count (`Portal/Alarm_1`).
+#[derive(Resource, Default)]
+pub struct PortalCarriedWeapons(pub Vec<WeaponId>);
 
 #[derive(Component)]
 pub struct HurtAnim {

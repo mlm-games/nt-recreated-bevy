@@ -22,6 +22,55 @@ impl Toast {
     }
 }
 
+/// GML portal level-end pickup behavior (runs before `collect_pickups`):
+/// - `WepPickup/Collision_Portal`: weapons touching the portal become
+///   persistent (carried to the next floor via `PortalCarriedWeapons`).
+/// - `Rad/Step_0`: while a Portal exists rads target the player regardless
+///   of distance (`mp_potential_step 12` = 360px/s); rads touching the
+///   portal are pulled onto the player so normal collection grants them.
+pub fn portal_pickup_carry(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    portal_q: Query<&Transform, (With<Portal>, Without<Pickup>)>,
+    mut carried: ResMut<PortalCarriedWeapons>,
+    player_q: Query<&Transform, With<Player>>,
+    mut pickups: Query<(Entity, &mut Transform, &Pickup), (Without<Player>, Without<Portal>)>,
+) {
+    let Ok(portal_tf) = portal_q.single() else {
+        return;
+    };
+    let Ok(player_tf) = player_q.single() else {
+        return;
+    };
+    let portal_pos = portal_tf.translation.truncate();
+    let player_pos = player_tf.translation.truncate();
+    let dt = time.delta_secs();
+
+    for (e, mut tf, pickup) in &mut pickups {
+        let ppos = tf.translation.truncate();
+        match pickup.kind {
+            PickupKind::Weapon(w) => {
+                if ppos.distance(portal_pos) < 20.0 {
+                    carried.0.push(w);
+                    commands.entity(e).despawn();
+                }
+            }
+            PickupKind::Rad(_) => {
+                // Global magnet while the portal is open.
+                let dir = (player_pos - ppos).normalize_or_zero();
+                tf.translation += (dir * 360.0 * dt).extend(0.0);
+                // Portal touch: pull onto the player so `collect_pickups`
+                // grants it next tick (mirrors place_meeting Portal collect).
+                if ppos.distance(portal_pos) < 20.0 {
+                    tf.translation.x = player_pos.x;
+                    tf.translation.y = player_pos.y;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn spawn_pickup(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -247,14 +296,31 @@ pub fn collect_pickups(
             }
         }
 
-        // Chests never fly to the player (upstream: open on contact).
-        // Weapons: only telekinesis pulls them (original WepPickup has no magnet).
+        // Chests never fly to the player (upstream: open on contact / shock).
+        // Weapons: only telekinesis pulls them to the player (original
+        // WepPickup has no player magnet); portal drag + carry live in
+        // progression::portal_attract and portal_pickup_carry.
         let is_chest = matches!(pickup.kind, PickupKind::Chest(_));
         let is_weapon = matches!(pickup.kind, PickupKind::Weapon(_));
+        let is_rad = matches!(pickup.kind, PickupKind::Rad(_));
         if is_weapon {
             if telek_active && dist < magnet {
                 let dir = (player_pos - pickup_pos).normalize_or_zero();
                 pickup_tf.translation += (dir * 900.0 * telek_mult * dt).extend(0.0);
+            }
+        } else if is_rad {
+            // GML rad range 80 (+60 plutonium hunger). Portal-global magnet
+            // lives in portal_pickup_carry (runs before this system).
+            let has_hunger = player
+                .mutations
+                .contains(&MutationId::PlutoniumHunger);
+            let rad_range = 80.0 + if has_hunger { 60.0 } else { 0.0 };
+            let magnet_to_player = dist < rad_range || (telek_active && dist < magnet);
+            if magnet_to_player {
+                let dir = (player_pos - pickup_pos).normalize_or_zero();
+                // GML mp_potential_step 12px/step = 360px/s.
+                let pull = if telek_active { 900.0 * telek_mult } else { 360.0 };
+                pickup_tf.translation += (dir * pull * dt).extend(0.0);
             }
         } else if !is_chest && dist < magnet {
             let dir = (player_pos - pickup_pos).normalize_or_zero();
@@ -470,6 +536,22 @@ pub fn collect_pickups(
             }
         }
     }
+}
+
+/// Swaps a chest to its open-corpse art (frozen on the last frame) and marks
+/// it opened. Upstream: spr_dead = sprXxxOpen, ChestOpen plays at 0.4 and
+/// freezes on image_number-1; RadChest's corpse is sprRadChestCorpse.
+/// Shock path reuses the same corpse swap (loot spawned by caller).
+pub fn open_chest_shock(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    anims: &mut Query<&mut crate::game::anim::SpriteAnim>,
+    sprites: &mut Query<&mut Sprite>,
+    e: Entity,
+    kind: ChestKind,
+) {
+    open_chest(commands, catalog, asset_server, anims, sprites, e, kind);
 }
 
 /// Swaps a chest to its open-corpse art (frozen on the last frame) and marks

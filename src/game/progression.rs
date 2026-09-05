@@ -8,6 +8,7 @@ use crate::app::{OverlayMenu, Paused, PendingUnpause};
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
+use crate::game::environment::PropDeathEffect;
 use crate::game::secret_areas::{self, SecretTriggers};
 use crate::game::world;
 use crate::save::SaveData;
@@ -1115,6 +1116,33 @@ pub fn portal_check(
     if let Some(portal_strip) = portal_strip {
         pc.insert(portal_strip);
     }
+    // GML Portal/Create_0: PortalClear + PortalShock + PortalL FX.
+    // Shock: alarm 2 ticks, scale 2.25, kills props (hp=0), clears enemy shots.
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        PortalShock {
+            timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+            radius: 72.0,
+        },
+        Transform::from_xyz(pos.x, pos.y, 6.0),
+    ));
+    commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        PortalClear {
+            timer: Timer::from_seconds(5.0 / 30.0, TimerMode::Once),
+        },
+        Transform::from_xyz(pos.x, pos.y, 6.0),
+    ));
+    // GML repeat(4) scrFX PortalL.
+    VfxSpawner::spawn_burst(
+        &mut commands,
+        pos,
+        4,
+        Color::srgb(0.5, 0.8, 1.0),
+        (60.0, 160.0),
+    );
     // GML Portal/Create_0 appears instantly (shock + PortalL FX + sound);
     // no scale pop-in.
     ScreenEffects::add_trauma(&mut trauma, 0.25);
@@ -1148,13 +1176,28 @@ pub fn portal_check(
 }
 
 pub fn portal_attract(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut player_q: Query<
-        (&Transform, &mut Velocity),
+        (
+            Entity,
+            &mut Transform,
+            &mut Velocity,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut Sprite>,
+            Option<&crate::game::anim::PlayerAnim>,
+            Option<&AimDir>,
+        ),
         (With<Player>, Without<Portal>, Without<PortalSucking>),
+    >,
+    mut weapon_q: Query<
+        (Entity, &mut Transform, &Pickup, Option<&mut GroundPhysics>),
+        (Without<Player>, Without<Portal>),
     >,
     portal_q: Query<&Transform, With<Portal>>,
     mask: Res<FloorMask>,
-    _walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     run: Res<Run>,
 ) {
     if run.game_over || !run.portal_open {
@@ -1163,43 +1206,312 @@ pub fn portal_attract(
     let Ok(portal_tf) = portal_q.single() else {
         return;
     };
-    let Ok((player_tf, mut vel)) = player_q.single_mut() else {
-        return;
-    };
-    let ppos = player_tf.translation.truncate();
     let tpos = portal_tf.translation.truncate();
-    let dist = ppos.distance(tpos);
-    if dist > 96.0 || dist <= 48.0 {
-        return;
+    let dt = time.delta_secs();
+    let frames = dt * crate::app::NT_SIM_HZ as f32;
+
+    // GML Portal/Create_0 attract_objects: dist<=96, LOS clear, spd 2 (>48) / 5.
+    let mut attract_step = |ppos: Vec2| -> Option<(Vec2, f32, f32)> {
+        let dist = ppos.distance(tpos);
+        if dist > 96.0 || dist < 0.5 {
+            return None;
+        }
+        if crate::game::walls::segment_hits_wall(ppos, tpos, &mask) {
+            return None;
+        }
+        let spd = if dist > 48.0 { 2.0 } else { 5.0 };
+        let dir = (tpos - ppos).normalize_or_zero();
+        Some((dir, spd, dist))
+    };
+
+    // --- Player (GML also sets angle/spr_hurt when dist<=half) ---
+    if let Ok((player_e, mut ptf, mut vel, mut anim, mut sprite, pa, aim)) =
+        player_q.single_mut()
+    {
+        let ppos = ptf.translation.truncate();
+        if let Some((dir, spd, dist)) = attract_step(ppos) {
+            // place_free stepped move: try x then y separately.
+            let delta = dir * spd * 30.0 * dt;
+            let nx = Vec2::new(ppos.x + delta.x, ppos.y);
+            let ny = Vec2::new(ppos.x, ppos.y + delta.y);
+            if mask.is_walkable(nx) {
+                ptf.translation.x = nx.x;
+            }
+            if mask.is_walkable(ny) {
+                ptf.translation.y = ny.y;
+            }
+            // Keep velocity consistent so player_move doesn't snap back.
+            vel.0 = dir * spd * 30.0;
+            if dist <= 48.0 {
+                // GML: angle -= 30*right, sprite spr_hurt img 1.
+                let right = aim.map(|a| if a.0.x < 0.0 { -1.0 } else { 1.0 }).unwrap_or(1.0);
+                ptf.rotation *= Quat::from_rotation_z((-30.0_f32.to_radians()) * right * frames);
+                if let (Some(anim), Some(sprite), Some(pa)) =
+                    (anim.as_mut(), sprite.as_mut(), pa)
+                {
+                    // Trigger hurt strip once; tick_hurt_anims restores.
+                    // Skip while a hurt oneshot is already playing.
+                    if !(anim.oneshot && !anim.finished) {
+                        crate::game::anim::play_hurt(
+                            &mut commands,
+                            player_e,
+                            &catalog,
+                            &asset_server,
+                            anim,
+                            sprite,
+                            pa.hurt,
+                            pa.idle,
+                            Some(pa.walk),
+                        );
+                    }
+                }
+            } else {
+                // GML: if dist>half && !roll && angle!=0 → angle=0.
+                ptf.rotation = Quat::IDENTITY;
+            }
+        }
     }
-    // GML Portal/Create attract_objects: requires LOS clear
-    let los_blocked = crate::game::walls::segment_hits_wall(ppos, tpos, &mask);
-    if los_blocked {
-        return;
+
+    // --- Dropped weapons (GML attract_objects(WepPickup,96)) ---
+    for (e, mut wtf, pickup, gp) in &mut weapon_q {
+        let PickupKind::Weapon(_) = pickup.kind else {
+            continue;
+        };
+        // Skip already-carried (invisible) weapons.
+        if wtf.scale.x < 0.01 {
+            continue;
+        }
+        let ppos = wtf.translation.truncate();
+        let Some((dir, spd, _dist)) = attract_step(ppos) else {
+            continue;
+        };
+        // mp_potential_step_object(px,py,1,Wall): step toward portal, slide on blocked axis.
+        let delta = dir * spd * 30.0 * dt;
+        let nx = Vec2::new(ppos.x + delta.x, ppos.y);
+        let ny = Vec2::new(ppos.x, ppos.y + delta.y);
+        if mask.is_walkable(nx) {
+            wtf.translation.x = nx.x;
+        }
+        if mask.is_walkable(ny) {
+            wtf.translation.y = ny.y;
+        }
+        // GML: image_angle -= 15*rotspeed.
+        let rotspeed = gp.as_ref().map(|g| g.rotspeed).unwrap_or(0.8);
+        wtf.rotation *= Quat::from_rotation_z((-15.0_f32.to_radians()) * rotspeed * frames);
+        // Damp slide velocity so attract wins over GroundPhysics drift.
+        if let Some(mut gp) = gp {
+            gp.vel *= 0.8;
+        }
+        let _ = e;
     }
-    let speed = if dist > 48.0 { 60.0 } else { 150.0 }; // GML speed 2*30 and 5*30
-    let dir = (tpos - ppos).normalize_or_zero();
-    vel.0 = dir * speed;
+}
+
+/// GML PortalShock: alarm 2 ticks, kills props (other.hp = 0) and clears
+/// enemy projectiles; chests in radius auto-open like player touch.
+pub fn tick_portal_shock(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut shocks: Query<(Entity, &Transform, &mut PortalShock)>,
+    mut props: Query<
+        (
+            Entity,
+            &mut Prop,
+            &Transform,
+            Option<&PropDeathEffect>,
+            Option<&PropSprites>,
+        ),
+        With<Prop>,
+    >,
+    mut chests: Query<(Entity, &Transform, &Pickup), (Without<OpenedChest>, Without<Player>)>,
+    mut anims: Query<&mut crate::game::anim::SpriteAnim>,
+    mut sprites: Query<&mut Sprite>,
+    mut enemy_shots: Query<(Entity, &Transform, &Team), With<crate::game::components::Projectile>>,
+    entrances: Query<&SecretEntrance>,
+    mut secrets: ResMut<SecretTriggers>,
+) {
+    for (shock_e, shock_tf, mut shock) in &mut shocks {
+        shock.timer.tick(time.delta());
+        let center = shock_tf.translation.truncate();
+        // Collision_prop: other.hp = 0 → lethal via existing death path.
+        // Apply immediately so barrels chain before the shock despawns.
+        let mut killed: Vec<(Entity, Vec2, bool, Option<PropDeathEffect>, Option<PropSprites>)> =
+            Vec::new();
+        for (prop_e, mut prop, prop_tf, death, ps) in &mut props {
+            if !prop.destructible || prop.hp <= 0 {
+                continue;
+            }
+            let ppos = prop_tf.translation.truncate();
+            let half = prop.size * 0.5;
+            let closest = Vec2::new(
+                center.x.clamp(ppos.x - half.x, ppos.x + half.x),
+                center.y.clamp(ppos.y - half.y, ppos.y + half.y),
+            );
+            if center.distance(closest) > shock.radius {
+                continue;
+            }
+            prop.hp = 0;
+            killed.push((prop_e, ppos, prop.explosive, death.copied(), ps.copied()));
+        }
+        for (prop_e, ppos, explosive, death, ps) in killed {
+            if let Some(sprites) = ps {
+                crate::game::environment::spawn_prop_corpse(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    ppos,
+                    &sprites,
+                );
+            }
+            crate::game::environment::spawn_prop_death_effect(
+                &mut commands, ppos, death, explosive, None,
+            );
+            if let Ok(entrance) = entrances.get(prop_e) {
+                secrets.queue(entrance.target);
+            }
+            commands.entity(prop_e).despawn();
+        }
+        // Chests in radius auto-open (Weapon→weapon pickup, Ammo→2 pickups).
+        for (chest_e, chest_tf, pickup) in &mut chests {
+            let PickupKind::Chest(kind) = pickup.kind else {
+                continue;
+            };
+            let cpos = chest_tf.translation.truncate();
+            if center.distance(cpos) > shock.radius {
+                continue;
+            }
+            // Swap to open corpse.
+            crate::game::pickups::open_chest_shock(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                &mut anims,
+                &mut sprites,
+                chest_e,
+                kind,
+            );
+            match kind {
+                ChestKind::Weapon => {
+                    let weapon =
+                        crate::game::combat::random_weapon(&mut rand::rng());
+                    crate::game::pickups::spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Weapon(weapon),
+                        cpos,
+                    );
+                }
+                ChestKind::Ammo => {
+                    for _ in 0..2 {
+                        let ammo = match rand::rng().random_range(1..=5) {
+                            1 => AmmoKind::Bullets,
+                            2 => AmmoKind::Shells,
+                            3 => AmmoKind::Bolts,
+                            4 => AmmoKind::Explosives,
+                            _ => AmmoKind::Energy,
+                        };
+                        crate::game::pickups::spawn_pickup(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            PickupKind::Ammo(ammo, ammo_pickup_amount(ammo)),
+                            cpos,
+                        );
+                    }
+                }
+                ChestKind::Rad => {
+                    for _ in 0..25 {
+                        let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+                        let d = rand::rng().random_range(6.0..26.0);
+                        crate::game::pickups::spawn_pickup(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            PickupKind::Rad(1),
+                            cpos + Vec2::new(ang.cos() * d, ang.sin() * d),
+                        );
+                    }
+                }
+            }
+        }
+        // Step_0: clear enemy projectiles in radius.
+        for (proj_e, proj_tf, team) in &mut enemy_shots {
+            if *team == Team::Player {
+                continue;
+            }
+            if proj_tf.translation.truncate().distance(center) <= shock.radius {
+                commands.entity(proj_e).despawn();
+            }
+        }
+        if shock.timer.just_finished() {
+            commands.entity(shock_e).despawn();
+        }
+    }
+}
+
+/// GML PortalClear: destroys walls it touches (alarm 5 ticks).
+pub fn tick_portal_clear(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut clears: Query<(Entity, &Transform, &mut PortalClear)>,
+    walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+) {
+    for (clear_e, clear_tf, mut clear) in &mut clears {
+        clear.timer.tick(time.delta());
+        let center = clear_tf.translation.truncate();
+        for (_, cell, wtf) in &walls {
+            if wtf.translation.truncate().distance(center) < 48.0 {
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    PendingWallBreak {
+                        cell: (cell.0, cell.1),
+                        pos: wtf.translation.truncate(),
+                        spawn_floor: true,
+                    },
+                ));
+            }
+        }
+        if clear.timer.just_finished() {
+            commands.entity(clear_e).despawn();
+        }
+    }
 }
 
 pub fn portal_enter(
     mut commands: Commands,
     run: Res<Run>,
-    portal_q: Query<(Entity, &Transform), With<Portal>>,
-    player_q: Query<
-        (Entity, &Transform, &mut Velocity),
+    portal_q: Query<(Entity, &Transform, Option<&PortalClosing>), With<Portal>>,
+    mut player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Velocity,
+            &RaceState,
+            &mut Inventory,
+            &Player,
+        ),
         (With<Player>, Without<Portal>, Without<PortalSucking>),
     >,
+    mut weapon_q: Query<(Entity, &Transform, &Pickup), (Without<Player>, Without<Portal>)>,
 ) {
     if run.game_over {
         return;
     }
 
-    let Ok((portal_e, portal_tf)) = portal_q.single() else {
+    let Ok((portal_e, portal_tf, closing)) = portal_q.single() else {
         return;
     };
+    // GML Portal/Collision_Player: `if (close) exit` — latch on first touch.
+    if closing.is_some() {
+        return;
+    }
 
-    let Ok((player_e, player_tf, mut vel)) = player_q.single() else {
+    let Ok((player_e, player_tf, mut vel, race_state, mut inv, player)) =
+        player_q.single_mut()
+    else {
         return;
     };
 
@@ -1209,6 +1521,39 @@ pub fn portal_enter(
         return;
     }
     let _ = &mut vel;
+
+    // GML close path: close=true, endgame=30, alarm[1]=90, sndPortalClose.
+    // Bevy: latch component blocks re-trigger; suck timer owns the 90-tick wait.
+    commands.entity(portal_e).insert(PortalClosing {
+        timer: Timer::from_seconds(90.0 / 30.0, TimerMode::Once),
+    });
+
+    // GML Robot branch: nearby visible WepPickups are eaten (scrRobotEat).
+    if race_state.race == RaceId::Robot {
+        for (wep_e, wep_tf, pickup) in &mut weapon_q {
+            let PickupKind::Weapon(w) = pickup.kind else {
+                continue;
+            };
+            if wep_tf.translation.truncate().distance(tpos) > 96.0 {
+                continue;
+            }
+            // Approximate scrRobotEat(wep,true): weapon → its ammo, smoke puff.
+            let kind = weapon_ammo(w);
+            if kind != AmmoKind::None {
+                let add = ammo_pickup_amount(kind);
+                let slot = inv.ammo_mut(kind);
+                *slot = (*slot + add).min(player.ammo_cap(kind));
+            }
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                wep_tf.translation.truncate(),
+                6,
+                Color::srgb(0.6, 0.6, 0.6),
+                (30.0, 90.0),
+            );
+            commands.entity(wep_e).despawn();
+        }
+    }
 
     // Begin suck-in (NT Portal/Collision pulls the player over ~16 frames
     // @30fps); tick_portal_suck finishes the floor transition.
@@ -1237,6 +1582,8 @@ pub fn tick_portal_suck(
     mut floor_started: MessageWriter<FloorStarted>,
     mut ctx: PortalSuckCtx,
     level_q: Query<Entity, With<LevelCleanup>>,
+    weapon_q: Query<&Pickup, Without<Player>>,
+    carried: Res<PortalCarriedWeapons>,
     mut player_q: Query<
         (
             Entity,
@@ -1295,7 +1642,21 @@ pub fn tick_portal_suck(
         sprite.color.set_alpha(1.0);
     }
 
-    // Clean current floor.
+    // GML Portal/Alarm_1: chicken swords left in Desert 1-1 count up.
+    // wep_chicken_sword = 46 (macros_general.gml:406).
+    if run.floor == 1 && run.area == crate::game::areas::AreaId::Desert {
+        let mut swords = carried.0.iter().filter(|w| w.0 == 46).count() as u32;
+        for pickup in &weapon_q {
+            if matches!(pickup.kind, PickupKind::Weapon(w) if w.0 == 46) {
+                swords += 1;
+            }
+        }
+        run.blackswords += swords;
+    }
+
+    // Clean current floor. Carried weapons already live in the
+    // PortalCarriedWeapons resource (despawned on portal touch), so the
+    // wipe only removes floor entities — GML room_restart persistence.
     for e in &level_q {
         commands.entity(e).despawn();
     }
@@ -1417,6 +1778,7 @@ pub fn tick_floor_transition(
     audio: Res<GameAudio>,
     mut floor_started: MessageWriter<FloorStarted>,
     mut player_q: Query<(&mut Transform, &mut Health, &mut Player, &RaceState), With<Player>>,
+    mut carried: ResMut<PortalCarriedWeapons>,
     mut spiral: Option<ResMut<crate::game::vortex::SpiralCtl>>,
 ) {
     if !ft.active {
@@ -1470,6 +1832,21 @@ pub fn tick_floor_transition(
             tf.scale = Vec3::ONE;
             run.portal_open = false;
             ft.active = false;
+            // GML persistent WepPickups survive room_restart: drop carried
+            // weapons around the player spawn on the new floor.
+            if !carried.0.is_empty() {
+                let base = tf.translation.truncate();
+                for (i, w) in carried.0.drain(..).enumerate() {
+                    let ang = (i as f32) * std::f32::consts::TAU / 4.0;
+                    crate::game::pickups::spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Weapon(w),
+                        base + Vec2::new(ang.cos(), ang.sin()) * 24.0,
+                    );
+                }
+            }
             // Signal vortex to drain (GML survivors pop within ~21 ticks;
             // the quad despawns itself on a 26-tick margin)
             if let Some(mut s) = spiral {

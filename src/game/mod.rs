@@ -72,6 +72,7 @@ impl Plugin for GamePlugin {
             .init_resource::<skin_unlocks::CrystalDamageTaken>()
             .init_resource::<ThroneRoomState>()
             .init_resource::<progress_sys::DeferredFloorGen>()
+            .init_resource::<PortalCarriedWeapons>()
             .init_resource::<ambience::AreaAudioState>()
             .init_resource::<ambience::AmbFilter>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
@@ -202,15 +203,34 @@ impl Plugin for GamePlugin {
                     )
                         .in_set(NtSimSet::Combat)
                         .run_if(gameplay_active),
-                    (
-                        combat::resolve_deaths,
-                        pickups::collect_pickups,
-                        pickups::tick_rad_container_contact,
-                        progress_sys::portal_check,
-                        progress_sys::portal_attract,
-                        progress_sys::portal_enter,
-                        progress_sys::animate_portal,
-                    )
+                    combat::resolve_deaths
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    pickups::portal_pickup_carry
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    pickups::collect_pickups
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    pickups::tick_rad_container_contact
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::portal_check
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::tick_portal_shock
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::tick_portal_clear
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::portal_attract
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::portal_enter
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    progress_sys::animate_portal
                         .in_set(NtSimSet::Progression)
                         .run_if(gameplay_active),
                     progress_sys::flush_dirty_save

@@ -3105,6 +3105,7 @@ mod tests {
             portal_open: false,
             game_over: false,
             total_kills: 0,
+            blackswords: 0,
         }
     }
 
