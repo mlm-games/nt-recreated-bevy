@@ -258,6 +258,7 @@ pub fn player_ability(
             &Transform,
             &mut AimDir,
             &mut Inventory,
+            &RaceState,
             Option<&mut Shield>,
             Option<&mut Telekinesis>,
         ),
@@ -268,13 +269,18 @@ pub fn player_ability(
     mut dirty: ResMut<SaveDirty>,
     mut toast: ResMut<Toast>,
 ) {
-    let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, shield, telek)) =
+    let Ok((player_e, mut player, mut health, mut vel, tf, aim, mut inv, race_state, shield, telek)) =
         q.single_mut()
     else {
         return;
     };
 
+    // GML Steroids has no active: spec (RMB) is the second gun's trigger
+    // (see player_fire dual path). Never consume it as Get Loaded.
     let fire = input.take_ability_pressed();
+    if race_state.race == RaceId::Steroids {
+        return;
+    }
     if !fire || !player.ability_cooldown.is_finished() {
         return;
     }
@@ -809,6 +815,7 @@ pub fn player_fire(
             &AimDir,
             &mut Player,
             &mut Health,
+            &RaceState,
             Option<&PortalSucking>,
         ),
         With<Player>,
@@ -829,7 +836,9 @@ pub fn player_fire(
     gamepads: Query<(Entity, &Gamepad)>,
     mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
-    let Ok((player_ent, tf, aim, mut player, mut health, sucking)) = player_q.single_mut() else {
+    let Ok((player_ent, tf, aim, mut player, mut health, race_state, sucking)) =
+        player_q.single_mut()
+    else {
         return;
     };
     if sucking.is_some() {
@@ -839,22 +848,38 @@ pub fn player_fire(
         return;
     };
 
+    let is_steroids = race_state.race == RaceId::Steroids;
+
     cooldown.timer.tick(time.delta());
     cooldown.burst_timer.tick(time.delta());
+    cooldown.timer_b.tick(time.delta());
+    cooldown.burst_timer_b.tick(time.delta());
 
-    let weapon_id = inv.weapons[inv.current];
-    let def = weapon_runtime_def(weapon_id);
+    let fire_held = input.fire_held;
+    let fire_pressed = input.take_fire_pressed();
+    let spec_held = input.spec_held;
+    let spec_pressed = input.take_spec_pressed();
 
-    // Empty slot: nothing to fire.
-    if weapon_id == WeaponId::NONE {
-        cooldown.timer = Timer::from_seconds(0.0, TimerMode::Once);
-        cooldown.burst_left = 0;
-        return;
-    }
+    // Primary gun = weapons[current] (GML `wep`).
+    let primary_id = inv.weapons[inv.current];
+    let primary_def = weapon_runtime_def(primary_id);
 
-    // Continue an in-progress burst (Assault Rifle).
-    if cooldown.burst_left > 0 && cooldown.burst_timer.is_finished() {
-        spawn_pellets(
+    // Secondary gun (GML `bwep`): the other live slot. Only Steroids fires it.
+    let second_slot = steroids_secondary_slot(inv.current, inv.weapon_slots);
+    let secondary_id = if is_steroids {
+        inv.weapons[second_slot]
+    } else {
+        WeaponId::NONE
+    };
+    let secondary_def = weapon_runtime_def(secondary_id);
+
+    // Burst continuation runs per gun on its own timer (no extra ammo cost —
+    // GML *Burst objects don't reconsume).
+    if cooldown.burst_left > 0
+        && cooldown.burst_timer.is_finished()
+        && primary_id != WeaponId::NONE
+    {
+        fire_burst_volley(
             &mut commands,
             &mut trauma,
             &mut hitstop,
@@ -863,166 +888,272 @@ pub fn player_fire(
             &gamepads,
             &catalog,
             &asset_server,
+            &mut pop_q,
             player_ent,
             tf,
             aim,
             &*player,
-            weapon_id,
-            &def,
+            primary_id,
+            &primary_def,
         );
-        // Y.V. Pop Pop: duplicate burst pellet
-        if let Ok(mut charges) = pop_q.get_mut(player_ent) {
-            if charges.0 > 0 {
-                charges.0 -= 1;
-                spawn_pellets(
-                    &mut commands,
-                    &mut trauma,
-                    &mut hitstop,
-                    &audio,
-                    &mut rumble,
-                    &gamepads,
-                    &catalog,
-                    &asset_server,
-                    player_ent,
-                    tf,
-                    aim,
-                    &*player,
-                    weapon_id,
-                    &def,
-                );
-                if charges.0 == 0 {
-                    commands.entity(player_ent).remove::<PopPopCharges>();
-                }
-            }
-        }
         cooldown.burst_left -= 1;
-        cooldown.burst_timer = Timer::from_seconds(def.burst_interval, TimerMode::Once);
-        return;
+        cooldown.burst_timer = Timer::from_seconds(primary_def.burst_interval, TimerMode::Once);
     }
-
-    let fire_held = input.fire_held;
-    let fire_pressed = input.take_fire_pressed();
-    let intent = if def.automatic {
-        fire_held
-    } else {
-        fire_pressed
-    };
-
-    if !intent || !cooldown.timer.is_finished() {
-        return;
-    }
-
-    let archetype = projectile_archetype(weapon_id);
-
-    // GML scrCheckRads: ultra weapons need rads on top of ammo.
-    if def.rad_cost > 0 && player.rads < def.rad_cost {
-        // GML scrEmptyRads: popup + sndUltraEmpty + wkick -2.
-        if intent {
-            toast.show("NOT ENOUGH RADS");
-            audio.play_ultra_empty(&mut commands);
-            for mut wv in vis_q.iter_mut() {
-                if wv.owner == player_ent {
-                    wv.wkick = -2.0;
-                }
-            }
-        }
-        return;
-    }
-
-    if def.melee.is_none() {
-        match pay_fire_cost(
-            &mut inv,
-            &mut health,
-            def.ammo,
-            def.ammo_cost,
-            archetype.blood_ammo,
-        ) {
-            AmmoPayment::Paid => {}
-            AmmoPayment::Blood(cost) => {
-                VfxSpawner::spawn_damage_number(
-                    &mut commands,
-                    cost,
-                    tf.translation.truncate(),
-                    Color::srgb(1.0, 0.35, 0.35),
-                );
-            }
-            AmmoPayment::Failed => {
-                // GML scrEmpty: EMPTY/InsAmmo popup + sndEmpty + wkick -2.
-                if intent {
-                    if inv.ammo_of(def.ammo) > 0 {
-                        toast.show("NOT ENOUGH AMMO");
-                    } else {
-                        toast.show("EMPTY");
-                    }
-                    audio.play_empty(&mut commands);
-                    for mut wv in vis_q.iter_mut() {
-                        if wv.owner == player_ent {
-                            wv.wkick = -2.0;
-                        }
-                    }
-                }
-                return;
-            }
-        }
-        // Deduct ultra rad cost after ammo succeeded (GML scrFire order).
-        if def.rad_cost > 0 {
-            player.rads = player.rads.saturating_sub(def.rad_cost);
-        }
-    }
-
-    // Stress: fire rate scales with missing health (up to +100% at 1 HP).
-    let stress_bonus = if player.stress {
-        (1.0 - health.hp as f32 / health.max.max(1) as f32).max(0.0)
-    } else {
-        0.0
-    };
-    let cd = def.cooldown * player.fire_rate_mult / (1.0 + stress_bonus);
-    cooldown.timer = Timer::from_seconds(cd.max(0.03), TimerMode::Once);
-
-    if let Some(melee) = def.melee {
-        melee_attack(
+    if is_steroids
+        && cooldown.burst_left_b > 0
+        && cooldown.burst_timer_b.is_finished()
+        && secondary_id != WeaponId::NONE
+    {
+        fire_burst_volley(
             &mut commands,
             &mut trauma,
             &mut hitstop,
             &audio,
             &mut rumble,
             &gamepads,
+            &catalog,
+            &asset_server,
+            &mut pop_q,
             player_ent,
             tf,
             aim,
             &*player,
-            &mut vel,
-            &def,
-            melee,
+            secondary_id,
+            &secondary_def,
+        );
+        cooldown.burst_left_b -= 1;
+        cooldown.burst_timer_b =
+            Timer::from_seconds(secondary_def.burst_interval, TimerMode::Once);
+    }
+
+    // GML scrPlayerFiring intent: semi needs click; Steroids holds semi
+    // (`hold_fire && (auto || race==Steroids)`).
+    let primary_intent = if primary_def.automatic || is_steroids {
+        fire_held
+    } else {
+        fire_pressed
+    };
+    // GML Steroids block forces hold_fire=true for the bwep call and maps
+    // press_spec->press_fire, so the second gun fires on spec hold (auto and
+    // hold-semi alike).
+    let secondary_intent = is_steroids && spec_held && secondary_id != WeaponId::NONE;
+
+    if primary_id != WeaponId::NONE && primary_intent && cooldown.timer.is_finished() {
+        fire_one_gun(
+            &mut commands,
+            &mut trauma,
+            &mut hitstop,
+            &audio,
+            &mut rumble,
+            &gamepads,
+            &catalog,
+            &asset_server,
+            &mut toast,
+            &mut pop_q,
             &mut enemies,
+            &mut vis_q,
+            player_ent,
+            tf,
+            aim,
+            &mut player,
+            &mut inv,
+            &mut health,
+            &mut vel,
+            &mut cooldown,
+            primary_id,
+            &primary_def,
+            0,
+        );
+    }
+
+    if secondary_intent && cooldown.timer_b.is_finished() {
+        // Re-read defs (primary fire may have mutated shared ammo/rads, but
+        // defs are values so refresh costs gate on current pools).
+        let secondary_def = weapon_runtime_def(secondary_id);
+        fire_one_gun(
+            &mut commands,
+            &mut trauma,
+            &mut hitstop,
+            &audio,
+            &mut rumble,
+            &gamepads,
+            &catalog,
+            &asset_server,
+            &mut toast,
+            &mut pop_q,
+            &mut enemies,
+            &mut vis_q,
+            player_ent,
+            tf,
+            aim,
+            &mut player,
+            &mut inv,
+            &mut health,
+            &mut vel,
+            &mut cooldown,
+            secondary_id,
+            &secondary_def,
+            1,
+        );
+    }
+
+    // Silence unused when secondary absent (non-Steroids single gun).
+    let _ = spec_pressed;
+}
+
+/// One burst-tick volley (GML *Burst alarm0): pellets only, no ammo/rad cost,
+/// no cooldown reset. Pop Pop duplicates like a normal volley.
+#[allow(clippy::too_many_arguments)]
+fn fire_burst_volley(
+    commands: &mut Commands,
+    trauma: &mut Trauma,
+    hitstop: &mut HitStop,
+    audio: &GameAudio,
+    rumble: &mut MessageWriter<GamepadRumbleRequest>,
+    gamepads: &Query<(Entity, &Gamepad)>,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pop_q: &mut Query<&mut PopPopCharges>,
+    player_ent: Entity,
+    tf: &Transform,
+    aim: &AimDir,
+    player: &Player,
+    weapon_id: WeaponId,
+    def: &WeaponDef,
+) {
+    spawn_pellets(
+        commands, trauma, hitstop, audio, rumble, gamepads, catalog, asset_server,
+        player_ent, tf, aim, player, weapon_id, def,
+    );
+    if let Ok(mut charges) = pop_q.get_mut(player_ent) {
+        if charges.0 > 0 {
+            charges.0 -= 1;
+            spawn_pellets(
+                commands, trauma, hitstop, audio, rumble, gamepads, catalog,
+                asset_server, player_ent, tf, aim, player, weapon_id, def,
+            );
+            if charges.0 == 0 {
+                commands.entity(player_ent).remove::<PopPopCharges>();
+            }
+        }
+    }
+}
+
+/// Fire one gun once: rad gate → ammo gate → cooldown → melee or pellets +
+/// recoil/kick → recycle/pop/burst queue. `visual_slot` selects which
+/// WeaponVisual takes the kick (0 primary, 1 Steroids secondary).
+#[allow(clippy::too_many_arguments)]
+fn fire_one_gun(
+    commands: &mut Commands,
+    trauma: &mut Trauma,
+    hitstop: &mut HitStop,
+    audio: &GameAudio,
+    rumble: &mut MessageWriter<GamepadRumbleRequest>,
+    gamepads: &Query<(Entity, &Gamepad)>,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    toast: &mut Toast,
+    pop_q: &mut Query<&mut PopPopCharges>,
+    enemies: &mut Query<
+        (
+            Entity,
+            &Transform,
+            &mut Health,
+            &Hitbox,
+            Option<&mut Velocity>,
+        ),
+        (With<Enemy>, Without<Player>),
+    >,
+    vis_q: &mut Query<&mut WeaponVisual>,
+    player_ent: Entity,
+    tf: &Transform,
+    aim: &AimDir,
+    player: &mut Player,
+    inv: &mut Inventory,
+    health: &mut Health,
+    vel: &mut Velocity,
+    cooldown: &mut FireCooldown,
+    weapon_id: WeaponId,
+    def: &WeaponDef,
+    visual_slot: u8,
+) {
+    let archetype = projectile_archetype(weapon_id);
+
+    // GML scrCheckRads.
+    if def.rad_cost > 0 && player.rads < def.rad_cost {
+        toast.show("NOT ENOUGH RADS");
+        audio.play_ultra_empty(commands);
+        for mut wv in vis_q.iter_mut() {
+            if wv.owner == player_ent && wv.slot == visual_slot {
+                wv.wkick = -2.0;
+            }
+        }
+        return;
+    }
+
+    if def.melee.is_none() {
+        match pay_fire_cost(inv, health, def.ammo, def.ammo_cost, archetype.blood_ammo) {
+            AmmoPayment::Paid => {}
+            AmmoPayment::Blood(cost) => {
+                VfxSpawner::spawn_damage_number(
+                    commands,
+                    cost,
+                    tf.translation.truncate(),
+                    Color::srgb(1.0, 0.35, 0.35),
+                );
+            }
+            AmmoPayment::Failed => {
+                if inv.ammo_of(def.ammo) > 0 {
+                    toast.show("NOT ENOUGH AMMO");
+                } else {
+                    toast.show("EMPTY");
+                }
+                audio.play_empty(commands);
+                for mut wv in vis_q.iter_mut() {
+                    if wv.owner == player_ent && wv.slot == visual_slot {
+                        wv.wkick = -2.0;
+                    }
+                }
+                return;
+            }
+        }
+        if def.rad_cost > 0 {
+            player.rads = player.rads.saturating_sub(def.rad_cost);
+        }
+    }
+
+    let stress_bonus = if player.stress {
+        (1.0 - health.hp as f32 / health.max.max(1) as f32).max(0.0)
+    } else {
+        0.0
+    };
+    let cd = def.cooldown * player.fire_rate_mult / (1.0 + stress_bonus);
+    // GML reload/breload are per-gun timers.
+    let timer = if visual_slot == 0 {
+        &mut cooldown.timer
+    } else {
+        &mut cooldown.timer_b
+    };
+    *timer = Timer::from_seconds(cd.max(0.03), TimerMode::Once);
+
+    if let Some(melee) = def.melee {
+        melee_attack(
+            commands, trauma, hitstop, audio, rumble, gamepads, player_ent, tf, aim,
+            player, vel, def, melee, enemies,
         );
         return;
     }
 
     spawn_pellets(
-        &mut commands,
-        &mut trauma,
-        &mut hitstop,
-        &audio,
-        &mut rumble,
-        &gamepads,
-        &catalog,
-        &asset_server,
-        player_ent,
-        tf,
-        aim,
-        &*player,
-        weapon_id,
-        &def,
+        commands, trauma, hitstop, audio, rumble, gamepads, catalog, asset_server,
+        player_ent, tf, aim, player, weapon_id, def,
     );
-    // Recoil + weapon kick on fire (feel)
     vel.0 -= aim.0.normalize_or_zero() * def.recoil * 18.0;
     for mut wv in vis_q.iter_mut() {
-        if wv.owner == player_ent {
+        if wv.owner == player_ent && wv.slot == visual_slot {
             wv.wkick = -def.recoil.max(2.0) * 1.5;
         }
     }
-    // Recycle Gland: bullet weapons sometimes refund the shot.
     if player.recycle_gland
         && def.ammo == AmmoKind::Bullets
         && def.melee.is_none()
@@ -1032,25 +1163,12 @@ pub fn player_fire(
         *slot = (*slot + 1).min(player.ammo_cap(AmmoKind::Bullets));
     }
 
-    // Y.V. Pop Pop: second volley
     if let Ok(mut charges) = pop_q.get_mut(player_ent) {
         if charges.0 > 0 {
             charges.0 -= 1;
             spawn_pellets(
-                &mut commands,
-                &mut trauma,
-                &mut hitstop,
-                &audio,
-                &mut rumble,
-                &gamepads,
-                &catalog,
-                &asset_server,
-                player_ent,
-                tf,
-                aim,
-                &*player,
-                weapon_id,
-                &def,
+                commands, trauma, hitstop, audio, rumble, gamepads, catalog,
+                asset_server, player_ent, tf, aim, player, weapon_id, def,
             );
             if charges.0 == 0 {
                 commands.entity(player_ent).remove::<PopPopCharges>();
@@ -1058,10 +1176,14 @@ pub fn player_fire(
         }
     }
 
-    // Queue the rest of the burst.
     if def.burst_shots > 1 {
-        cooldown.burst_left = def.burst_shots - 1;
-        cooldown.burst_timer = Timer::from_seconds(def.burst_interval, TimerMode::Once);
+        if visual_slot == 0 {
+            cooldown.burst_left = def.burst_shots - 1;
+            cooldown.burst_timer = Timer::from_seconds(def.burst_interval, TimerMode::Once);
+        } else {
+            cooldown.burst_left_b = def.burst_shots - 1;
+            cooldown.burst_timer_b = Timer::from_seconds(def.burst_interval, TimerMode::Once);
+        }
     }
 }
 
@@ -1963,34 +2085,79 @@ pub fn ensure_weapon_visual(
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     player_q: Query<
-        (Entity, &Inventory, &Transform, &AimDir),
+        (Entity, &Inventory, &Transform, &AimDir, &RaceState),
         (With<Player>, Without<WeaponVisualOwner>),
     >,
 ) {
-    let Ok((player_e, inv, tf, aim)) = player_q.single() else {
+    let Ok((player_e, inv, tf, aim, race_state)) = player_q.single() else {
         return;
     };
     let id = inv.weapons[inv.current];
     if id == WeaponId::NONE {
         return;
     }
-    let path = weapon_world_sprite(id, &catalog);
-    let (mut spr, _) = crate::game::anim::sprite_anim(&catalog, &asset_server, &path);
+    let dual = race_state.race == RaceId::Steroids
+        && inv.weapon_slots > 1
+        && inv.weapons[(inv.current + 1) % inv.weapon_slots] != WeaponId::NONE;
+    commands.entity(player_e).insert(WeaponVisualOwner);
+    spawn_gun_visual(
+        &mut commands,
+        &catalog,
+        &asset_server,
+        player_e,
+        tf,
+        aim,
+        id,
+        0,
+        Vec2::ZERO,
+    );
+    if dual {
+        let second = inv.weapons[(inv.current + 1) % inv.weapon_slots];
+        // Offset perpendicular so both Steroids guns stay visible.
+        let perp = Vec2::new(-aim.0.y, aim.0.x).normalize_or_zero() * 8.0;
+        spawn_gun_visual(
+            &mut commands,
+            &catalog,
+            &asset_server,
+            player_e,
+            tf,
+            aim,
+            second,
+            1,
+            perp,
+        );
+    }
+}
+
+fn spawn_gun_visual(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    player_e: Entity,
+    tf: &Transform,
+    aim: &AimDir,
+    id: WeaponId,
+    slot: u8,
+    extra_offset: Vec2,
+) {
+    let path = weapon_world_sprite(id, catalog);
+    let (mut spr, _) = crate::game::anim::sprite_anim(catalog, asset_server, &path);
     spr.custom_size = spr.custom_size.or(Some(Vec2::new(24.0, 12.0)));
     let angle = aim.0.y.atan2(aim.0.x);
-    let pos = tf.translation.truncate() + aim.0 * 14.0;
-    let anchor = crate::game::content::sprite_anchor(&catalog, &path);
-    commands.entity(player_e).insert(WeaponVisualOwner);
+    let pos = tf.translation.truncate() + aim.0 * 14.0 + extra_offset;
+    let anchor = crate::game::content::sprite_anchor(catalog, &path);
     commands.spawn((
         GameCleanup,
         WeaponVisual {
             owner: player_e,
             wkick: 0.0,
             wep_id: id,
+            slot,
         },
         spr,
         anchor,
-        Transform::from_translation(pos.extend(21.0)).with_rotation(Quat::from_rotation_z(angle)),
+        Transform::from_translation(pos.extend(21.0 - slot as f32 * 0.5))
+            .with_rotation(Quat::from_rotation_z(angle)),
     ));
 }
 
@@ -2005,6 +2172,7 @@ pub fn tick_weapon_visuals(
             &Transform,
             &AimDir,
             &Inventory,
+            &RaceState,
             Option<&PortalSucking>,
         ),
         With<Player>,
@@ -2021,7 +2189,7 @@ pub fn tick_weapon_visuals(
     >,
 ) {
     let dt = time.delta_secs();
-    let Ok((player_e, ptf, aim, inv, sucking)) = player_q.single() else {
+    let Ok((player_e, ptf, aim, inv, race_state, sucking)) = player_q.single() else {
         for (e, _, _, _, _) in &vis_q {
             commands.entity(e).despawn();
         }
@@ -2034,11 +2202,60 @@ pub fn tick_weapon_visuals(
         commands.entity(player_e).remove::<WeaponVisualOwner>();
         return;
     }
-    let id = inv.weapons[inv.current];
+    let dual = race_state.race == RaceId::Steroids && inv.weapon_slots > 1;
+    let want_slots: usize = if dual { 2 } else { 1 };
+    // Despawn surplus visuals when leaving Steroids / losing second gun.
+    let mut seen = [false; 2];
+    for (_e, wv, _, _, _) in vis_q.iter() {
+        if wv.owner == player_e && (wv.slot as usize) < 2 {
+            seen[wv.slot as usize] = true;
+        }
+    }
+    if dual {
+        let second = inv.weapons[(inv.current + 1) % inv.weapon_slots];
+        if second == WeaponId::NONE && seen[1] {
+            for (e, wv, _, _, _) in vis_q.iter() {
+                if wv.owner == player_e && wv.slot == 1 {
+                    commands.entity(e).despawn();
+                }
+            }
+            seen[1] = false;
+        } else if second != WeaponId::NONE && !seen[1] {
+            let perp = Vec2::new(-aim.0.y, aim.0.x).normalize_or_zero() * 8.0;
+            spawn_gun_visual(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                player_e,
+                ptf,
+                aim,
+                second,
+                1,
+                perp,
+            );
+            seen[1] = true;
+        }
+    } else if seen[1] {
+        for (e, wv, _, _, _) in vis_q.iter() {
+            if wv.owner == player_e && wv.slot == 1 {
+                commands.entity(e).despawn();
+            }
+        }
+    }
+    let _ = want_slots;
     for (_e, mut wv, mut tf, mut sprite, mut anchor) in &mut vis_q {
         if wv.owner != player_e {
             continue;
         }
+        let slot_idx = if dual {
+            (inv.current + wv.slot as usize) % inv.weapon_slots
+        } else {
+            if wv.slot != 0 {
+                continue;
+            }
+            inv.current
+        };
+        let id = inv.weapons[slot_idx];
         wv.wkick *= 0.6_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
         if wv.wkick.abs() < 0.15 {
             wv.wkick = 0.0;
@@ -2056,15 +2273,26 @@ pub fn tick_weapon_visuals(
         }
         let angle = aim.0.y.atan2(aim.0.x);
         let forward = aim.0.normalize_or_zero();
-        let hold = ptf.translation.truncate() + forward * (12.0 - wv.wkick);
-        tf.translation = hold.extend(21.0);
+        let perp = Vec2::new(-forward.y, forward.x);
+        let side = if wv.slot == 1 { perp * 8.0 } else { Vec2::ZERO };
+        let hold = ptf.translation.truncate() + forward * (12.0 - wv.wkick) + side;
+        tf.translation = hold.extend(21.0 - wv.slot as f32 * 0.5);
         tf.rotation = Quat::from_rotation_z(angle);
         sprite.flip_y = aim.0.x < 0.0;
     }
 }
 
-fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
-    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
+/// GML Steroids `bwep` slot: the other live slot. Swap (cycle) exchanges
+/// which slot is primary vs secondary, matching `scrSwapWeps` role exchange.
+fn steroids_secondary_slot(current: usize, slots: usize) -> usize {
+    if slots > 1 {
+        (current + 1) % slots
+    } else {
+        current
+    }
+}
+
+fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
     // build never silently shows the wrong gun (gen_assets hint).
     let meta = crate::game::content::weapon_meta(id);
     let stem = meta.wep_sprt;
@@ -2079,4 +2307,31 @@ fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
         );
     }
     path
+}
+
+#[cfg(test)]
+mod steroids_dual_tests {
+    use super::steroids_secondary_slot;
+
+    #[test]
+    fn secondary_is_the_other_live_slot() {
+        assert_eq!(steroids_secondary_slot(0, 2), 1);
+        assert_eq!(steroids_secondary_slot(1, 2), 0);
+    }
+
+    #[test]
+    fn single_slot_has_no_secondary() {
+        assert_eq!(steroids_secondary_slot(0, 1), 0);
+    }
+
+    #[test]
+    fn swap_exchanges_roles() {
+        // Cycling current swaps primary/secondary roles like scrSwapWeps.
+        let a_primary = 0;
+        let a_secondary = steroids_secondary_slot(a_primary, 2);
+        let b_primary = 1;
+        let b_secondary = steroids_secondary_slot(b_primary, 2);
+        assert_eq!(a_primary, b_secondary);
+        assert_eq!(a_secondary, b_primary);
+    }
 }

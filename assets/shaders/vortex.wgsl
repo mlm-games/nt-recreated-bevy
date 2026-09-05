@@ -103,7 +103,10 @@ fn hash11(birth: f32, salt: f32) -> f32 {
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let gui = vec2<f32>(mesh.uv.x * 320.0, (1.0 - mesh.uv.y) * 240.0);
     let tick_now = glob_a.x;
-    let lightning_on = glob_a.y;
+    // Total birth-rewind applied during the drain (0 while alive): wisp
+    // age fast-forwards for scale, but the lightning clock below uses
+    // realtime age so bolts behave like Spiral/Step_0's unscaled `lanim`.
+    let drain_bias = glob_a.y;
     let bg_alpha = glob_b.y;
     let thresh = glob_b.z;
     // SpiralKind discriminant + jungle-debris flag (see Rust glob_b docs).
@@ -126,7 +129,9 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             s = proto_scale(age);
         }
         // Spiral/Step_0: oversized wisps survive while lightning shows.
-        let lanim = wisp_lanim(d.z, age);
+        // `lanim` runs on realtime age (drain rewind excluded): GML keeps
+        // `lanim += 0.2+random(0.3)` unscaled after SpiralCont dies.
+        let lanim = wisp_lanim(d.z, age - drain_bias);
         if (s > thresh && !(lanim > 0.0 && lanim < 6.0)) { continue; }
 
         // IDPD2 variant rides in the rot sign (CPU); art is 128px single.
@@ -140,12 +145,14 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
         // Lightning pass FIRST (scrDrawSpiral draws the bolt before the
         // wisp's own white/black spiral passes cover it).
-        if (lightning_on > 0.5 && s > 0.05) {
+        if (s > 0.05) {
             if (lanim > 0.0 && lanim < 6.0) {
                 let frame = clamp(floor(lanim), 0.0, BOLT_FRAMES - 1.0);
                 let langle = hash11(d.z, 2.0) * 6.2831853;
-                let lc = cos(rot + langle);
-                let ls = sin(rot + langle);
+                // Bolt rotation is image_angle + langle with NO +45 (the
+                // +45 in `rot` is wisp-art only): strip it back out here.
+                let lc = cos(rot - 0.7853982 + langle);
+                let ls = sin(rot - 0.7853982 + langle);
                 var lrel = gui - d.xy;
                 lrel = vec2<f32>(lc * lrel.x - ls * lrel.y, ls * lrel.x + lc * lrel.y);
                 let lbolt_half = vec2<f32>(88.0, 88.0) * s;

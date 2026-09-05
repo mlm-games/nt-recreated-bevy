@@ -14,6 +14,11 @@ pub struct NtInput {
     fire_pressed: bool,
     ability_pressed: bool,
     interact_pressed: bool,
+    /// GML Steroids `hold_spec` — second trigger (RMB/LB). Sampled from the
+    /// same physical buttons as ability; kept as independent pulses so
+    /// Steroids second-gun fire doesn't consume the ability press.
+    pub spec_held: bool,
+    spec_pressed: bool,
     weapon_slot: Option<usize>,
     cycle_weapon: i8,
 }
@@ -27,6 +32,8 @@ impl Default for NtInput {
             fire_pressed: false,
             ability_pressed: false,
             interact_pressed: false,
+            spec_held: false,
+            spec_pressed: false,
             weapon_slot: None,
             cycle_weapon: 0,
         }
@@ -40,6 +47,10 @@ impl NtInput {
 
     pub fn take_ability_pressed(&mut self) -> bool {
         std::mem::take(&mut self.ability_pressed)
+    }
+
+    pub fn take_spec_pressed(&mut self) -> bool {
+        std::mem::take(&mut self.spec_pressed)
     }
 
     pub fn take_interact_pressed(&mut self) -> bool {
@@ -63,6 +74,8 @@ impl NtInput {
         self.fire_pressed = false;
         self.ability_pressed = false;
         self.interact_pressed = false;
+        self.spec_pressed = false;
+        self.spec_held = false;
         self.weapon_slot = None;
         self.cycle_weapon = 0;
     }
@@ -119,11 +132,22 @@ pub fn sample_input(
     let mut ability_pressed = mouse.just_pressed(MouseButton::Right)
         || keys.just_pressed(KeyCode::ShiftLeft)
         || keys.just_pressed(KeyCode::ShiftRight);
+    // GML Steroids second trigger = spec (RMB/LB). Same physical buttons as
+    // ability; tracked independently so dual fire never eats ability pulses.
+    let spec_held = mouse.pressed(MouseButton::Right)
+        || keys.pressed(KeyCode::ShiftLeft)
+        || keys.pressed(KeyCode::ShiftRight);
+    let spec_pressed = mouse.just_pressed(MouseButton::Right)
+        || keys.just_pressed(KeyCode::ShiftLeft)
+        || keys.just_pressed(KeyCode::ShiftRight);
     let mut interact_pressed = keys.just_pressed(KeyCode::KeyE)
         || keys.just_pressed(KeyCode::KeyF)
         || keys.just_pressed(KeyCode::KeyQ)
         || keys.just_pressed(KeyCode::KeyG)
         || keys.just_pressed(KeyCode::Tab);
+
+    let mut spec_held_now = spec_held;
+    let mut spec_pressed_now = spec_pressed;
 
     let mut weapon_slot = None;
     let mut cycle_weapon = 0_i8;
@@ -156,6 +180,8 @@ pub fn sample_input(
         fire_held |= gamepad.pressed(GamepadButton::RightTrigger2);
         fire_pressed |= gamepad.just_pressed(GamepadButton::RightTrigger2);
         ability_pressed |= gamepad.just_pressed(GamepadButton::LeftTrigger2);
+        spec_held_now |= gamepad.pressed(GamepadButton::LeftTrigger2);
+        spec_pressed_now |= gamepad.just_pressed(GamepadButton::LeftTrigger2);
         interact_pressed |=
             gamepad.just_pressed(GamepadButton::South) || gamepad.just_pressed(GamepadButton::East);
 
@@ -216,11 +242,13 @@ pub fn sample_input(
     output.move_axis = move_axis.clamp_length_max(1.0);
     output.aim_axis = aim_axis.clamp_length_max(1.0);
     output.fire_held = fire_held;
+    output.spec_held = spec_held_now;
 
     // Keep pulses queued until a FixedUpdate gameplay system consumes them.
     output.fire_pressed |= fire_pressed;
     output.ability_pressed |= ability_pressed;
     output.interact_pressed |= interact_pressed;
+    output.spec_pressed |= spec_pressed_now;
 
     if weapon_slot.is_some() {
         output.weapon_slot = weapon_slot;

@@ -492,6 +492,11 @@ pub struct FireCooldown {
     pub timer: Timer,
     pub burst_left: usize,
     pub burst_timer: Timer,
+    /// GML Steroids `breload`/`bcan_shoot`/burst state for the second gun
+    /// (`bwep`). Only used when race is Steroids; otherwise stays idle.
+    pub timer_b: Timer,
+    pub burst_left_b: usize,
+    pub burst_timer_b: Timer,
 }
 
 pub const MAX_WEAPON_SLOTS: usize = 3;
@@ -1205,6 +1210,9 @@ pub struct WeaponVisual {
     pub owner: Entity,
     pub wkick: f32,
     pub wep_id: WeaponId,
+    /// GML Steroids second gun (`bwep`) needs its own visual + kick.
+    /// 0 = primary (`wep` / `weapons[current]`), 1 = secondary.
+    pub slot: u8,
 }
 
 #[derive(Component, Clone, Copy)]

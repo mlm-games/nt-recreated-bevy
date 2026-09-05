@@ -15,6 +15,7 @@
 //! compositing happen in the fragment shader (`assets/shaders/vortex.wgsl`).
 //! One draw call regardless of wisp count - no entity churn, no startup stall.
 
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
@@ -198,6 +199,10 @@ pub struct SpiralCtl {
     retired: Vec<Entity>,
     pub alive: bool,
     pub death_tick: Option<f32>,
+    /// Total birth-rewind applied during the drain (5.5 per dead tick).
+    /// The shader subtracts it from wisp age for the lightning clock only,
+    /// keeping `lanim` realtime while scale fast-forwards (see `glob_a`).
+    pub drain_bias: f32,
     /// SpiralCont.type + GML area int (debris sprite, center behavior).
     pub kind: SpiralKind,
     pub gml_area: u8,
@@ -246,6 +251,7 @@ impl SpiralCtl {
             retired: Vec::new(),
             alive: true,
             death_tick: None,
+            drain_bias: 0.0,
             kind: SpiralKind::for_gml_area(gml_area),
             gml_area,
         };
@@ -324,6 +330,10 @@ impl SpiralCtl {
             }
         } else {
             // No new spawns; survivors fast-forward (see method docs).
+            // The rewind is also tallied as drain_bias so the shader can
+            // keep the lightning clock (`lanim`) on realtime while scale
+            // fast-forwards - GML advances lanim unscaled after death.
+            self.drain_bias += 5.5;
             for slot in self.ring.iter_mut() {
                 if slot[2] >= 0.0 {
                     slot[2] -= 5.5;
@@ -529,7 +539,11 @@ struct VortexMaterial {
     /// Per-wisp [x, y, birth_tick, rot]; birth < 0 = inactive slot.
     #[uniform(0)]
     wisps: [Vec4; MAX_WISPS],
-    /// (tick_now, lightning_enabled, bg_r, bg_g)
+    /// (tick_now, drain_bias, bg_r, bg_g): drain_bias is the total
+    /// birth-rewind applied during the drain (0 while alive); the shader
+    /// subtracts it from wisp age for the lightning clock so `lanim` keeps
+    /// advancing in realtime exactly like Spiral/Step_0 (`lanim += ...`
+    /// runs unscaled after SpiralCont dies).
     #[uniform(1)]
     glob_a: Vec4,
     /// (bg_b, bg_alpha, kill_scale, kind + debris16 * 4): kind is the
@@ -537,6 +551,11 @@ struct VortexMaterial {
     /// debris16 flags jungle `sprDebris105` (16px frames, not 8px).
     #[uniform(2)]
     glob_b: Vec4,
+    // GameMaker filters everything bilinearly, but the app runs
+    // `ImagePlugin::default_nearest()` for the pixel-art look. The bind
+    // uses each image's own `sampler`, so the update system stamps
+    // `ImageSampler::linear()` on the vortex art (soft rotated wisps like
+    // the original) without touching the global pixel-art setting.
     #[texture(3)]
     #[sampler(4)]
     spiral_tex: Handle<Image>,
@@ -917,6 +936,7 @@ fn vortex_tick(
     time: Res<Time<Real>>,
     mut ctl: Option<ResMut<SpiralCtl>>,
     mut materials: ResMut<Assets<VortexMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     q_mat: Query<&MeshMaterial2d<VortexMaterial>, With<VortexQuad>>,
     ft: Option<Res<crate::game::components::FloorTransition>>,
     pending: Option<Res<crate::game::components::PendingMutation>>,
@@ -950,8 +970,23 @@ fn vortex_tick(
     // growth table/art and the debris frame size (see glob_b docs).
     let kindpacked =
         ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
-    mat.glob_a = Vec4::new(ctl.ticks, 1.0, r, g);
+    mat.glob_a = Vec4::new(ctl.ticks, ctl.drain_bias, r, g);
     mat.glob_b = Vec4::new(b, bg_alpha, 2.5, kindpacked);
+    // Bilinear like GameMaker (app default is nearest): stamp once the
+    // images exist. Handles are shared by path, so the matching CPU debris
+    // sprites go linear too - equally GML-true, and noted in review.
+    for handle in [
+        &mat.spiral_tex,
+        &mat.bolt_tex,
+        &mat.debris_tex,
+        &mat.spiral_proto_tex,
+        &mat.spiral_idpd_tex,
+        &mat.spiral_idpd2_tex,
+    ] {
+        if let Some(mut img) = images.get_mut(handle) {
+            img.sampler = ImageSampler::linear();
+        }
+    }
 }
 
 /// Spawn the vortex quad once; keeps `SpiralCtl` alive alongside it.
@@ -1020,7 +1055,7 @@ fn ensure_vortex_quad(
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
         debris: debris_to_uniform(&ctl.debris_ring),
-        glob_a: Vec4::new(ctl.ticks, 1.0, r, g),
+        glob_a: Vec4::new(ctl.ticks, ctl.drain_bias, r, g),
         glob_b: Vec4::new(b, bg_alpha, 2.5, kindpacked),
         spiral_tex: asset_server.load("images/sprSpiral.png"),
         bolt_tex: asset_server.load("images/sprPortalLightning.png"),
@@ -1180,6 +1215,32 @@ fn mark_vortex_dead(ctl: Option<ResMut<SpiralCtl>>) {
 mod tests {
     use super::*;
     use crate::game::ui_art::{GUI_H, GUI_W};
+
+    #[test]
+    fn drain_bias_tracks_rewind_for_realtime_lightning() {
+        // The shader computes bolt `lanim` from (age - drain_bias): bias
+        // must equal the total rewind so the clock stays realtime while
+        // scale fast-forwards, and must be 0 while the spiral is alive.
+        let mut ctl = SpiralCtl::warmed_up();
+        assert_eq!(ctl.drain_bias, 0.0);
+        for _ in 0..10 {
+            ctl.tick_once();
+        }
+        assert_eq!(ctl.drain_bias, 0.0);
+        ctl.alive = false;
+        ctl.death_tick = Some(ctl.ticks);
+        for _ in 0..4 {
+            ctl.tick_once();
+        }
+        assert_eq!(ctl.drain_bias, 4.0 * 5.5);
+        // Realtime age recoverable: (tick - birth) - bias == age at death.
+        let slot = ctl.ring.iter().find(|s| s[2] >= 0.0).unwrap();
+        let realtime_age = (ctl.ticks - slot[2]) - ctl.drain_bias;
+        assert!(
+            realtime_age >= 0.0 && realtime_age <= 160.0,
+            "realtime age out of range: {realtime_age}"
+        );
+    }
 
     #[test]
     fn spiral_cpu_layer_system_params_are_disjoint() {

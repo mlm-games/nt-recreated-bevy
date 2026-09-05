@@ -234,13 +234,19 @@ pub fn play_hurt(
     // GM: hurt lasts while image_index <=2 (~3 frames at 0.4*30=12fps => 0.25s)
     // Keep timer as backstop; frame check above is authoritative.
     let secs = (3.0 / def.fps.max(1.0)).max(0.12).min(0.35);
-    commands.entity(entity).insert(HurtAnim {
-        idle,
-        walk,
-        hurt: path,
-        timer: Timer::from_seconds(secs, TimerMode::Once),
-        was_moving: false,
-    });
+    // The victim may have died (despawned, index possibly recycled) between
+    // the query above and this deferred insert flushing: combat despawns in
+    // the same tick. `get_entity` rejects stale generations instead of
+    // panicking the whole schedule (B0001-style fatal `entity()` error).
+    if let Ok(mut ec) = commands.get_entity(entity) {
+        ec.insert(HurtAnim {
+            idle,
+            walk,
+            hurt: path,
+            timer: Timer::from_seconds(secs, TimerMode::Once),
+            was_moving: false,
+        });
+    }
 }
 
 /// Restore idle/walk after hurt oneshot finishes. Mirrors GM:
