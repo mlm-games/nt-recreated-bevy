@@ -218,6 +218,12 @@ fn meta_of(catalog: &AssetCatalog, path: &str) -> SpriteMeta {
         .unwrap_or([1.0, 16.0, 16.0, 0.0, 8.0, 8.0])
 }
 
+/// Frame geometry `[w, h, xorigin, yorigin]` for CPU-driven sprites.
+pub(crate) fn sprite_meta(catalog: &AssetCatalog, path: &str) -> (f32, f32, f32, f32) {
+    let m = meta_of(catalog, path);
+    (m[1].max(1.0), m[2].max(1.0), m[4], m[5])
+}
+
 fn race_skin_subimage(race: usize, skin: u8) -> i32 {
     if race == 0 {
         return -1;
@@ -278,7 +284,7 @@ pub fn skin_slot_positions(count: usize) -> Vec<(usize, f32, f32)> {
 /// blend, alpha)` translation. `gui_x/gui_y` are the GM drawing point
 /// (origin-relative): left = x - xorigin*xscale, top = y - yorigin*yscale.
 #[allow(clippy::too_many_arguments)]
-fn gm_sprite(
+pub(crate) fn gm_sprite(
     catalog: &AssetCatalog,
     assets: &AssetServer,
     map: &GuiMap,
@@ -1169,7 +1175,6 @@ fn boot_intro(
     // Keep Repose text locked to the current card.
     sync_boot_mode_ui(&bridge, boot.mode);
 
-    // ----- Logo stage (mode 4) -----
     if boot.mode == 4 {
         boot.t += dt;
 
@@ -1290,7 +1295,6 @@ fn boot_intro(
         return;
     }
 
-    // ----- Card modes 0..3 -----
     // Advance only after the current card has been displayed at least once.
     let can_advance = boot.rendered_mode == boot.mode as i8;
     if can_advance && (pressed || boot.t >= MODE_SECS[boot.mode as usize]) {
@@ -2782,7 +2786,6 @@ fn char_select_tick(
         }
     }
 
-    // --- Menu/Step_1 camera focus (view lerp) ---
     {
         let s = art.world_s.max(0.001);
         let target = if selected_race == 0 {

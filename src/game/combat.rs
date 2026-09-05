@@ -509,7 +509,6 @@ pub fn move_projectiles(
             continue;
         }
 
-        // --- solid collision (arena rim OR prop/wall AABB) ---
         let mut hit_normal: Option<Vec2> = None;
         let mut hit_prop: Option<(Entity, Vec2, bool, Option<PropDeathEffect>)> = None;
 

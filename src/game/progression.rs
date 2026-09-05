@@ -399,7 +399,9 @@ fn try_start_pending_floor_gen(commands: &mut Commands, run: &Run) {
         progress: 0.0,
         tip,
     });
-    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
+    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up_for_gml_area(
+        crate::game::vortex::gml_area_for_bevy_area(run.area),
+    ));
 }
 
 fn level_up_feedback(
@@ -1381,7 +1383,9 @@ pub fn tick_portal_suck(
         progress: 0.0,
         tip,
     });
-    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
+    commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up_for_gml_area(
+        crate::game::vortex::gml_area_for_bevy_area(run.area),
+    ));
     // Hide player until next floor spawns (GenCont hides player during load)
     player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
     // Keep portal_closed flag; will be cleared after transition spawns

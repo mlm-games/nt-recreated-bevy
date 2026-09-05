@@ -705,8 +705,6 @@ pub struct SpawnHazardOnDeath(pub HazardDef);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SplitOnDeath(pub SplitDef);
 
-// --- Projectile archetypes (see projectile_archetypes.rs) -------------------
-
 /// Smart / seeker projectiles steer toward the nearest enemy.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Homing {
@@ -809,8 +807,6 @@ pub struct Beam {
     pub source: Option<DamageSource>,
 }
 
-// --- IDPD raids / vans (see idpd.rs) ----------------------------------------
-
 #[derive(Component)]
 pub struct IdpdVanBrain {
     pub deploy_timer: Timer,
@@ -859,8 +855,6 @@ pub enum RaidWave {
     Heavy,
     VanDrop,
 }
-
-// --- Loop transition / Throne II interlude (see loop_transition.rs) ---------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CampfirePhase {
@@ -1056,8 +1050,6 @@ pub struct EnemyBrain {
     /// Current gun angle (degrees rad) for aimed shots.
     pub gunangle: f32,
 }
-
-// --- Boss AI (see boss_ai.rs) -----------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BossPhase {

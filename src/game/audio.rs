@@ -29,6 +29,18 @@ pub struct GameAudio {
     pub ammo_chest: Handle<AudioSource>,
     /// sndPickupDisappear - rad/HP/ammo blink-out.
     pub pickup_disappear: Handle<AudioSource>,
+    /// GML sndEmpty / sndUltraEmpty (scrEmpty / scrEmptyRads).
+    pub empty: Handle<AudioSource>,
+    pub ultra_empty: Handle<AudioSource>,
+    /// Per-family fire sounds (GML scrFire snd table).
+    pub plasma: Handle<AudioSource>,
+    pub laser: Handle<AudioSource>,
+    pub lightning: Handle<AudioSource>,
+    pub flame: Handle<AudioSource>,
+    pub disc: Handle<AudioSource>,
+    pub slugger: Handle<AudioSource>,
+    pub grenade: Handle<AudioSource>,
+    pub splinter: Handle<AudioSource>,
 }
 
 fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
@@ -70,6 +82,16 @@ impl GameAudio {
             weapon_chest: load_sfx(asset_server, catalog, "sndWeaponChest"),
             ammo_chest: load_sfx(asset_server, catalog, "sndAmmoChest"),
             pickup_disappear: load_sfx(asset_server, catalog, "sndPickupDisappear"),
+            empty: load_sfx(asset_server, catalog, "sndEmpty"),
+            ultra_empty: load_sfx(asset_server, catalog, "sndUltraEmpty"),
+            plasma: load_sfx(asset_server, catalog, "sndPlasma"),
+            laser: load_sfx(asset_server, catalog, "sndLaser"),
+            lightning: load_sfx(asset_server, catalog, "sndLightningPistol"),
+            flame: load_sfx(asset_server, catalog, "sndFlameCannon"),
+            disc: load_sfx(asset_server, catalog, "sndDiscgun"),
+            slugger: load_sfx(asset_server, catalog, "sndSlugger"),
+            grenade: load_sfx(asset_server, catalog, "sndGrenade"),
+            splinter: load_sfx(asset_server, catalog, "sndSplinterGun"),
         }
     }
 
@@ -139,5 +161,77 @@ impl GameAudio {
 
     pub fn play_chest(&self, commands: &mut Commands) {
         AudioM::play_sfx_varied(commands, self.chest.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_empty(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.empty.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_ultra_empty(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.ultra_empty.clone(), 0.6, 0.05);
+    }
+
+    /// Per-family fire sound (GML scrFire snd table). Falls back to generic
+    /// shoot/explode for families without a dedicated handle.
+    pub fn play_weapon_fire(&self, commands: &mut Commands, weapon_name: &str) {
+        let n = weapon_name;
+        if n.contains("PLASMA") || n.contains("DEVASTATOR") || n == "GUN GUN" {
+            AudioM::play_sfx_varied(commands, self.plasma.clone(), 0.55, 0.08);
+        } else if n.contains("LASER") || n.contains("ION") {
+            AudioM::play_sfx_varied(commands, self.laser.clone(), 0.55, 0.08);
+        } else if n.contains("LIGHTNING") {
+            AudioM::play_sfx_varied(commands, self.lightning.clone(), 0.55, 0.08);
+        } else if n.contains("FLAME")
+            || n.contains("DRAGON")
+            || n.contains("FLARE")
+            || n.contains("INCINERATOR")
+        {
+            AudioM::play_sfx_varied(commands, self.flame.clone(), 0.55, 0.08);
+        } else if n.contains("DISC") || n.contains("BOUNCER") {
+            AudioM::play_sfx_varied(commands, self.disc.clone(), 0.55, 0.08);
+        } else if n.contains("SLUGGER") {
+            AudioM::play_sfx_varied(commands, self.slugger.clone(), 0.6, 0.08);
+        } else if n.contains("SPLINTER") || n.contains("SEEKER") || n.contains("TOXIC") {
+            AudioM::play_sfx_varied(commands, self.splinter.clone(), 0.5, 0.08);
+        } else if n.contains("GRENADE")
+            || n.contains("BAZOOKA")
+            || n.contains("NUKE")
+            || n.contains("ROCKET")
+            || n.contains("CLUSTER")
+            || n.contains("BLOOD")
+            || n.contains("FLAK")
+            || n.contains("NADER")
+        {
+            AudioM::play_sfx_varied(commands, self.grenade.clone(), 0.6, 0.08);
+        } else if n.contains("CROSSBOW") || n.contains("HEAVY XBOW") {
+            self.play_bolt(commands);
+        } else if n.contains("SHOTGUN")
+            || n.contains("ERASER")
+            || n.contains("WAVE")
+            || n.contains("SLUGGER")
+        {
+            self.play_shotgun(commands);
+        } else if n.contains("MACHINEGUN")
+            || n.contains("SMG")
+            || n.contains("MINIGUN")
+            || n.contains("ASSAULT")
+            || n.contains("QUAD")
+            || n.contains("POP RIFLE")
+            || n.contains("ROGUE")
+            || n.contains("HEAVY")
+        {
+            self.play_machine(commands);
+        } else if n.contains("REVOLVER")
+            || n.contains("PISTOL")
+            || n.contains("SMART")
+            || n.contains("POP GUN")
+            || n.contains("FROG")
+        {
+            self.play_shoot(commands);
+        } else if n.contains("SENTRY") {
+            self.play_machine(commands);
+        } else {
+            self.play_shoot(commands);
+        }
     }
 }

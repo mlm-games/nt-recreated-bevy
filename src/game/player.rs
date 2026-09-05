@@ -797,11 +797,11 @@ pub fn player_fire(
     mut input: ResMut<NtInput>,
     mut commands: Commands,
     mut trauma: ResMut<Trauma>,
-    _flash: ResMut<FlashWhite>,
     mut hitstop: ResMut<HitStop>,
     audio: Res<GameAudio>,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
+    mut toast: ResMut<Toast>,
     mut player_q: Query<
         (
             Entity,
@@ -914,6 +914,21 @@ pub fn player_fire(
 
     let archetype = projectile_archetype(weapon_id);
 
+    // GML scrCheckRads: ultra weapons need rads on top of ammo.
+    if def.rad_cost > 0 && player.rads < def.rad_cost {
+        // GML scrEmptyRads: popup + sndUltraEmpty + wkick -2.
+        if intent {
+            toast.show("NOT ENOUGH RADS");
+            audio.play_ultra_empty(&mut commands);
+            for mut wv in vis_q.iter_mut() {
+                if wv.owner == player_ent {
+                    wv.wkick = -2.0;
+                }
+            }
+        }
+        return;
+    }
+
     if def.melee.is_none() {
         match pay_fire_cost(
             &mut inv,
@@ -931,7 +946,27 @@ pub fn player_fire(
                     Color::srgb(1.0, 0.35, 0.35),
                 );
             }
-            AmmoPayment::Failed => return,
+            AmmoPayment::Failed => {
+                // GML scrEmpty: EMPTY/InsAmmo popup + sndEmpty + wkick -2.
+                if intent {
+                    if inv.ammo_of(def.ammo) > 0 {
+                        toast.show("NOT ENOUGH AMMO");
+                    } else {
+                        toast.show("EMPTY");
+                    }
+                    audio.play_empty(&mut commands);
+                    for mut wv in vis_q.iter_mut() {
+                        if wv.owner == player_ent {
+                            wv.wkick = -2.0;
+                        }
+                    }
+                }
+                return;
+            }
+        }
+        // Deduct ultra rad cost after ammo succeeded (GML scrFire order).
+        if def.rad_cost > 0 {
+            player.rads = player.rads.saturating_sub(def.rad_cost);
         }
     }
 
@@ -1085,23 +1120,35 @@ fn spawn_pellets(
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 
     let kind: WeaponKind = id.into();
-    match kind {
-        WeaponKind::Revolver => {
-            audio.play_shoot(commands);
-        }
-        WeaponKind::Machinegun | WeaponKind::Smg | WeaponKind::AssaultRifle => {
-            audio.play_machine(commands);
-        }
-        WeaponKind::Shotgun => audio.play_shotgun(commands),
-        WeaponKind::Crossbow => audio.play_bolt(commands),
-        WeaponKind::GrenadeLauncher => audio.play_explode(commands),
-        _ => {
-            if def.explosive {
-                audio.play_explode(commands);
-            } else if def.melee.is_none() {
+    // GML scrFire per-weapon snd table (gold/upg variants branch inside).
+    // Keep legacy 5-way mapping as fallback for the 9 legacy kinds.
+    let legacy_fallback = matches!(
+        kind,
+        WeaponKind::Revolver
+            | WeaponKind::Machinegun
+            | WeaponKind::Smg
+            | WeaponKind::AssaultRifle
+            | WeaponKind::Shotgun
+            | WeaponKind::Crossbow
+            | WeaponKind::GrenadeLauncher
+    );
+    if legacy_fallback {
+        match kind {
+            WeaponKind::Revolver => {
                 audio.play_shoot(commands);
             }
+            WeaponKind::Machinegun | WeaponKind::Smg | WeaponKind::AssaultRifle => {
+                audio.play_machine(commands);
+            }
+            WeaponKind::Shotgun => audio.play_shotgun(commands),
+            WeaponKind::Crossbow => audio.play_bolt(commands),
+            WeaponKind::GrenadeLauncher => audio.play_explode(commands),
+            _ => {
+                audio.play_weapon_fire(commands, def.name);
+            }
         }
+    } else {
+        audio.play_weapon_fire(commands, def.name);
     }
 
     let muzzle = tf.translation.truncate() + aim.0 * 24.0;
@@ -1657,7 +1704,6 @@ pub fn hammerhead_chew(
     let push = vel.0.normalize_or_zero();
     let probe = pos + push * (PLAYER_RADIUS + 6.0);
 
-    // --- Walls first (NT: 20 blocks / floor) ---
     if budget.remaining > 0 {
         for (_, cell, wtf) in &walls {
             let wpos = wtf.translation.truncate();
@@ -1929,11 +1975,11 @@ pub fn ensure_weapon_visual(
         return;
     }
     let path = weapon_world_sprite(id, &catalog);
-    let (mut spr, _) = crate::game::anim::sprite_anim(&catalog, &asset_server, path);
+    let (mut spr, _) = crate::game::anim::sprite_anim(&catalog, &asset_server, &path);
     spr.custom_size = spr.custom_size.or(Some(Vec2::new(24.0, 12.0)));
     let angle = aim.0.y.atan2(aim.0.x);
     let pos = tf.translation.truncate() + aim.0 * 14.0;
-    let anchor = crate::game::content::sprite_anchor(&catalog, path);
+    let anchor = crate::game::content::sprite_anchor(&catalog, &path);
     commands.entity(player_e).insert(WeaponVisualOwner);
     commands.spawn((
         GameCleanup,
@@ -2000,13 +2046,13 @@ pub fn tick_weapon_visuals(
         if wv.wep_id != id {
             wv.wep_id = id;
             let path = weapon_world_sprite(id, &catalog);
-            sprite.image = asset_server.load(path.to_string());
-            if let Some(def) = catalog.anim_def(path) {
+            sprite.image = asset_server.load(path.clone());
+            if let Some(def) = catalog.anim_def(&path) {
                 sprite.rect = Some(Rect::new(0.0, 0.0, def.frame_px as f32, def.height as f32));
             } else {
                 sprite.rect = None;
             }
-            *anchor = crate::game::content::sprite_anchor(&catalog, path);
+            *anchor = crate::game::content::sprite_anchor(&catalog, &path);
         }
         let angle = aim.0.y.atan2(aim.0.x);
         let forward = aim.0.normalize_or_zero();
@@ -2017,17 +2063,20 @@ pub fn tick_weapon_visuals(
     }
 }
 
-fn weapon_world_sprite(id: WeaponId, _catalog: &AssetCatalog) -> &'static str {
-    match id.0 {
-        1 => "images/sprRevolver.png",
-        4 => "images/sprMachinegun.png",
-        5 => "images/sprShotgun.png",
-        6 => "images/sprCrossbow.png",
-        7 => "images/sprNader.png",
-        16 => "images/sprSmg.png",
-        17 => "images/sprARifle.png",
-        3 => "images/sprWrench.png",
-        88 => "images/sprHammer.png",
-        _ => "images/sprRevolver.png",
+fn weapon_world_sprite(id: WeaponId, catalog: &AssetCatalog) -> String {
+    // GML wep_sprt[] is authoritative; bail loudly if art missing so the
+    // build never silently shows the wrong gun (gen_assets hint).
+    let meta = crate::game::content::weapon_meta(id);
+    let stem = meta.wep_sprt;
+    if stem.is_empty() || stem == "mskNone" {
+        return "images/sprRevolver.png".to_string();
     }
+    let path = format!("images/{stem}.png");
+    if !catalog.has(&path) {
+        panic!(
+            "Missing weapon art: {path} for {} (id {}). Run `NT_ALL_SPRITES=1 python3 tools/gen_assets.py`.",
+            meta.wep_name, id.0
+        );
+    }
+    path
 }

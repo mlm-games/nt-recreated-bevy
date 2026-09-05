@@ -490,7 +490,6 @@ fn populate(
         let (px, py) = cell_center_i(cx, cy);
         let dist_sq = px * px + py * py;
 
-        // --- Small interior walls (scrPopProps head) ---
         if !boss_sub && rng.random::<f32>() * 5.0 < 1.0 && dist_sq > 100.0 * 100.0 {
             let sx = px + rng.random_range(-8.0..8.0);
             let sy = py + rng.random_range(-8.0..8.0);
@@ -501,7 +500,6 @@ fn populate(
         }
     }
 
-    // --- Detail decals + bone strips (scrPopulate decal region) ---
     for &(cx, cy) in floors {
         let (px, py) = cell_center_i(cx, cy);
 
@@ -524,7 +522,6 @@ fn populate(
         }
     }
 
-    // --- Props pass (scrPopProps, RNGStates.Props) ---
     for &(cx, cy) in floors {
         if prop_tiles.contains(&(cx, cy)) {
             continue;
@@ -725,7 +722,6 @@ fn populate(
         plan.props.push((kind, Vec2::new(px, py)));
     }
 
-    // --- Enemy pass (scrPopEnemies) ---
     // Boss floors still get trash mobs upstream; only the bare Throne room
     // (route floor 15) stays sparse so the boss has room.
     let rf_route = ((run.floor.max(1) - 1) % 15) + 1;
@@ -761,7 +757,6 @@ fn populate(
         let pick_kind = |rng: &mut StdRng, w: &[EnemyKind]| w[rng.random_range(0..w.len())];
         let loop_extras = loop_elite_candidates(area, run.loop_count);
 
-        // --- Secret areas first: each keeps its upstream spawn table ---
         // Upstream spawns packs per tile (repeat(3)/repeat(5)), so these
         // produce a Vec of kinds placed around the same cell.
         {
@@ -1856,7 +1851,6 @@ pub fn spawn_level(
         // Visuals first so they can be linked to the solid via WallVisuals.
         let mut parts: Vec<Entity> = Vec::with_capacity(3);
 
-        // --- Out face (extends the ground) - EVERY wall ---
         // sprWall*Out is 24×32, origin (4,12). Drawing at GM (x,y) makes it
         // hang 4px past each side and 12px "above" the wall top-left.
         if catalog.has(wall_out_png) {
@@ -1872,7 +1866,6 @@ pub fn spawn_level(
             parts.push(e);
         }
 
-        // --- Bot body - only when floor is screen-south (Wall.visible) ---
         if floor_south && catalog.has(wall_bot_png) {
             let (spr, tf) = sprite_at_gm_origin(
                 catalog,
@@ -1886,7 +1879,6 @@ pub fn spawn_level(
             parts.push(e);
         }
 
-        // --- Top face at (x, y-8) in GM = 8px screen-north of draw point ---
         // Bevy y-up: screen-north = +y → gm_draw + (0, +8).
         if catalog.has(wall_top_png) {
             let top_draw = gm_draw + Vec2::new(0.0, 8.0);
@@ -2213,7 +2205,6 @@ fn spawn_prop(
     decal_png: &'static str,
     run: &Run,
 ) {
-    // --- Functional floor / hazard entities (no solid Prop component) ---
     match kind {
         PropKind::Cobweb => {
             commands.spawn((
@@ -2337,7 +2328,6 @@ fn spawn_prop(
         _ => {}
     }
 
-    // --- Ordinary solid props / decals ---
     let (
         candidates,
         fallback_color,

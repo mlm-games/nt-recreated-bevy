@@ -364,6 +364,7 @@ pub fn weapon_runtime_def(id: WeaponId) -> WeaponDef {
         legacy_def.name = meta.wep_name;
         legacy_def.ammo = ammo_kind(meta);
         legacy_def.ammo_cost = i32::from(meta.wep_cost);
+        legacy_def.rad_cost = u32::from(meta.wep_rads);
         legacy_def.cooldown = f32::from(meta.wep_load.max(1)) / 30.0;
         legacy_def.automatic = meta.wep_auto;
         legacy_def
@@ -386,6 +387,7 @@ fn metadata_base_def(meta: &WeaponData) -> WeaponDef {
         name: meta.wep_name,
         ammo: ammo_kind(meta),
         ammo_cost: i32::from(meta.wep_cost),
+        rad_cost: u32::from(meta.wep_rads),
         cooldown: f32::from(meta.wep_load.max(1)) / 30.0,
         damage: 3,
         pellets: 1,
@@ -1001,9 +1003,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BAZOOKA" => {
+            // GML Rocket/Create_0: damage 20, speed max 12 (360 px/s)
             set_explosive(
                 def,
-                12,
+                20,
                 1,
                 250.0,
                 1.4,
@@ -1068,9 +1071,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "DISC GUN" => {
+            // GML Disc/Create_0: damage 6, speed 5 (150 px/s)
             set_ranged(
                 def,
-                7,
+                6,
                 1,
                 420.0,
                 2.2,
@@ -1087,9 +1091,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER DISC GUN" => {
+            // GML Disc damage 6 (5x volley)
             set_ranged(
                 def,
-                10,
+                6,
                 1,
                 460.0,
                 2.8,
@@ -1106,9 +1111,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER PISTOL" => {
+            // GML Laser/Create_0: damage 2 (instant hitscan in GML, fast pierce here)
             set_ranged(
                 def,
-                4,
+                2,
                 1,
                 850.0,
                 0.42,
@@ -1124,9 +1130,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER RIFLE" => {
+            // GML Laser damage 2
             set_ranged(
                 def,
-                5,
+                2,
                 1,
                 900.0,
                 0.48,
@@ -1142,9 +1149,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER MINIGUN" => {
+            // GML Laser damage 2
             set_ranged(
                 def,
-                3,
+                2,
                 1,
                 820.0,
                 0.38,
@@ -1160,9 +1168,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SLUGGER" => {
+            // GML Slug/Create_0: damage 22, speed 16 (480 px/s)
             set_ranged(
                 def,
-                16,
+                22,
                 1,
                 500.0,
                 0.66,
@@ -1176,9 +1185,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GATLING SLUGGER" => {
+            // GML fires Slug (damage 22) at 18 px/frame
             set_ranged(
                 def,
-                15,
+                22,
                 1,
                 560.0,
                 0.62,
@@ -1215,9 +1225,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER SLUGGER" => {
+            // GML SuperSlugger fires 5x Slug (damage 22 each)
             set_ranged(
                 def,
-                16,
+                22,
                 5,
                 560.0,
                 0.68,
@@ -1255,9 +1266,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BLOOD LAUNCHER" => {
+            // GML BloodGrenade damage 10
             set_explosive(
                 def,
-                8,
+                10,
                 1,
                 330.0,
                 0.85,
@@ -1271,9 +1283,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BLOOD CANNON" => {
+            // GML BloodBall damage 45
             set_explosive(
                 def,
-                10,
+                45,
                 1,
                 320.0,
                 0.62,
@@ -1300,9 +1313,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER GUN" => {
+            // GML Splinter damage 4
             set_ranged(
                 def,
-                3,
+                4,
                 5,
                 620.0,
                 0.58,
@@ -1316,9 +1330,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER PISTOL" => {
+            // GML Splinter damage 4
             set_ranged(
                 def,
-                3,
+                4,
                 4,
                 580.0,
                 0.52,
@@ -1348,9 +1363,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "TOXIC BOW" => {
+            // GML ToxicBolt damage 16
             set_ranged(
                 def,
-                9,
+                16,
                 1,
                 620.0,
                 1.0,
@@ -1401,9 +1417,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA GUN" => {
+            // GML PlasmaBall damage 4
             set_explosive(
                 def,
-                10,
+                4,
                 1,
                 300.0,
                 1.1,
@@ -1417,9 +1434,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA RIFLE" => {
+            // GML PlasmaBall damage 4
             set_explosive(
                 def,
-                9,
+                4,
                 1,
                 330.0,
                 1.0,
@@ -1433,9 +1451,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA MINIGUN" => {
+            // GML PlasmaBall damage 4
             set_explosive(
                 def,
-                6,
+                4,
                 1,
                 350.0,
                 0.85,
@@ -1449,9 +1468,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA CANNON" | "DEVASTATOR" => {
+            // GML PlasmaBig damage 15
             set_explosive(
                 def,
-                24,
+                15,
                 1,
                 260.0,
                 1.45,
@@ -1547,9 +1567,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "NUKE LAUNCHER" => {
+            // GML Nuke damage 50
             set_explosive(
                 def,
-                40,
+                50,
                 1,
                 220.0,
                 1.7,
@@ -2180,9 +2201,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY REVOLVER" => {
+            // GML HeavyBullet damage 7
             set_ranged(
                 def,
-                12,
+                7,
                 1,
                 720.0,
                 0.95,
@@ -2196,9 +2218,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY MACHINEGUN" => {
+            // GML HeavyBullet damage 7
             set_ranged(
                 def,
-                5,
+                7,
                 1,
                 700.0,
                 0.85,
@@ -2208,6 +2231,128 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 70.0,
                 Color::srgb(1.0, 0.88, 0.35),
                 Vec2::new(12.0, 3.5),
+            );
+        }
+
+        "SLEDGEHAMMER" => {
+            // GML Sledge: Slash damage 24, HeavySlash sprite
+            set_melee(
+                def,
+                24,
+                80.0,
+                2.45,
+                6.0,
+                Color::srgb(0.88, 0.78, 0.48),
+            );
+        }
+
+        "GUITAR" | "ELECTRIC GUITAR" => {
+            // GML Guitar: Slash damage 26 (+electric flag for electric)
+            set_melee(
+                def,
+                26,
+                80.0,
+                2.45,
+                6.0,
+                Color::srgb(0.9, 0.7, 0.3),
+            );
+        }
+
+        "BLACK SWORD" => {
+            // GML BlackSword: 12 normal, 80 MegaSlash when dying
+            set_melee(
+                def,
+                12,
+                66.0,
+                2.1,
+                4.0,
+                Color::srgb(0.2, 0.2, 0.25),
+            );
+        }
+
+        "HEAVY SLUGGER" => {
+            // GML HeavySlug damage 60, speed 13 (390 px/s)
+            set_ranged(
+                def,
+                60,
+                1,
+                390.0,
+                0.7,
+                0.07,
+                34.0,
+                14.0,
+                320.0,
+                Color::srgb(1.0, 0.85, 0.4),
+                Vec2::new(16.0, 6.0),
+            );
+        }
+
+        "HEAVY CROSSBOW" | "HEAVY AUTO CROSSBOW" => {
+            // GML HeavyBolt damage 50, speed 16 (480 px/s)
+            set_ranged(
+                def,
+                50,
+                1,
+                480.0,
+                1.1,
+                0.025,
+                50.0,
+                6.0,
+                220.0,
+                Color::srgb(1.0, 0.9, 0.5),
+                Vec2::new(18.0, 5.0),
+            );
+            def.pierce = 5;
+        }
+
+        "ULTRA REVOLVER" => {
+            // GML UltraBullet damage 18, speed 24 (720 px/s)
+            set_ranged(
+                def,
+                18,
+                1,
+                720.0,
+                0.8,
+                0.05,
+                12.0,
+                6.0,
+                160.0,
+                Color::srgb(0.95, 0.4, 1.0),
+                Vec2::new(12.0, 4.0),
+            );
+        }
+
+        "ULTRA SHOTGUN" => {
+            // GML 9x UltraShell damage 6
+            set_ranged(
+                def,
+                6,
+                9,
+                450.0,
+                0.34,
+                0.38,
+                44.0,
+                5.0,
+                90.0,
+                Color::srgb(0.95, 0.5, 1.0),
+                Vec2::new(8.0, 3.0),
+            );
+        }
+
+        "SUPER PLASMA CANNON" => {
+            // GML PlasmaHuge damage 25, speed 1.5 (45 px/s)
+            set_explosive(
+                def,
+                25,
+                1,
+                120.0,
+                2.5,
+                0.02,
+                40.0,
+                15.0,
+                400.0,
+                Color::srgb(0.4, 1.0, 0.5),
+                Vec2::splat(24.0),
             );
         }
 
@@ -2241,7 +2386,15 @@ fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
 
     if name.starts_with("ULTRA ") {
         def.color = Color::srgb(0.95, 0.4, 1.0);
-        def.damage = ((def.damage as f32) * 1.35).round() as i32;
+        // Explicit ULTRA profiles already carry GML Ultra projectile damages
+        // (UltraBullet 18, UltraShell 6, etc.) — do not re-multiply those.
+        let explicit_ultra = matches!(
+            name,
+            "ULTRA REVOLVER" | "ULTRA SHOTGUN" | "ULTRA CROSSBOW" | "ULTRA GRENADE LAUNCHER"
+        );
+        if !explicit_ultra {
+            def.damage = ((def.damage as f32) * 1.35).round() as i32;
+        }
         def.recoil *= 1.2;
         def.shake *= 1.25;
 
@@ -2266,6 +2419,7 @@ fn normalize_def(def: &mut WeaponDef, meta: &WeaponData) {
     def.name = meta.wep_name;
     def.ammo = ammo_kind(meta);
     def.ammo_cost = i32::from(meta.wep_cost);
+    def.rad_cost = u32::from(meta.wep_rads);
     def.cooldown = f32::from(meta.wep_load.max(1)) / 30.0;
     def.automatic = meta.wep_auto;
 

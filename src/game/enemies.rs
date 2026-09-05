@@ -295,7 +295,6 @@ pub fn enemy_ai(
         // Melee contact cooldown (reference: 30 frames between hits).
         brain.melee.tick(time.delta());
 
-        // --- Exact GML walk (Other_10) + subtractive friction. FixedUpdate==30Hz ---
         if brain.walk > 0.0 {
             let (impulse_f, cap_f) = match enemy.kind {
                 EnemyKind::Scorpion | EnemyKind::GoldScorpion => (2.0, 4.0),
@@ -341,7 +340,6 @@ pub fn enemy_ai(
         // friction 0.4 px/frame everywhere (enemy/Create_0)
         apply_gml_friction(&mut vel.0, 0.4, dt);
 
-        // --- Bandit GML Alarm_1 branch ( Bandit/Alarm_1.gml ) ---
         if matches!(
             enemy.kind,
             EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit
@@ -438,7 +436,6 @@ pub fn enemy_ai(
             continue;
         }
 
-        // --- Scorpion GML Alarm_1 + Alarm_2 + Other_10 ---
         if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
             brain.attack.tick(time.delta());
             brain.burst_timer.tick(time.delta());

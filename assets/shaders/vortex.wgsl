@@ -1,10 +1,14 @@
 // Portal vortex (nt-rewrite objects SpiralCont/Spiral + scrDrawSpiral.gml)
 // rendered as ONE procedural quad. Each wisp is a transformed sample of the
-// real sprSpiral.png art; growth/alpha/lightning follow the GameMaker laws:
-//   grow += 0.0002; xscale += grow; grow = (grow+1)*(1+0.0005*xscale)-1
+// real spiral art; growth/alpha/lightning follow the GameMaker laws:
+//   grow += 0.0002 (+0.0003 Proto); xscale += grow;
+//   grow = (grow+1)*(1+0.0005*xscale)-1
 //   white pass (c_white) then black 0.8-xscale, destroy xscale>2.5
+//   (oversized wisps survive while lightning lanim is in 0..6)
 //   lightning lanim -random(300) + 0.2+random(0.3) per tick
-//   depth = image_angle -> OLDEST on top
+//   draw order oldest-first, so the NEWEST wisp lands on top
+// Rotation convention: GML angles are CCW-positive in y-down storage, so
+// sampling inverts with (xc-ys, xs+yc) - the transpose would mirror the spin.
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> wisps: array<vec4<f32>, 128>;
@@ -17,6 +21,12 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(7) var<uniform> debris: array<vec4<f32>, 32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(8) var debris_tex: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var debris_smp: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(10) var spiral_proto_tex: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(11) var spiral_proto_smp: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(12) var spiral_idpd_tex: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(13) var spiral_idpd_smp: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(14) var spiral_idpd2_tex: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(15) var spiral_idpd2_smp: sampler;
 
 const N: u32 = 128u;
 const BOLT_FRAMES: f32 = 6.0;
@@ -49,6 +59,41 @@ fn wisp_scale(age: f32) -> f32 {
     return mix(SCALE_TABLE[i], SCALE_TABLE[i + 1u], f);
 }
 
+// Proto growth (grow base 0.0005 from `random(0.01)` mean head-start 0.005).
+// Same recurrence/baking as SCALE_TABLE, reaches 2.5 around tick 86.
+const PROTO_TABLE: array<f32, 120> = array<f32, 120>(
+    0.005500, 0.006503, 0.008009, 0.010019, 0.012534, 0.015555, 0.019084, 0.023123,
+    0.027673, 0.032737, 0.038318, 0.044418, 0.051040, 0.058188, 0.065866, 0.074076,
+    0.082824, 0.092113, 0.101949, 0.112337, 0.123281, 0.134788, 0.146862, 0.159512,
+    0.172741, 0.186559, 0.200971, 0.215984, 0.231608, 0.247849, 0.264716, 0.282218,
+    0.300363, 0.319161, 0.338622, 0.358755, 0.379571, 0.401081, 0.423296, 0.446227,
+    0.469887, 0.494287, 0.519440, 0.545359, 0.572058, 0.599551, 0.627852, 0.656975,
+    0.686937, 0.717752, 0.749438, 0.782010, 0.815485, 0.849883, 0.885219, 0.921514,
+    0.958786, 0.997056, 1.036343, 1.076669, 1.118055, 1.160523, 1.204096, 1.248797,
+    1.294650, 1.341681, 1.389914, 1.439375, 1.490092, 1.542091, 1.595402, 1.650052,
+    1.706073, 1.763495, 1.822349, 1.882668, 1.944485, 2.007835, 2.072752, 2.139272,
+    2.207434, 2.277274, 2.348832, 2.422149, 2.497266, 2.574225, 2.653071, 2.733847,
+    2.816601, 2.901380, 2.988232, 3.077208, 3.168360, 3.261740, 3.357404, 3.455407,
+    3.555807, 3.658663, 3.764036, 3.871990, 3.982589, 4.095900, 4.211991, 4.330932,
+    4.452796, 4.577658, 4.705594, 4.836684, 4.971010, 5.108655, 5.249706, 5.394252,
+    5.542384, 5.694199, 5.849793, 6.009267, 6.172725, 6.340273, 6.512023, 6.688088
+);
+
+fn proto_scale(age: f32) -> f32 {
+    if (age <= 0.0) { return 0.0; }
+    if (age >= 119.0) { return PROTO_TABLE[119]; }
+    let i = u32(age);
+    let f = fract(age);
+    return mix(PROTO_TABLE[i], PROTO_TABLE[i + 1u], f);
+}
+
+// Per-wisp lightning clock (`lanim = -random(300) + (0.2+random(0.3))*age).
+fn wisp_lanim(birth: f32, age: f32) -> f32 {
+    let seed0 = hash11(birth, 1.0);
+    let seed1 = hash11(birth, 3.0);
+    return -seed0 * 300.0 + (0.2 + seed1 * 0.3) * age;
+}
+
 fn hash11(birth: f32, salt: f32) -> f32 {
     let x = sin(birth * 127.1 + salt * 311.7) * 43758.5453;
     return fract(x);
@@ -61,41 +106,48 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let lightning_on = glob_a.y;
     let bg_alpha = glob_b.y;
     let thresh = glob_b.z;
+    // SpiralKind discriminant + jungle-debris flag (see Rust glob_b docs).
+    let kind = glob_b.w - floor(glob_b.w / 4.0) * 4.0;
+    let debris_big = glob_b.w >= 4.0;
     var acc = vec3<f32>(glob_a.z, glob_a.w, glob_b.x);
     var out_alpha = bg_alpha;
 
-    // Oldest-on-top
+    // Oldest drawn first, so the NEWEST wisp lands on top: GML `with`
+    // iterates instances in creation order and script draws ignore depth.
     let base = u32(tick_now);
-    for (var j: u32 = 0u; j < N; j = j + 1u) {
-        let birth = base - j;
+    for (var k: u32 = 0u; k < N; k = k + 1u) {
+        let birth = base - (N - 1u - k);
         let d = wisps[birth % N];
         if (d.z < 0.0) { continue; }
         let age = tick_now - d.z;
         if (age < 0.0) { continue; }
-        let s = wisp_scale(age);
-        if (s > thresh) { continue; }
+        var s = wisp_scale(age);
+        if (kind > 0.5 && kind < 1.5) {
+            s = proto_scale(age);
+        }
+        // Spiral/Step_0: oversized wisps survive while lightning shows.
+        let lanim = wisp_lanim(d.z, age);
+        if (s > thresh && !(lanim > 0.0 && lanim < 6.0)) { continue; }
 
-        let half_ext = 32.0 * s * 10.0;
+        // IDPD2 variant rides in the rot sign (CPU); art is 128px single.
+        let idpd2 = d.w < 0.0;
+        let rot = abs(d.w);
+        let c = cos(rot);
+        let sn = sin(rot);
+        // Inverse-map into the frame (GML CCW-positive, y-down storage).
         var rel = gui - d.xy;
-        let c = cos(d.w);
-        let sn = sin(d.w);
-        rel = vec2<f32>(c * rel.x + sn * rel.y, -sn * rel.x + c * rel.y);
+        rel = vec2<f32>(c * rel.x - sn * rel.y, sn * rel.x + c * rel.y);
 
         // Lightning pass FIRST (scrDrawSpiral draws the bolt before the
         // wisp's own white/black spiral passes cover it).
         if (lightning_on > 0.5 && s > 0.05) {
-            // Per-wisp random lanim start and speed (GML: -random(300), 0.2+random(0.3)/tick)
-            let seed0 = hash11(d.z, 1.0);
-            let seed1 = hash11(d.z, 3.0);
-            let inc = 0.2 + seed1 * 0.3;
-            let lanim = -seed0 * 300.0 + inc * age;
             if (lanim > 0.0 && lanim < 6.0) {
                 let frame = clamp(floor(lanim), 0.0, BOLT_FRAMES - 1.0);
                 let langle = hash11(d.z, 2.0) * 6.2831853;
-                let lc = cos(d.w + langle);
-                let ls = sin(d.w + langle);
+                let lc = cos(rot + langle);
+                let ls = sin(rot + langle);
                 var lrel = gui - d.xy;
-                lrel = vec2<f32>(lc * lrel.x + ls * lrel.y, -ls * lrel.x + lc * lrel.y);
+                lrel = vec2<f32>(lc * lrel.x - ls * lrel.y, ls * lrel.x + lc * lrel.y);
                 let lbolt_half = vec2<f32>(88.0, 88.0) * s;
                 let buv = (lrel + vec2<f32>(180.0 - 88.0, 0.0) * s) / (lbolt_half * 2.0) + vec2<f32>(0.5, 0.5);
                 if (all(buv > vec2<f32>(0.0)) & all(buv < vec2<f32>(1.0))) {
@@ -113,12 +165,35 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
 
-        let suv = rel / half_ext * 0.5 + vec2<f32>(0.5, 0.5);
+        if (kind > 1.5 && kind < 2.5) {
+            // IDPD: single 128x128 frame, origin centre.
+            let half_ext = 64.0 * s * 10.0;
+            let suv = rel / half_ext * 0.5 + vec2<f32>(0.5, 0.5);
+            if (all(suv > vec2<f32>(0.0)) & all(suv < vec2<f32>(1.0))) {
+                let uv = (suv * 127.0 + 0.5) / 128.0;
+                var tex = textureSampleLevel(spiral_idpd_tex, spiral_idpd_smp, uv, 0.0);
+                if (idpd2) {
+                    tex = textureSampleLevel(spiral_idpd2_tex, spiral_idpd2_smp, uv, 0.0);
+                }
+                acc = mix(acc, tex.rgb, tex.a);
+                out_alpha = max(out_alpha, tex.a);
+                let black_a = clamp(0.8 - s, 0.0, 1.0);
+                if (black_a > 0.001) {
+                    acc = mix(acc, vec3<f32>(0.0), tex.a * black_a);
+                }
+            }
+            continue;
+        }
+
+        let suv = rel / (32.0 * s * 10.0) * 0.5 + vec2<f32>(0.5, 0.5);
         if (all(suv > vec2<f32>(0.0)) & all(suv < vec2<f32>(1.0))) {
             // Half-texel inset to avoid atlas bleeding (sprite is 64x64 in 128x64 strip)
             let uv_x = (0.5 + suv.x * 63.0) / 128.0;
             let uv_y = (0.5 + suv.y * 63.0) / 64.0;
-            let tex = textureSampleLevel(spiral_tex, spiral_smp, vec2<f32>(uv_x, uv_y), 0.0);
+            var tex = textureSampleLevel(spiral_tex, spiral_smp, vec2<f32>(uv_x, uv_y), 0.0);
+            if (kind > 0.5 && kind < 1.5) {
+                tex = textureSampleLevel(spiral_proto_tex, spiral_proto_smp, vec2<f32>(uv_x, uv_y), 0.0);
+            }
             // GML two-pass: white (c_white, alpha tex.a) then black 0.8 - s
             acc = mix(acc, tex.rgb, tex.a);
             out_alpha = max(out_alpha, tex.a);
@@ -131,21 +206,27 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // SpiralDebris pass - drawn AFTER all wisps (scrDrawSpiral order), on top.
     // CPU supplies [x, y, rot_rad, frame + xscale/32]; x < -100 = empty slot.
+    // Jungle debris (sprDebris105) uses 16px frames instead of 8px.
     for (var i: u32 = 0u; i < 32u; i = i + 1u) {
         let d = debris[i];
         if (d.x < -100.0) { continue; }
+        // Jungle debris uses 16px frames, all other areas 8px.
+        var fpx = 8.0;
+        if (debris_big) {
+            fpx = 16.0;
+        }
         let xs = fract(d.w) * 32.0;
         let frame = floor(d.w);
-        let half_ext = 4.0 * xs; // sprDebris0: 8x8 px, origin centre
+        let half_ext = (fpx * 0.5) * xs;
         var rel = gui - d.xy;
         let c = cos(d.z);
         let sn = sin(d.z);
-        rel = vec2<f32>(c * rel.x + sn * rel.y, -sn * rel.x + c * rel.y);
+        rel = vec2<f32>(c * rel.x - sn * rel.y, sn * rel.x + c * rel.y);
         let duv = rel / half_ext * 0.5 + vec2<f32>(0.5, 0.5);
         if (all(duv > vec2<f32>(0.0)) & all(duv < vec2<f32>(1.0))) {
-            // 8x8 frames in a 32x8 strip, half-texel inset
-            let uv_x = (frame * 8.0 + 0.5 + duv.x * 7.0) / 32.0;
-            let uv_y = (0.5 + duv.y * 7.0) / 8.0;
+            // frames in a 4-wide horizontal strip, half-texel inset
+            let uv_x = (frame * fpx + 0.5 + duv.x * (fpx - 1.0)) / (4.0 * fpx);
+            let uv_y = (0.5 + duv.y * (fpx - 1.0)) / fpx;
             let tex = textureSampleLevel(debris_tex, debris_smp, vec2<f32>(uv_x, uv_y), 0.0);
             // scrDrawSpiral: white 1, then black (1 - xscale)
             acc = mix(acc, tex.rgb, tex.a);
