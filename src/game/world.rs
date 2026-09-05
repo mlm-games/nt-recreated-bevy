@@ -2958,6 +2958,7 @@ fn spawn_prop(
                     explosive: false,
                 },
                 PropHpTracker { last_hp: 2 },
+                NextHurt::default(),
                 PropSprites {
                     idle: idle_path,
                     hurt: hurt_path,
@@ -3525,6 +3526,7 @@ fn spawn_prop(
             explosive: legacy_explosive,
         });
         entity.insert(PropHpTracker { last_hp: hp });
+        entity.insert(NextHurt::default());
     }
 
     if let Some(effect) = death_effect {
@@ -3580,6 +3582,7 @@ fn spawn_rad_container(
             explosive: false,
         },
         PropHpTracker { last_hp: 4 },
+        NextHurt::default(),
         PropSprites {
             idle: idle_path,
             hurt: hurt_path,
@@ -3661,10 +3664,10 @@ pub fn world_of(floor: u32) -> u32 {
 }
 
 pub fn difficulty_multiplier(floor: u32) -> f32 {
-    // Difficulty scales with loop (every 15 floors) plus intra-area progress.
+    // GML enemy/Create_0: max_hp *= 1 + loops/20. Keep tiny intra-area ramp.
     let loop_n = ((floor.max(1) - 1) / 15) as f32;
     let rf = ((floor.max(1) - 1) % 15) as f32;
-    1.0 + loop_n * 0.45 + rf * 0.015
+    1.0 + loop_n * 0.05 + rf * 0.015
 }
 
 /// Clamp into the generated mask bounds (secondary safety net).

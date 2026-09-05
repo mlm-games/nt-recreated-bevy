@@ -71,6 +71,7 @@ impl Plugin for GamePlugin {
             .init_resource::<LastDamageTaken>()
             .init_resource::<skin_unlocks::CrystalDamageTaken>()
             .init_resource::<ThroneRoomState>()
+            .init_resource::<CurrentFrame>()
             .init_resource::<progress_sys::DeferredFloorGen>()
             .init_resource::<PortalCarriedWeapons>()
             .init_resource::<pickups::WeaponLabelTarget>()
@@ -136,6 +137,7 @@ impl Plugin for GamePlugin {
                             anim::tick_hurt_anims,
                             anim::tick_player_dying,
                             anim::hurt_on_damage,
+                            tick_current_frame,
                             player_sys::ensure_weapon_visual,
                             player_sys::tick_weapon_visuals,
                             progress_sys::tick_portal_suck,
@@ -347,6 +349,11 @@ fn scan_assets_and_audio(mut commands: Commands, asset_server: Res<AssetServer>)
     let audio = GameAudio::load(&asset_server, &catalog);
     commands.insert_resource(catalog);
     commands.insert_resource(audio);
+}
+
+/// GML `current_frame` counter backing `nexthurt` i-frames (30Hz lockstep).
+fn tick_current_frame(mut frame: ResMut<CurrentFrame>) {
+    frame.0 = frame.0.wrapping_add(1);
 }
 
 fn setup_game(

@@ -479,6 +479,16 @@ pub struct Health {
     pub invuln: Timer,
 }
 
+/// GML `nexthurt` i-frames: `scr_hit` sets `nexthurt = current_frame + 5`,
+/// `scr_can_hit` blocks re-hits while `current_frame < nexthurt`.
+/// Applied to enemies and destructible props (shotgun pellets must not all land).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct NextHurt(pub u64);
+
+/// Global lockstep frame counter backing `NextHurt` (30Hz FixedUpdate).
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct CurrentFrame(pub u64);
+
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Team {
     Player,

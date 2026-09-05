@@ -148,6 +148,8 @@ pub fn spawn_enemy(
             max: hp,
             invuln: ready_timer(),
         },
+        // GML scr_can_hit i-frames (nexthurt = frame+5 on hit).
+        crate::game::components::NextHurt::default(),
         Team::Enemy,
         Hitbox { radius: def.radius },
         Velocity(Vec2::ZERO),
@@ -723,8 +725,31 @@ pub fn enemy_ai(
                         vel.0 = wdir * (impulse * 30.0);
                         brain.walk = rng.random_range(6.0..10.0);
                     }
-                    brain.attack =
-                        Timer::from_seconds(rng.random_range(0.35..0.75), TimerMode::Once);
+                    // GML Alarm_1 periods per kind (frames → seconds).
+                    let attack_secs = match enemy.kind {
+                        EnemyKind::Maggot => rng.random_range(30.0..50.0) / 30.0,
+                        EnemyKind::Rat
+                        | EnemyKind::FastRat
+                        | EnemyKind::BigRat
+                        | EnemyKind::Ratking => rng.random_range(10.0..40.0) / 30.0,
+                        EnemyKind::Freak | EnemyKind::ExploFreak => {
+                            rng.random_range(6.0..11.0) / 30.0
+                        }
+                        EnemyKind::RhinoFreak
+                        | EnemyKind::DogGuardian
+                        | EnemyKind::Turtle => rng.random_range(6.0..11.0) / 30.0,
+                        EnemyKind::Spider | EnemyKind::InvSpider => {
+                            rng.random_range(20.0..30.0) / 30.0
+                        }
+                        EnemyKind::Crab => rng.random_range(10.0..20.0) / 30.0,
+                        EnemyKind::Salamander => rng.random_range(10.0..60.0) / 30.0,
+                        EnemyKind::Sniper => rng.random_range(20.0..30.0) / 30.0,
+                        EnemyKind::Assassin
+                        | EnemyKind::MeleeBandit
+                        | EnemyKind::Wolf => rng.random_range(6.0..11.0) / 30.0,
+                        _ => rng.random_range(0.35..0.75),
+                    };
+                    brain.attack = Timer::from_seconds(attack_secs, TimerMode::Once);
                     if player_pos.x < pos.x {
                         sprite.flip_x = true;
                     } else if player_pos.x > pos.x {
@@ -1308,12 +1333,19 @@ mod double_hp_check {
 pub fn tick_corpses(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Corpse)>,
+    mut q: Query<(Entity, &mut Corpse, Option<&mut Velocity>, Option<&mut Transform>)>,
 ) {
-    for (e, mut c) in &mut q {
+    let dt = time.delta_secs();
+    for (e, mut c, vel, tf) in &mut q {
         c.life.tick(time.delta());
         if c.life.just_finished() {
             commands.entity(e).despawn();
+            continue;
+        }
+        // GML CorpseActive slides with friction 0.4 until stopped.
+        if let (Some(mut v), Some(mut t)) = (vel, tf) {
+            crate::game::components::apply_gml_friction(&mut v.0, 0.4, dt);
+            t.translation += v.0.extend(0.0) * dt;
         }
     }
 }

@@ -425,6 +425,7 @@ pub fn move_projectiles(
             &Transform,
             Option<&PropDeathEffect>,
             Option<&PropSprites>,
+            Option<&mut NextHurt>,
         ),
         With<Prop>,
     >,
@@ -432,6 +433,7 @@ pub fn move_projectiles(
     snowmen: Query<&SnowmanAmbush>,
     gold_barrels: Query<&GoldBarrelDrop>,
     rad_chests: Query<&RadChestContainer>,
+    frame: Res<CurrentFrame>,
     mut secrets: ResMut<SecretTriggers>,
     audio: Res<GameAudio>,
 ) {
@@ -518,7 +520,7 @@ pub fn move_projectiles(
             hit_normal = Some(n);
         }
 
-        for (prop_e, prop, prop_tf, death, _) in props.iter() {
+        for (prop_e, prop, prop_tf, death, _, _) in props.iter() {
             let center = prop_tf.translation.truncate();
             let half = prop.size * 0.5;
             if let Some(n) =
@@ -592,15 +594,24 @@ pub fn move_projectiles(
                     let mut legacy_explosive = false;
                     let mut death_copy = death_effect;
                     let mut sprites_copy: Option<PropSprites> = None;
-                    if let Ok((_, mut prop, _, de, sprites)) = props.get_mut(prop_e) {
-                        prop.hp -= p.damage.max(1);
-                        legacy_explosive = prop.explosive;
-                        death_copy = de.copied();
-                        sprites_copy = sprites.copied();
-                        if prop.hp <= 0 {
-                            dead = true;
+                    if let Ok((_, mut prop, _, de, sprites, nexthurt)) =
+                        props.get_mut(prop_e)
+                    {
+                        // GML scr_can_hit: props respect nexthurt i-frames too.
+                        let gated = nexthurt.as_ref().is_some_and(|nh| nh.0 > frame.0);
+                        if !gated {
+                            prop.hp -= p.damage.max(1);
+                            if let Some(mut nh) = nexthurt {
+                                nh.0 = frame.0 + 5;
+                            }
+                            legacy_explosive = prop.explosive;
+                            death_copy = de.copied();
+                            sprites_copy = sprites.copied();
+                            if prop.hp <= 0 {
+                                dead = true;
+                            }
+                            audio.play_hit(&mut commands);
                         }
-                        audio.play_hit(&mut commands);
                     }
                     if dead {
                         if let Some(ps) = sprites_copy {
@@ -1279,6 +1290,7 @@ pub fn projectile_hits(
     shell_bonus_q: Query<&ShellBonus>,
     hits_all_q: Query<Entity, With<HitsAllTeams>>,
     grace_q: Query<Entity, With<SpawnGrace>>,
+    frame: Res<CurrentFrame>,
     mut targets: Query<
         (
             Entity,
@@ -1288,6 +1300,7 @@ pub fn projectile_hits(
             &mut Health,
             Option<&mut Velocity>,
             Option<&Shield>,
+            Option<&mut NextHurt>,
         ),
         Without<Projectile>,
     >,
@@ -1329,7 +1342,7 @@ pub fn projectile_hits(
         let mut hit_target = None::<Entity>;
         let mut stuck_bolt = false;
 
-        for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield) in
+        for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield, nexthurt) in
             targets.iter_mut()
         {
             let hits_all = hits_all_set.contains(&proj_e);
@@ -1352,6 +1365,15 @@ pub fn projectile_hits(
 
             let target_pos = target_tf.translation.truncate();
             if proj_pos.distance(target_pos) > proj.radius + hitbox.radius {
+                continue;
+            }
+
+            // GML scr_can_hit i-frames: skip enemies still in nexthurt window.
+            // Player uses invuln instead; bosses/enemies use frame gate.
+            if *target_team == Team::Enemy
+                && let Some(nh) = nexthurt.as_ref()
+                && nh.0 > frame.0
+            {
                 continue;
             }
 
@@ -1398,6 +1420,12 @@ pub fn projectile_hits(
             }
             health.hp -= dmg;
             damaged = true;
+            // GML scr_hit sets nexthurt = frame + 5 for enemies.
+            if *target_team == Team::Enemy
+                && let Some(mut nh) = nexthurt
+            {
+                nh.0 = frame.0 + 5;
+            }
 
             if *target_team == Team::Player {
                 health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
@@ -1497,7 +1525,7 @@ pub fn projectile_hits(
             && let Some(p) = &player
             && p.sharp_teeth
         {
-            retaliate_sharp_teeth(&mut commands, proj.damage, hit_pos, &mut targets);
+            retaliate_sharp_teeth(&mut commands, proj.damage, hit_pos, &frame, &mut targets);
         }
 
         if damaged {
@@ -1577,6 +1605,7 @@ fn chain_to_nearby_targets(
             &mut Health,
             Option<&mut Velocity>,
             Option<&Shield>,
+            Option<&mut NextHurt>,
         ),
         Without<Projectile>,
     >,
@@ -1621,7 +1650,7 @@ fn chain_to_nearby_targets(
 
         damage = ((damage as f32) * falloff).round().max(1.0) as i32;
 
-        for (target_e, _tf, _team, _hb, mut health, vel_opt, _) in targets.iter_mut() {
+        for (target_e, _tf, _team, _hb, mut health, vel_opt, _, _) in targets.iter_mut() {
             if target_e != next_e {
                 continue;
             }
@@ -1679,6 +1708,7 @@ fn retaliate_sharp_teeth(
     commands: &mut Commands,
     damage: i32,
     center: Vec2,
+    frame: &CurrentFrame,
     targets: &mut Query<
         (
             Entity,
@@ -1688,18 +1718,26 @@ fn retaliate_sharp_teeth(
             &mut Health,
             Option<&mut Velocity>,
             Option<&Shield>,
+            Option<&mut NextHurt>,
         ),
         Without<Projectile>,
     >,
 ) {
-    for (ee, etf, team, _, mut health, _, _) in targets.iter_mut() {
+    for (ee, etf, team, _, mut health, _, _, nexthurt) in targets.iter_mut() {
         if *team != Team::Enemy {
             continue;
         }
         if etf.translation.truncate().distance(center) > 900.0 {
             continue;
         }
+        // Respect nexthurt i-frames like any other hit.
+        if nexthurt.as_ref().is_some_and(|nh| nh.0 > frame.0) {
+            continue;
+        }
         health.hp -= damage * 2;
+        if let Some(mut nh) = nexthurt {
+            nh.0 = frame.0 + 5;
+        }
         HitFlash::apply(commands, ee, Color::srgb(1.0, 0.4, 0.4), 0.12);
     }
 }
@@ -1718,7 +1756,7 @@ pub fn contact_damage(
         (With<Player>, Without<Enemy>),
     >,
     mut enemies: Query<
-        (&Transform, &Enemy, &mut EnemyBrain, &mut Health, &Hitbox),
+        (&Transform, &Enemy, &mut EnemyBrain, &mut Health, &Hitbox, Option<&mut Velocity>),
         (With<Enemy>, Without<Player>),
     >,
 ) {
@@ -1736,7 +1774,7 @@ pub fn contact_damage(
     let player_pos = player_tf.translation.truncate();
     let mut took_damage = 0;
 
-    for (enemy_tf, enemy, mut brain, ehealth, enemy_hitbox) in &mut enemies {
+    for (enemy_tf, enemy, mut brain, ehealth, enemy_hitbox, enemy_vel) in &mut enemies {
         if !brain.melee.is_finished() {
             continue;
         }
@@ -1763,12 +1801,21 @@ pub fn contact_damage(
         health.hp -= damage;
         took_damage = damage;
         health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
-        brain.melee = Timer::from_seconds(0.5, TimerMode::Once);
+        // GML enemy/Collision_Player: canmelee=false, alarm[11]=30 (1.0s).
+        brain.melee = Timer::from_seconds(1.0, TimerMode::Once);
         secrets.mark_damage_taken();
         last_damage.note(Some(HitId::Contact), Some(enemy.kind));
 
+        // GML motion_add(away_from_enemy, 4) = 120px/s knockback to player.
         let away = (player_pos - enemy_tf.translation.truncate()).normalize_or_zero();
-        GameFeel::apply_knockback(&mut player_vel.0, away, 240.0);
+        GameFeel::apply_knockback(&mut player_vel.0, away, 120.0);
+        // GML size<=2 pushback: motion_add(away_from_player, 1) = 30px/s to enemy.
+        if enemy_def(enemy.kind).size <= 2.0
+            && let Some(mut evel) = enemy_vel
+        {
+            let push_enemy = (enemy_tf.translation.truncate() - player_pos).normalize_or_zero();
+            GameFeel::apply_knockback(&mut evel.0, push_enemy, 30.0);
+        }
 
         HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.15, 0.1), 0.18);
         ScreenEffects::add_trauma(&mut trauma, 0.35);
@@ -1793,7 +1840,7 @@ pub fn contact_damage(
     }
 
     if took_damage > 0 && player.sharp_teeth {
-        for (enemy_tf, _, _, mut ehealth, _) in &mut enemies {
+        for (enemy_tf, _, _, mut ehealth, _, _) in &mut enemies {
             if enemy_tf.translation.truncate().distance(player_pos) <= 900.0 {
                 ehealth.hp -= took_damage * 2;
             }
@@ -1869,7 +1916,14 @@ pub fn resolve_deaths(
     >,
     mut fire_q: Query<&mut FireCooldown, (With<Player>, Without<Enemy>)>,
     q: Query<
-        (Entity, &Transform, &Team, &Health, Option<&Enemy>),
+        (
+            Entity,
+            &Transform,
+            &Team,
+            &Health,
+            Option<&Enemy>,
+            Option<&Velocity>,
+        ),
         (Without<Prop>, Without<Player>, Without<Dying>),
     >,
 ) {
@@ -1906,7 +1960,16 @@ pub fn resolve_deaths(
 
     let mut rng = rand::rng();
 
-    for (e, tf, team, health, enemy) in &q {
+    // GML enemy/Destroy: sndLastEnemy when 2 enemies remain (this + one other).
+    let enemy_total = q
+        .iter()
+        .filter(|(_, _, team, _, _, _)| **team == Team::Enemy)
+        .count();
+    if enemy_total == 2 {
+        audio.play_levelup(&mut commands);
+    }
+
+    for (e, tf, team, health, enemy, enemy_vel) in &q {
         if *team != Team::Enemy || health.hp > 0 {
             continue;
         }
@@ -1943,6 +2006,16 @@ pub fn resolve_deaths(
             let (mut corpse_sprite, corpse_anim) =
                 crate::game::anim::sprite_anim(&catalog, &asset_server, dead);
             corpse_sprite.color = Color::WHITE;
+            // GML CorpseActive: inherits killer direction/speed, cap 16/size,
+            // Impact Wrists +8. Approximate with enemy velocity capped.
+            let mut slide = enemy_vel.map(|v| v.0).unwrap_or(Vec2::ZERO);
+            if player.mutations.contains(&MutationId::ImpactWrists) {
+                slide += slide.normalize_or_zero() * 8.0 * 30.0;
+            }
+            let cap = 16.0 * 30.0 / def.size.max(1.0);
+            if slide.length() > cap {
+                slide = slide.normalize_or_zero() * cap;
+            }
             let mut corpse_e = commands.spawn((
                 GameCleanup,
                 LevelCleanup,
@@ -1954,6 +2027,7 @@ pub fn resolve_deaths(
                 corpse_sprite,
                 crate::game::content::sprite_anchor(&catalog, dead),
                 Transform::from_translation(pos.extend(-5.0)),
+                Velocity(slide),
             ));
             if let Some(mut anim) = corpse_anim {
                 anim.oneshot = true;
@@ -1999,7 +2073,10 @@ pub fn resolve_deaths(
 
         ScreenEffects::add_trauma(&mut trauma, 0.25);
         ScreenEffects::chromatic_pulse(&mut chroma, 0.08);
-        hitstop.trigger(0.28, 0.055);
+        // GML enemy/Destroy: sleep(20 + size*15). Size-scaled hitstop.
+        let size_f = enemy_def(enemy.kind).size;
+        let stop_dur = 0.02 + size_f * 0.015;
+        hitstop.trigger(stop_dur.min(0.28), 0.055);
         if def.boss {
             hitstop.trigger(0.28, 0.18);
             GameFeel::slow_motion(&mut slow_mo, 0.35, 0.55);
@@ -2160,15 +2237,14 @@ pub fn resolve_deaths(
             audio.play_boom(&mut commands);
             GameFeel::rumble_controller(&mut rumble, &gamepads, 0.8, 1.0, 0.4);
             GameFeel::slow_motion(&mut slow_mo, 0.35, 0.6);
-            for _ in 0..enemy.rad_drop.min(24) {
-                spawn_rad(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
-                    pos + random_offset(),
-                    1,
-                );
-            }
+            let melting_bonus = if race_state.race == RaceId::Melting { 1 } else { 0 };
+            spawn_rad_burst(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                pos,
+                (enemy.rad_drop as u32).min(24) + melting_bonus,
+            );
             // Boss drops a chest with a weapon plus two drops.
             spawn_chest(
                 &mut commands,
@@ -2208,15 +2284,15 @@ pub fn resolve_deaths(
                     Transform::from_translation(pos.extend(20.0)),
                 ));
             }
-            for _ in 0..enemy.rad_drop {
-                spawn_rad(
-                    &mut commands,
-                    &catalog,
-                    &asset_server,
-                    pos + random_offset(),
-                    1,
-                );
-            }
+            // GML enemy/Destroy: scrRadDrop(raddrop + Melting) with BigRad chunking.
+            let melting_bonus = if race_state.race == RaceId::Melting { 1 } else { 0 };
+            spawn_rad_burst(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                pos,
+                enemy.rad_drop as u32 + melting_bonus,
+            );
             maybe_spawn_drop(
                 &mut commands,
                 &catalog,
@@ -2264,7 +2340,7 @@ pub fn resolve_deaths(
         // Melting → Skeleton: die within ~96px of a living Necromancer.
         if race_state.race == RaceId::Melting {
             let ppos = player_tf.translation.truncate();
-            let near_necro = q.iter().any(|(_, ntf, team, health, enemy)| {
+            let near_necro = q.iter().any(|(_, ntf, team, health, enemy, _)| {
                 *team == Team::Enemy
                     && health.hp > 0
                     && enemy
@@ -2569,6 +2645,24 @@ pub fn spawn_rad(
     );
 }
 
+/// GML scrRadDrop chunking: while amount > 15 spawn BigRad (−10 each),
+/// rest as single rads. BigRad is Rad(10) pickup.
+pub fn spawn_rad_burst(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    mut amount: u32,
+) {
+    while amount > 15 {
+        amount -= 10;
+        spawn_rad(commands, catalog, asset_server, pos + random_offset(), 10);
+    }
+    for _ in 0..amount {
+        spawn_rad(commands, catalog, asset_server, pos + random_offset(), 1);
+    }
+}
+
 fn random_offset() -> Vec2 {
     let mut rng = rand::rng();
     let a = rng.random_range(0.0..std::f32::consts::TAU);
@@ -2598,13 +2692,28 @@ pub fn maybe_spawn_drop(
 
     let need = scrub_need(inv, player);
     let paw = player.drop_mult;
+    // GML scrDrop: Crown Guns +9 weapon chance; Crown Risk ×1.5 full / ×0.5 hurt.
+    let mut weapon_chance = weapon_chance;
+    if player.crown == crate::game::content::CrownKind::Guns {
+        weapon_chance += 9;
+    }
+    let mut chance = chance as f32;
+    if player.crown == crate::game::content::CrownKind::Risk {
+        chance *= if health.hp >= health.max { 1.5 } else { 0.5 };
+    }
     let roll = rng.random_range(0.0..100.0);
     // GML HP/Ammo Create_0: haste crown divides the despawn alarm by 3.
     let hasted = player.crown == crate::game::content::CrownKind::Haste;
 
-    if roll < (chance as f32 * (need + paw)) {
-        // Health: only when hurt, and only 2/3 of the time.
-        if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
+    if roll < (chance * (need + paw)) {
+        // Health: random(max_hp)>hp && random(3)<advantage (2 normal, 1.5 hardmode).
+        let hardmode = loops > 0;
+        let medkit_win = if hardmode {
+            rng.random_range(0..30) < 15
+        } else {
+            rng.random_range(0..3) < 2
+        };
+        if rng.random_range(0..health.max.max(1)) as i32 > health.hp && medkit_win {
             spawn_pickup(
                 commands,
                 catalog,
