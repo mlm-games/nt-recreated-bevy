@@ -56,7 +56,7 @@ pub fn tick_pickup_drag(
             PickupKind::Weapon(w) => {
                 if portal_pos.is_some_and(|pp| ppos.distance(pp) < 20.0) {
                     carried.0.push(w);
-                    commands.entity(e).despawn();
+                    commands.entity(e).try_despawn();
                 }
             }
             PickupKind::Rad(_) => {
@@ -329,7 +329,7 @@ pub fn collect_pickups(
             lt.timer.tick(time.delta());
             if lt.timer.just_finished() {
                 audio.play_pickup_disappear(&mut commands);
-                commands.entity(pickup_e).despawn();
+                commands.entity(pickup_e).try_despawn();
                 continue;
             }
             let ammo_or_hp = matches!(
@@ -484,7 +484,7 @@ pub fn collect_pickups(
             continue;
         }
 
-        commands.entity(pickup_e).despawn();
+        commands.entity(pickup_e).try_despawn();
 
         match pickup.kind {
             PickupKind::Rad(amount) => {
@@ -1104,7 +1104,7 @@ pub fn tick_rad_container_contact(
             }
         }
         // Open on contact - same payload as bullet destroy
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
         for _ in 0..25 {
             let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
             let d = rand::rng().random_range(6.0..26.0);

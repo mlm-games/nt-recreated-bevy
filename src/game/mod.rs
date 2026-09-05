@@ -142,6 +142,7 @@ impl Plugin for GamePlugin {
                             progress_sys::tick_floor_transition,
                         )
                             .in_set(NtSimSet::Always),
+                        anim::tick_fire_anims.in_set(NtSimSet::Always),
                     ),
                     (anim::player_anim_switch, anim::enemy_anim_switch).in_set(NtSimSet::Input),
                     (

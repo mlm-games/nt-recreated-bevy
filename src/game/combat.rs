@@ -613,7 +613,7 @@ pub fn move_projectiles(
                             legacy_explosive,
                             p.source,
                         );
-                        commands.entity(prop_e).despawn();
+                        commands.entity(prop_e).try_despawn();
                         if let Ok(entrance) = entrances.get(prop_e) {
                             secrets.queue(entrance.target);
                         }
@@ -1198,7 +1198,7 @@ pub fn apply_explosions(
                     }
                 }
 
-                commands.entity(prop_e).despawn();
+                commands.entity(prop_e).try_despawn();
             }
 
             // Explosions chew nearby walls.

@@ -537,7 +537,7 @@ pub fn tick_proximity_mines(
         spawn_prop_death_effect(&mut commands, center, Some(mine.payload), false, None);
 
         ScreenEffects::add_trauma(&mut trauma, 0.20);
-        commands.entity(mine_entity).despawn();
+        commands.entity(mine_entity).try_despawn();
     }
 }
 

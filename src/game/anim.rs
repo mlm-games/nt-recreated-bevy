@@ -5,7 +5,8 @@
 use bevy::prelude::*;
 
 use crate::game::components::{
-    EnemySprites, Health, HurtAnim, PlayerDying, Prop, PropHpTracker, PropSprites, Velocity,
+    EnemySprites, FireAnim, Health, HurtAnim, PlayerDying, Prop, PropHpTracker, PropSprites,
+    Velocity,
 };
 use crate::game::content::AssetCatalog;
 
@@ -165,7 +166,11 @@ pub fn enemy_anim_switch(
             &mut Sprite,
             &mut bevy::sprite::Anchor,
         ),
-        (With<crate::game::components::Enemy>, Without<HurtAnim>),
+        (
+            With<crate::game::components::Enemy>,
+            Without<HurtAnim>,
+            Without<FireAnim>,
+        ),
     >,
 ) {
     for (vel, sprites, mut anim, mut sprite, mut anchor) in &mut q {
@@ -247,7 +252,6 @@ pub fn play_hurt(
         was_moving: false,
     });
 }
-}
 
 /// Restore idle/walk after hurt oneshot finishes. Mirrors GM:
 /// `if sprite_index==spr_hurt && image_index>2) sprite_index=spr_idle`
@@ -297,7 +301,85 @@ pub fn tick_hurt_anims(
         if let Some(ps) = prop_sprites {
             sprite.flip_x = ps.flip_x;
         }
-        commands.entity(e).remove::<HurtAnim>();
+        // try_remove: the victim may have been wiped (portal-suck floor
+        // clear, shock) after this query ran; same-tick despawn must not
+        // panic the flush.
+        commands.entity(e).try_remove::<HurtAnim>();
+    }
+}
+
+/// Begin the firing strip on an enemy that just shot (GML `Alarm_2` sets
+/// `sprite_index = spr_fire`). Refresh the timer every pellet so the strip
+/// stays up through the whole burst; `tick_fire_anims` restores after.
+/// Skipped silently when the WAD lacks the strip — firing must never crash
+/// a run the way a missing spawn sprite should bail floor gen.
+pub fn play_fire(
+    commands: &mut Commands,
+    entity: Entity,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    anim: &mut SpriteAnim,
+    sprite: &mut Sprite,
+    fire_path: &'static str,
+    idle: &'static str,
+    walk: Option<&'static str>,
+) {
+    let Some(def) = catalog.anim_def(fire_path) else {
+        return;
+    };
+    anim.set_path(fire_path, def, true);
+    sprite.image = asset_server.load(fire_path.to_string());
+    sprite.rect = Some(anim.rect());
+
+    // GML alarm[2] cadence is 2-4 ticks per pellet; 0.25s covers the gap so
+    // continuous fire reads as one sustained strip. try_insert: the shooter
+    // may die the same tick it fires; a stale insert must not panic flush.
+    commands.entity(entity).try_insert(FireAnim {
+        idle,
+        walk,
+        timer: Timer::from_seconds(0.25, TimerMode::Once),
+    });
+}
+
+/// Restore idle/walk after the firing burst ends. Hurt takes precedence:
+/// `tick_hurt_anims` owns the strip while `HurtAnim` is present (GML
+/// `enemy/Step_0` checks `spr_hurt` first), and `hurt_on_damage` drops the
+/// stale `FireAnim` so it can never restore over a hurt strip.
+pub fn tick_fire_anims(
+    time: Res<Time<Fixed>>,
+    asset_server: Res<AssetServer>,
+    catalog: Res<AssetCatalog>,
+    mut commands: Commands,
+    mut q: Query<
+        (
+            Entity,
+            &mut FireAnim,
+            &mut SpriteAnim,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+            Option<&Velocity>,
+        ),
+        Without<HurtAnim>,
+    >,
+) {
+    for (e, mut fire, mut anim, mut sprite, mut anchor, vel) in &mut q {
+        fire.timer.tick(time.delta());
+        if !fire.timer.just_finished() {
+            continue;
+        }
+        let moving = vel.map(|v| v.0.length_squared() > 100.0).unwrap_or(false);
+        let path = if moving {
+            fire.walk.unwrap_or(fire.idle)
+        } else {
+            fire.idle
+        };
+        if let Some(def) = catalog.anim_def(path) {
+            anim.set_path(path, def, false);
+            sprite.image = asset_server.load(path.to_string());
+            sprite.rect = Some(anim.rect());
+            *anchor = crate::game::content::sprite_anchor(&catalog, path);
+        }
+        commands.entity(e).try_remove::<FireAnim>();
     }
 }
 
@@ -775,6 +857,36 @@ pub fn derive_prop_dead_path_checked(catalog: &AssetCatalog, idle: &'static str)
     dead
 }
 
+/// GML `spr_fire` per enemy idle (verified against objects/*/Create_0.gml).
+/// `None` means vanilla NT has no firing strip for this enemy (regular
+/// Bandit/Maggot/etc. use wkick gun visuals instead). HyperCrystal's fire
+/// *is* its idle, and CrownGuardian has no Bevy kind — both map to None.
+pub fn derive_fire_path(idle: &'static str) -> Option<&'static str> {
+    match idle {
+        "images/sprBanditBossIdle.png" => Some("images/sprBanditBossFire.png"),
+        "images/sprCrabIdle.png" => Some("images/sprCrabFire.png"),
+        "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianFire.png"),
+        "images/sprFireBallerIdle.png" => Some("images/sprFireBallerFire.png"),
+        "images/sprSuperFireBallerIdle.png" => Some("images/sprSuperFireBallerFire.png"),
+        "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenFire.png"),
+        "images/sprGoldScorpionIdle.png" => Some("images/sprGoldScorpionFire.png"),
+        "images/sprGuardianIdle.png" => Some("images/sprGuardianFire.png"),
+        "images/sprInvLaserCrystalIdle.png" => Some("images/sprInvLaserCrystalFire.png"),
+        "images/sprJockIdle.png" => Some("images/sprJockFire.png"),
+        "images/sprLaserCrystalIdle.png" => Some("images/sprLaserCrystalFire.png"),
+        "images/sprLightningCrystalIdle.png" => Some("images/sprLightningCrystalFire.png"),
+        "images/sprRatkingIdle.png" => Some("images/sprRatkingFire.png"),
+        "images/sprSalamanderIdle.png" => Some("images/sprSalamanderFire.png"),
+        "images/sprScorpionIdle.png" => Some("images/sprScorpionFire.png"),
+        "images/sprScrapBossIdle.png" => Some("images/sprScrapBossFire.png"),
+        "images/sprSnowBotIdle.png" => Some("images/sprSnowBotFire.png"),
+        "images/sprTurretIdle.png" => Some("images/sprTurretFire.png"),
+        "images/sprTurtleIdle.png" => Some("images/sprTurtleFire.png"),
+        "images/sprWolfIdle.png" => Some("images/sprWolfFire.png"),
+        _ => None,
+    }
+}
+
 pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
     match idle {
         "images/sprBanditIdle.png" => Some("images/sprBanditWalk.png"),
@@ -890,6 +1002,9 @@ pub fn hurt_on_damage(
             sprites.idle,
             sprites.walk,
         );
+        // Hurt wins over fire (GML Step_0 checks spr_hurt first); drop the
+        // stale fire state so tick_fire_anims can never restore over hurt.
+        commands.entity(e).try_remove::<FireAnim>();
         let hurt_path = if catalog.anim_def(sprites.hurt).is_some() {
             sprites.hurt
         } else {
@@ -989,5 +1104,305 @@ pub fn prop_hurt_on_damage(
         if sprites.flip_x {
             sprite.flip_x = true;
         }
+    }
+}
+
+/// Regression tests for the same-tick kill-vs-hurt race: combat killers, the
+/// portal shock, and the portal-suck floor wipe (which touches no `Prop`
+/// component, so it runs in parallel) can despawn a prop after a hurt insert
+/// was queued but before it flushes. `try_*` ops must swallow that instead
+/// of panicking `apply_deferred`.
+#[cfg(test)]
+mod hurt_race_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+
+    const IDLE: &str = "images/sprBarrel.png";
+    const HURT: &str = "images/sprBarrelHurt.png";
+
+    fn catalog_with_hurt() -> AssetCatalog {
+        let mut catalog = AssetCatalog::default();
+        catalog.images.insert(IDLE.to_string());
+        catalog.images.insert(HURT.to_string());
+        catalog.anims.insert(
+            HURT.to_string(),
+            [3.0, 8.0, 8.0, 12.0, 4.0, 4.0],
+        );
+        catalog
+    }
+
+    fn spawn_victim(world: &mut World) -> (Entity, SpriteAnim, Sprite) {
+        let def = AnimDef {
+            frames: 3,
+            frame_px: 8,
+            height: 8,
+            fps: 12.0,
+        };
+        let e = world
+            .spawn((SpriteAnim::new(IDLE, def), Sprite::default()))
+            .id();
+        let mut anim = world.entity_mut(e).take::<SpriteAnim>().unwrap();
+        let mut sprite = world.entity_mut(e).take::<Sprite>().unwrap();
+        (e, anim, sprite)
+    }
+
+    #[test]
+    fn hurt_insert_killed_before_flush_does_not_panic() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        let catalog = catalog_with_hurt();
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let (e, mut anim, mut sprite) = spawn_victim(app.world_mut());
+        {
+            // Queue the hurt insert exactly like prop_hurt_on_damage does.
+            let mut cmds = app.world_mut().commands();
+            play_hurt(
+                &mut cmds,
+                e,
+                &catalog,
+                &asset_server,
+                &mut anim,
+                &mut sprite,
+                HURT,
+                IDLE,
+                None,
+            );
+        }
+        // Parallel killer (portal-suck wipe / shock / explosion) lands first.
+        app.world_mut().despawn(e);
+        // Pre-fix this panicked inside apply_deferred; now it must flush clean.
+        app.world_mut().flush();
+        assert!(app.world().get_entity(e).is_err());
+    }
+
+    #[test]
+    fn stale_remove_and_double_kill_do_not_panic_on_flush() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        let e = app.world_mut().spawn_empty().id();
+        {
+            let mut cmds = app.world_mut().commands();
+            // tick_hurt_anims path on an already-wiped victim.
+            cmds.entity(e).try_remove::<HurtAnim>();
+            // Two lethal sources, same tick (bullet + explosion).
+            cmds.entity(e).try_despawn();
+            cmds.entity(e).try_despawn();
+        }
+        app.world_mut().despawn(e);
+        app.world_mut().flush();
+        assert!(app.world().get_entity(e).is_err());
+    }
+
+    #[test]
+    fn live_hurt_insert_still_applies() {
+        // Guard against over-correction: a live victim must still get HurtAnim.
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        let catalog = catalog_with_hurt();
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let (e, mut anim, mut sprite) = spawn_victim(app.world_mut());
+        {
+            let mut cmds = app.world_mut().commands();
+            play_hurt(
+                &mut cmds,
+                e,
+                &catalog,
+                &asset_server,
+                &mut anim,
+                &mut sprite,
+                HURT,
+                IDLE,
+                None,
+            );
+        }
+        app.world_mut().flush();
+        assert!(app.world().get::<HurtAnim>(e).is_some());
+    }
+}
+
+/// Tests for GML `spr_fire` parity: per-pellet strip swap during bursts,
+/// sustain across pellets, restore to idle/walk after, hurt precedence.
+#[cfg(test)]
+mod fire_anim_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+    use bevy::time::TimeUpdateStrategy;
+
+    const IDLE: &str = "images/sprScorpionIdle.png";
+    const FIRE: &str = "images/sprScorpionFire.png";
+    const WALK: &str = "images/sprScorpionWalk.png";
+
+    fn catalog_with_fire() -> AssetCatalog {
+        let mut catalog = AssetCatalog::default();
+        for p in [IDLE, FIRE, WALK] {
+            catalog.images.insert(p.to_string());
+        }
+        // [frames, w, h, fps, xorigin, yorigin]
+        catalog
+            .anims
+            .insert(FIRE.to_string(), [2.0, 48.0, 48.0, 8.0, 24.0, 24.0]);
+        catalog.anims.insert(
+            IDLE.to_string(),
+            [4.0, 48.0, 48.0, 8.0, 24.0, 24.0],
+        );
+        catalog.anims.insert(
+            WALK.to_string(),
+            [4.0, 48.0, 48.0, 8.0, 24.0, 24.0],
+        );
+        catalog
+    }
+
+    #[test]
+    fn derive_fire_path_matches_gml_table() {
+        assert_eq!(
+            derive_fire_path("images/sprScorpionIdle.png"),
+            Some("images/sprScorpionFire.png")
+        );
+        assert_eq!(
+            derive_fire_path("images/sprSnowBotIdle.png"),
+            Some("images/sprSnowBotFire.png")
+        );
+        assert_eq!(
+            derive_fire_path("images/sprTurretIdle.png"),
+            Some("images/sprTurretFire.png")
+        );
+        // Regular Bandit has no firing strip (wkick gun visuals instead).
+        assert_eq!(derive_fire_path("images/sprBanditIdle.png"), None);
+        // HyperCrystal's "fire" is its idle; unknown idles map to None.
+        assert_eq!(
+            derive_fire_path("images/sprHyperCrystalIdle.png"),
+            None
+        );
+        assert_eq!(derive_fire_path("images/sprMaggotIdle.png"), None);
+    }
+
+    #[test]
+    fn fire_shows_during_burst_then_restores_idle() {
+        fn setup(
+            mut commands: Commands,
+            catalog: Res<AssetCatalog>,
+            asset_server: Res<AssetServer>,
+            mut q: Query<(Entity, &mut SpriteAnim, &mut Sprite)>,
+        ) {
+            for (e, mut anim, mut sprite) in &mut q {
+                play_fire(
+                    &mut commands,
+                    e,
+                    &catalog,
+                    &asset_server,
+                    &mut anim,
+                    &mut sprite,
+                    FIRE,
+                    IDLE,
+                    None,
+                );
+            }
+        }
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
+        app.insert_resource(catalog_with_fire());
+        let def = AnimDef {
+            frames: 4,
+            frame_px: 48,
+            height: 48,
+            fps: 8.0,
+        };
+        let e = app
+            .world_mut()
+            .spawn((
+                SpriteAnim::new(IDLE, def),
+                Sprite::default(),
+                Velocity(Vec2::ZERO),
+            ))
+            .id();
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, tick_fire_anims);
+        app.update();
+
+        // Firing strip is up right after the pellet.
+        assert_eq!(
+            app.world().get::<SpriteAnim>(e).unwrap().path,
+            FIRE,
+            "pellet must swap to spr_fire"
+        );
+        assert!(app.world().get::<FireAnim>(e).is_some());
+        // 0.25s timer at 30Hz: still up after 5 ticks (burst sustain).
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().get::<FireAnim>(e).is_some());
+        // Expired: restored to idle, marker removed.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().get::<FireAnim>(e).is_none());
+        assert_eq!(
+            app.world().get::<SpriteAnim>(e).unwrap().path,
+            IDLE,
+            "burst end must restore spr_idle"
+        );
+    }
+
+    #[test]
+    fn fire_restores_walk_when_moving() {
+        fn setup(
+            mut commands: Commands,
+            catalog: Res<AssetCatalog>,
+            asset_server: Res<AssetServer>,
+            mut q: Query<(Entity, &mut SpriteAnim, &mut Sprite)>,
+        ) {
+            for (e, mut anim, mut sprite) in &mut q {
+                play_fire(
+                    &mut commands,
+                    e,
+                    &catalog,
+                    &asset_server,
+                    &mut anim,
+                    &mut sprite,
+                    FIRE,
+                    IDLE,
+                    Some(WALK),
+                );
+            }
+        }
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
+        app.insert_resource(catalog_with_fire());
+        let def = AnimDef {
+            frames: 4,
+            frame_px: 48,
+            height: 48,
+            fps: 8.0,
+        };
+        let e = app
+            .world_mut()
+            .spawn((
+                SpriteAnim::new(IDLE, def),
+                Sprite::default(),
+                Velocity(Vec2::new(20.0, 0.0)),
+            ))
+            .id();
+        app.add_systems(Startup, setup);
+        app.add_systems(FixedUpdate, tick_fire_anims);
+        app.update();
+        for _ in 0..10 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().get::<SpriteAnim>(e).unwrap().path,
+            WALK,
+            "moving shooter must restore spr_walk like enemy/Step_0"
+        );
     }
 }

@@ -1215,6 +1215,15 @@ pub struct HurtAnim {
     pub was_moving: bool,
 }
 
+/// GML `spr_fire`: firing strip shown per pellet during bursts (Alarm_2),
+/// preserved by `enemy/Step_0` until the burst ends. Hurt takes precedence.
+#[derive(Component)]
+pub struct FireAnim {
+    pub idle: &'static str,
+    pub walk: Option<&'static str>,
+    pub timer: Timer,
+}
+
 /// Marker: chest already opened (loot granted); the open-corpse sprite stays.
 #[derive(Component)]
 pub struct OpenedChest;

@@ -1886,7 +1886,7 @@ pub fn hammerhead_chew(
             if let Ok(entrance) = entrances.get(prop_e) {
                 secrets.queue(entrance.target);
             }
-            commands.entity(prop_e).despawn();
+            commands.entity(prop_e).try_despawn();
         }
         return;
     }

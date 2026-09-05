@@ -37,6 +37,9 @@ pub fn boss_ai(
             &mut Transform,
             &mut Health,
             &mut Sprite,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut bevy::sprite::Anchor>,
+            Option<&HurtAnim>,
         ),
         (With<Enemy>, Without<WallTile>),
     >,
@@ -56,8 +59,19 @@ pub fn boss_ai(
     let player_velocity = player_vel.0;
     let dt = time.delta_secs();
 
-    for (entity, enemy, mut boss, mut brain, mut vel, mut tf, mut health, mut sprite) in
-        bosses.iter_mut()
+    for (
+        entity,
+        enemy,
+        mut boss,
+        mut brain,
+        mut vel,
+        mut tf,
+        mut health,
+        mut sprite,
+        mut anim,
+        mut anchor,
+        hurt,
+    ) in bosses.iter_mut()
     {
         let def = enemy_def(enemy.kind);
         if !def.boss {
@@ -90,6 +104,10 @@ pub fn boss_ai(
                 &mut brain,
                 &mut vel,
                 &mut tf,
+                &mut sprite,
+                &mut anim,
+                &mut anchor,
+                hurt.is_some(),
                 def,
                 pos,
                 player_pos,
@@ -275,6 +293,10 @@ fn big_bandit_ai(
     brain: &mut EnemyBrain,
     vel: &mut Velocity,
     tf: &mut Transform,
+    sprite: &mut Sprite,
+    anim: &mut Option<Mut<'_, crate::game::anim::SpriteAnim>>,
+    anchor: &mut Option<Mut<'_, bevy::sprite::Anchor>>,
+    hurting: bool,
     def: EnemyDef,
     pos: Vec2,
     player_pos: Vec2,
@@ -405,6 +427,31 @@ fn big_bandit_ai(
                 );
                 // recoil
                 gml_motion_add_clamp(&mut vel.0, -sdir, 1.0, 5.0, dt);
+                // GML BanditBoss Alarm_2: sprite_index = spr_fire per pellet.
+                if !hurting
+                    && let Some(fire) =
+                        crate::game::anim::derive_fire_path(def.sprite)
+                {
+                    let walk = crate::game::anim::derive_walk_path(def.sprite);
+                    if let (Some(anim), Some(anchor)) = (
+                        anim.as_mut().map(|a| &mut **a),
+                        anchor.as_mut().map(|a| &mut **a),
+                    ) {
+                        crate::game::anim::play_fire(
+                            commands,
+                            owner,
+                            catalog,
+                            asset_server,
+                            anim,
+                            &mut *sprite,
+                            fire,
+                            def.sprite,
+                            walk,
+                        );
+                        *anchor =
+                            crate::game::content::sprite_anchor(&catalog, fire);
+                    }
+                }
                 brain.ammo -= 1;
                 brain.burst_left = brain.burst_left.saturating_sub(1);
                 if looped && brain.ammo == 7 {

@@ -239,6 +239,9 @@ pub fn enemy_ai(
             &mut Transform,
             &mut Sprite,
             Option<&BossBrain>,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut bevy::sprite::Anchor>,
+            Option<&HurtAnim>,
         ),
         (With<Enemy>, Without<Prop>),
     >,
@@ -258,10 +261,12 @@ pub fn enemy_ai(
     // Pairwise separation to avoid enemy stacking.
     let positions: Vec<Vec2> = enemies
         .iter()
-        .map(|(_, _, _, _, tf, _, _)| tf.translation.truncate())
+        .map(|(_, _, _, _, tf, _, _, _, _, _)| tf.translation.truncate())
         .collect();
 
-    for (entity, enemy, mut brain, mut vel, mut tf, mut sprite, boss) in &mut enemies {
+    for (entity, enemy, mut brain, mut vel, mut tf, mut sprite, boss, mut anim, mut anchor, hurt)
+        in &mut enemies
+    {
         let pos = tf.translation.truncate();
         let to_player = player_pos - pos;
         let dist = to_player.length();
@@ -367,6 +372,18 @@ pub fn enemy_ai(
                                 pos,
                                 sdir,
                                 euphoria,
+                            );
+                            // GML Alarm_1 pellet: show spr_fire (no-op without one).
+                            show_enemy_fire(
+                                &mut commands,
+                                &catalog,
+                                &asset_server,
+                                entity,
+                                def.sprite,
+                                &mut anim,
+                                &mut *sprite,
+                                &mut anchor,
+                                hurt.is_some(),
                             );
                             brain.gunangle = base_ang;
                             brain.attack = Timer::from_seconds(
@@ -843,6 +860,18 @@ pub fn enemy_ai(
                             dir,
                             euphoria,
                         );
+                        // GML Alarm_2 pellet: show spr_fire through the burst.
+                        show_enemy_fire(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            entity,
+                            def.sprite,
+                            &mut anim,
+                            &mut *sprite,
+                            &mut anchor,
+                            hurt.is_some(),
+                        );
                         brain.burst_left -= 1;
                         if brain.burst_left == 0 {
                             brain.attack =
@@ -867,6 +896,18 @@ pub fn enemy_ai(
                             dir,
                             euphoria,
                         );
+                        // First pellet of the burst also raises spr_fire.
+                        show_enemy_fire(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            entity,
+                            def.sprite,
+                            &mut anim,
+                            &mut *sprite,
+                            &mut anchor,
+                            hurt.is_some(),
+                        );
                         brain.burst_left -= 1;
                     }
                 }
@@ -883,6 +924,18 @@ pub fn enemy_ai(
                         def,
                         pos,
                         dir,
+                    );
+                    // GML Alarm_1 shot: show spr_fire.
+                    show_enemy_fire(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        entity,
+                        def.sprite,
+                        &mut anim,
+                        &mut *sprite,
+                        &mut anchor,
+                        hurt.is_some(),
                     );
                     brain.attack = Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
                 }
@@ -915,6 +968,49 @@ fn enemy_bullet_sprite(
     let anchor = crate::game::content::sprite_anchor(catalog, path);
     let anim = crate::game::projectile_art::projectile_anim(catalog, path);
     (sprite, anchor, anim)
+}
+
+/// Mirror of GML `Alarm_2` setting `sprite_index = spr_fire` on every pellet:
+/// swap the shooter's strip for the burst. No-op for enemies without a fire
+/// strip (regular Bandit/Maggot use wkick gun visuals) or while hurting
+/// (GML `Step_0` preserves `spr_hurt` over `spr_fire`).
+#[allow(clippy::too_many_arguments)]
+fn show_enemy_fire(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    entity: Entity,
+    idle: &'static str,
+    anim_opt: &mut Option<Mut<'_, crate::game::anim::SpriteAnim>>,
+    sprite: &mut Sprite,
+    anchor_opt: &mut Option<Mut<'_, bevy::sprite::Anchor>>,
+    hurting: bool,
+) {
+    if hurting {
+        return;
+    }
+    let (Some(anim), Some(anchor)) = (
+        anim_opt.as_mut().map(|a| &mut **a),
+        anchor_opt.as_mut().map(|a| &mut **a),
+    ) else {
+        return;
+    };
+    let Some(fire) = crate::game::anim::derive_fire_path(idle) else {
+        return;
+    };
+    let walk = crate::game::anim::derive_walk_path(idle);
+    crate::game::anim::play_fire(
+        commands,
+        entity,
+        catalog,
+        asset_server,
+        anim,
+        sprite,
+        fire,
+        idle,
+        walk,
+    );
+    *anchor = crate::game::content::sprite_anchor(&catalog, fire);
 }
 
 fn fire_enemy_bullet(
