@@ -22,46 +22,76 @@ impl Toast {
     }
 }
 
-/// GML portal level-end pickup behavior (runs before `collect_pickups`):
+/// GML loose-pickup drift (runs before `collect_pickups`):
 /// - `WepPickup/Collision_Portal`: weapons touching the portal become
 ///   persistent (carried to the next floor via `PortalCarriedWeapons`).
 /// - `Rad/Step_0`: while a Portal exists rads target the player regardless
 ///   of distance (`mp_potential_step 12` = 360px/s); rads touching the
 ///   portal are pulled onto the player so normal collection grants them.
-pub fn portal_pickup_carry(
+/// - `AmmoPickup/Step_0` + `HPPickup/Step_0`: drift 6px/step toward the
+///   nearest player within 32 (+64 Plutonium Hunger) or whenever a Portal
+///   exists, axis-separated behind `place_free` wall checks.
+pub fn tick_pickup_drag(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     portal_q: Query<&Transform, (With<Portal>, Without<Pickup>)>,
     mut carried: ResMut<PortalCarriedWeapons>,
-    player_q: Query<&Transform, With<Player>>,
+    player_q: Query<(&Transform, &Player), With<Player>>,
+    mask: Res<FloorMask>,
     mut pickups: Query<(Entity, &mut Transform, &Pickup), (Without<Player>, Without<Portal>)>,
 ) {
-    let Ok(portal_tf) = portal_q.single() else {
+    let Ok((player_tf, player)) = player_q.single() else {
         return;
     };
-    let Ok(player_tf) = player_q.single() else {
-        return;
-    };
-    let portal_pos = portal_tf.translation.truncate();
     let player_pos = player_tf.translation.truncate();
+    let portal_pos = portal_q.single().ok().map(|tf| tf.translation.truncate());
     let dt = time.delta_secs();
+    let hunger = player.mutations.contains(&MutationId::PlutoniumHunger);
+    // GML Step magnet range for ammo/HP, before the collect overlap below.
+    let loose_range = 32.0 + if hunger { 64.0 } else { 0.0 };
 
     for (e, mut tf, pickup) in &mut pickups {
         let ppos = tf.translation.truncate();
         match pickup.kind {
             PickupKind::Weapon(w) => {
-                if ppos.distance(portal_pos) < 20.0 {
+                if portal_pos.is_some_and(|pp| ppos.distance(pp) < 20.0) {
                     carried.0.push(w);
                     commands.entity(e).despawn();
                 }
             }
             PickupKind::Rad(_) => {
+                if portal_pos.is_none() {
+                    continue;
+                }
                 // Global magnet while the portal is open.
                 let dir = (player_pos - ppos).normalize_or_zero();
                 tf.translation += (dir * 360.0 * dt).extend(0.0);
                 // Portal touch: pull onto the player so `collect_pickups`
                 // grants it next tick (mirrors place_meeting Portal collect).
-                if ppos.distance(portal_pos) < 20.0 {
+                if ppos.distance(portal_pos.unwrap_or(player_pos)) < 20.0 {
+                    tf.translation.x = player_pos.x;
+                    tf.translation.y = player_pos.y;
+                }
+            }
+            PickupKind::Ammo(..) | PickupKind::Medkit(_) => {
+                let in_range = ppos.distance(player_pos) < loose_range;
+                if !in_range && portal_pos.is_none() {
+                    continue;
+                }
+                // GML 6px/step with place_free per axis (mask walk check).
+                let dir = (player_pos - ppos).normalize_or_zero();
+                let delta = dir * 6.0 * 30.0 * dt;
+                let nx = Vec2::new(ppos.x + delta.x, ppos.y);
+                if mask.is_walkable(nx) {
+                    tf.translation.x = nx.x;
+                }
+                let ny = Vec2::new(tf.translation.x, ppos.y + delta.y);
+                if mask.is_walkable(ny) {
+                    tf.translation.y = ny.y;
+                }
+                // Portal touch collects like the player did (grant happens in
+                // `collect_pickups` once pulled into range).
+                if portal_pos.is_some_and(|pp| ppos.distance(pp) < 14.0) {
                     tf.translation.x = player_pos.x;
                     tf.translation.y = player_pos.y;
                 }
@@ -77,6 +107,8 @@ pub fn spawn_pickup(
     asset_server: &AssetServer,
     kind: PickupKind,
     pos: Vec2,
+    loops: u32,
+    hasted: bool,
 ) -> Entity {
     let (path, _size) = pickup_sprite(kind, catalog);
     // Upstream pickup image speeds: Rad spins at 0.4/frame (12 fps @30) from
@@ -103,9 +135,15 @@ pub fn spawn_pickup(
             });
         }
         PickupKind::Medkit(_) | PickupKind::Ammo(..) => {
-            // GML HP Ammo Alarm 400 =13.3s
+            // GML HP/Ammo Create_0 alarm: ceil((200 + rand30) / ((5+loops)/5))
+            // steps; haste crown /3 (re-arm blinks stay 2 steps). The 62-step
+            // blink phase is included; the tick below toggles Visibility in
+            // the last ~2s like GML's visible flip.
+            let init =
+                ((200.0 + rng.random_range(0.0..30.0)) / ((5.0 + loops as f32) / 5.0)).ceil();
+            let total_steps = if hasted { init / 3.0 } else { init } + 62.0;
             ec.insert(PickupLifetime {
-                timer: Timer::from_seconds(13.33 + rng.random_range(0.0..1.0), TimerMode::Once),
+                timer: Timer::from_seconds(total_steps / 30.0, TimerMode::Once),
             });
         }
         PickupKind::Weapon(_) => {
@@ -161,17 +199,14 @@ pub fn spawn_chest(
 }
 
 /// Native NT art per pickup kind.
-fn pickup_sprite(kind: PickupKind, catalog: &AssetCatalog) -> (String, f32) {
+/// GML AmmoPickup sprite is the single shared sprAmmo box for every type —
+/// the granted type is decided at pickup (scrAmmoDecideType), not at spawn.
+fn pickup_sprite(kind: PickupKind, _catalog: &AssetCatalog) -> (String, f32) {
     match kind {
         PickupKind::Rad(_) => ("images/sprRad.png".to_string(), 12.0),
         PickupKind::Medkit(_) => ("images/sprHP.png".to_string(), 16.0),
-        PickupKind::Ammo(AmmoKind::Bullets, _) => ("images/sprBulletIcon.png".to_string(), 12.0),
-        PickupKind::Ammo(AmmoKind::Shells, _) => ("images/sprShotIcon.png".to_string(), 12.0),
-        PickupKind::Ammo(AmmoKind::Bolts, _) => ("images/sprBoltIcon.png".to_string(), 12.0),
-        PickupKind::Ammo(AmmoKind::Explosives, _) => ("images/sprExploIcon.png".to_string(), 12.0),
-        PickupKind::Ammo(AmmoKind::Energy, _) => ("images/sprEnergyIcon.png".to_string(), 12.0),
-        PickupKind::Ammo(AmmoKind::None, _) => ("images/sprRad.png".to_string(), 12.0),
-        PickupKind::Weapon(k) => (weapon_id_sprite(k, catalog), 20.0),
+        PickupKind::Ammo(..) => ("images/sprAmmo.png".to_string(), 12.0),
+        PickupKind::Weapon(k) => (weapon_id_sprite(k, _catalog), 20.0),
         PickupKind::Chest(kind) => match kind {
             ChestKind::Weapon => ("images/sprWeaponChest.png".to_string(), 32.0),
             ChestKind::Ammo => ("images/sprAmmoChest.png".to_string(), 32.0),
@@ -286,7 +321,10 @@ pub fn collect_pickups(
             }
         }
 
-        // Rad/HP/ammo blink out and despawn after their upstream lifetime.
+        // Pickups blink out and despawn after their upstream lifetime.
+        // GML HP/Ammo Alarm_0: hard visible toggle every 2 steps in the last
+        // 62 steps, then SmallChestFade + sndPickupDisappear. Rads keep the
+        // soft alpha fade.
         if let Some(mut lt) = lifetime {
             lt.timer.tick(time.delta());
             if lt.timer.just_finished() {
@@ -294,7 +332,19 @@ pub fn collect_pickups(
                 commands.entity(pickup_e).despawn();
                 continue;
             }
-            if lt.timer.remaining_secs() < 1.0
+            let ammo_or_hp = matches!(
+                pickup.kind,
+                PickupKind::Ammo(..) | PickupKind::Medkit(_)
+            );
+            if ammo_or_hp && lt.timer.remaining_secs() < 62.0 / 30.0 {
+                let phase = (lt.timer.elapsed_secs() * 30.0) as i32;
+                let vis = if (phase / 2) % 2 == 0 {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+                commands.entity(pickup_e).insert(vis);
+            } else if lt.timer.remaining_secs() < 1.0
                 && let Ok(mut s) = sprites.get_mut(pickup_e)
             {
                 let a = 0.35 + 0.65 * (0.5 + 0.5 * (time.elapsed_secs() * 30.0).sin());
@@ -305,18 +355,24 @@ pub fn collect_pickups(
         // Chests never fly to the player (upstream: open on contact / shock).
         // Weapons: only telekinesis pulls them to the player (original
         // WepPickup has no player magnet); portal drag + carry live in
-        // progression::portal_attract and portal_pickup_carry.
+        // progression::portal_attract and tick_pickup_drag.
         let is_chest = matches!(pickup.kind, PickupKind::Chest(_));
         let is_weapon = matches!(pickup.kind, PickupKind::Weapon(_));
         let is_rad = matches!(pickup.kind, PickupKind::Rad(_));
+        let is_ammo = matches!(pickup.kind, PickupKind::Ammo(..));
+        let is_medkit = matches!(pickup.kind, PickupKind::Medkit(_));
         if is_weapon {
             if telek_active && dist < magnet {
                 let dir = (player_pos - pickup_pos).normalize_or_zero();
                 pickup_tf.translation += (dir * 900.0 * telek_mult * dt).extend(0.0);
             }
+        } else if is_ammo || is_medkit {
+            // GML Ammo/HP Step_0 drift (6px/step @32+hunger, portal-global)
+            // lives in tick_pickup_drag (runs before this system); collection
+            // below is pure mask overlap (~14px), not a vacuum.
         } else if is_rad {
             // GML rad range 80 (+60 plutonium hunger). Portal-global magnet
-            // lives in portal_pickup_carry (runs before this system).
+            // lives in tick_pickup_drag (runs before this system).
             let has_hunger = player
                 .mutations
                 .contains(&MutationId::PlutoniumHunger);
@@ -349,6 +405,11 @@ pub fn collect_pickups(
             if !interact_pressed {
                 continue;
             }
+        } else if is_ammo || is_medkit {
+            // GML place_meeting mask overlap (~16px masks), not a radius.
+            if dist > 14.0 {
+                continue;
+            }
         } else if dist > 20.0 {
             continue;
         }
@@ -376,6 +437,8 @@ pub fn collect_pickups(
                         &asset_server,
                         PickupKind::Weapon(weapon),
                         pickup_pos,
+                        0,
+                        false,
                     );
                     audio.play_weapon_chest(&mut commands);
                     toast.show(&format!("{}", weapon_id_name(weapon)));
@@ -409,6 +472,8 @@ pub fn collect_pickups(
                             &asset_server,
                             PickupKind::Rad(1),
                             pickup_pos + Vec2::new(ang.cos() * d, ang.sin() * d),
+                            0,
+                            false,
                         );
                     }
                     audio.play_pickup(&mut commands);
@@ -451,7 +516,15 @@ pub fn collect_pickups(
                 );
                 audio.play_pickup(&mut commands);
             }
-            PickupKind::Ammo(ammo, amount) => {
+            PickupKind::Ammo(..) => {
+                // GML Collision_Player: type decided at pickup from the
+                // player's weapons (scrAmmoDecideType), typ_ammo amount,
+                // +1 with haste crown (cursed ×1.5 has no Bevy pickup).
+                let ammo = decide_ammo_type(&inv);
+                let mut amount = ammo_pickup_amount(ammo);
+                if player.crown == crate::game::content::CrownKind::Haste {
+                    amount += 1;
+                }
                 let fish_bonus = if player.ability == AbilityKind::Flip {
                     match ammo {
                         AmmoKind::None => 0,
@@ -566,6 +639,200 @@ pub fn open_chest_shock(
     open_chest(commands, catalog, asset_server, anims, sprites, e, kind);
 }
 
+/// Marker for the floating interact label parts (name / gauge / prompt).
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponLabelRole {
+    Name,
+    GaugeBg,
+    Gauge,
+    Prompt,
+}
+
+#[derive(Component)]
+pub struct WeaponLabelPart {
+    role: WeaponLabelRole,
+}
+
+/// Current gun the label is attached to (entity id, despawn-safe).
+#[derive(Resource, Default)]
+pub struct WeaponLabelTarget(pub Option<Entity>);
+
+fn ammo_gauge_paths(kind: AmmoKind) -> Option<(&'static str, &'static str)> {
+    match kind {
+        AmmoKind::Bullets => Some(("images/sprBulletIcon.png", "images/sprBulletIconBG.png")),
+        AmmoKind::Shells => Some(("images/sprShotIcon.png", "images/sprShotIconBG.png")),
+        AmmoKind::Bolts => Some(("images/sprBoltIcon.png", "images/sprBoltIconBG.png")),
+        AmmoKind::Explosives => Some(("images/sprExploIcon.png", "images/sprExploIconBG.png")),
+        AmmoKind::Energy => Some(("images/sprEnergyIcon.png", "images/sprEnergyIconBG.png")),
+        AmmoKind::None => None,
+    }
+}
+
+fn gauge_frame(fill: f32) -> usize {
+    // GML: icon = frames(7) - ceil(7 * ammo/capacity); empties as ammo drains.
+    (7.0 - (7.0 * fill.clamp(0.0, 1.0)).ceil()).clamp(0.0, 7.0) as usize
+}
+
+/// GML scrDrawInteractionHUD weapon branch: the nearest dropped gun
+/// overlapping the player shows its name 31px above, an ammo-fill gauge
+/// (icon frames proportional to player ammo / capacity) and the interact
+/// prompt — the same frame the press-to-pick collision would fire.
+#[allow(clippy::too_many_arguments)]
+pub fn sync_weapon_label(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    font: Res<crate::app::UiFont>,
+    player_q: Query<(&Transform, &Inventory, &Player), With<Player>>,
+    weapon_q: Query<
+        (Entity, &Transform, &Pickup),
+        (Without<Player>, Without<Portal>, Without<WeaponLabelPart>),
+    >,
+    mut target: ResMut<WeaponLabelTarget>,
+    mut parts: Query<
+        (Entity, &WeaponLabelPart, &mut Transform),
+        (Without<Pickup>, Without<Player>),
+    >,
+) {
+    let Some((player_tf, inv, player)) = player_q.single().ok() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+
+    // Nearest overlapping gun (GML place_meeting ≈ mask overlap, ~18px).
+    let mut best: Option<(Entity, WeaponId, Vec2)> = None;
+    for (e, tf, pickup) in &weapon_q {
+        let PickupKind::Weapon(w) = pickup.kind else {
+            continue;
+        };
+        let p = tf.translation.truncate();
+        let d = player_pos.distance(p);
+        if d < 18.0 && best.is_none_or(|(_, _, bp)| d < player_pos.distance(bp)) {
+            best = Some((e, w, p));
+        }
+    }
+
+    // Retarget: drop stale parts (try_despawn is dead-id safe).
+    if best.map(|(e, _, _)| e) != target.0 {
+        for (e, _, _) in &parts {
+            commands.entity(e).try_despawn();
+        }
+        target.0 = None;
+        if let Some((gun_e, weapon, gun_pos)) = best {
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                WeaponLabelPart {
+                    role: WeaponLabelRole::Name,
+                },
+                Text2d::new(weapon_id_name(weapon).to_string()),
+                TextFont {
+                    font: font.0.clone().into(),
+                    font_size: FontSize::Px(8.0),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                TextLayout::justify(Justify::Center),
+                Transform::from_translation((gun_pos + Vec2::new(0.0, 31.0)).extend(14.0)),
+            ));
+            // Ammo-fill gauge (GML scrDrawTypeAmmo): bg frame 2 + fill icon.
+            let wtype = weapon_ammo(weapon);
+            if let Some((icon, bg)) = ammo_gauge_paths(wtype)
+                && catalog.has(icon)
+                && catalog.has(bg)
+            {
+                let cap = player.ammo_cap(wtype).max(1) as f32;
+                let fill = inv.ammo_of(wtype) as f32 / cap;
+                let mut bg_sprite =
+                    crate::game::content::sprite_exact_frame(&catalog, &asset_server, bg, 2);
+                bg_sprite.color = Color::WHITE;
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    WeaponLabelPart {
+                        role: WeaponLabelRole::GaugeBg,
+                    },
+                    bg_sprite,
+                    Transform::from_translation((gun_pos + Vec2::new(14.0, 21.0)).extend(14.0)),
+                ));
+                let mut fg_sprite = crate::game::content::sprite_exact_frame(
+                    &catalog,
+                    &asset_server,
+                    icon,
+                    gauge_frame(fill),
+                );
+                fg_sprite.color = Color::WHITE;
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    WeaponLabelPart {
+                        role: WeaponLabelRole::Gauge,
+                    },
+                    fg_sprite,
+                    Transform::from_translation((gun_pos + Vec2::new(14.0, 21.0)).extend(14.5)),
+                ));
+            }
+            // Interact prompt (GML draw_pickup_button): desktop key.
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                WeaponLabelPart {
+                    role: WeaponLabelRole::Prompt,
+                },
+                Text2d::new("E".to_string()),
+                TextFont {
+                    font: font.0.clone().into(),
+                    font_size: FontSize::Px(8.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.9, 0.4)),
+                TextLayout::justify(Justify::Center),
+                Transform::from_translation(gun_pos.extend(14.0)),
+            ));
+            target.0 = Some(gun_e);
+        }
+        return;
+    }
+
+    // Same target: follow the gun and refresh the gauge fill.
+    let Some((_, weapon, gun_pos)) = best else {
+        return;
+    };
+    let wtype = weapon_ammo(weapon);
+    let cap = player.ammo_cap(wtype).max(1) as f32;
+    let fill = inv.ammo_of(wtype) as f32 / cap;
+    for (e, part, mut tf) in &mut parts {
+        match part.role {
+            WeaponLabelRole::Name => {
+                tf.translation.x = gun_pos.x;
+                tf.translation.y = gun_pos.y + 31.0;
+            }
+            WeaponLabelRole::GaugeBg => {
+                tf.translation.x = gun_pos.x + 14.0;
+                tf.translation.y = gun_pos.y + 21.0;
+            }
+            WeaponLabelRole::Gauge => {
+                tf.translation.x = gun_pos.x + 14.0;
+                tf.translation.y = gun_pos.y + 21.0;
+                if let Some((icon, _)) = ammo_gauge_paths(wtype) {
+                    let mut s = crate::game::content::sprite_exact_frame(
+                        &catalog,
+                        &asset_server,
+                        icon,
+                        gauge_frame(fill),
+                    );
+                    s.color = Color::WHITE;
+                    commands.entity(e).insert(s);
+                }
+            }
+            WeaponLabelRole::Prompt => {
+                tf.translation.x = gun_pos.x;
+                tf.translation.y = gun_pos.y;
+            }
+        }
+    }
+}
+
 /// Swaps a chest to its open-corpse art (frozen on the last frame) and marks
 /// it opened. Upstream: spr_dead = sprXxxOpen, ChestOpen plays at 0.4 and
 /// freezes on image_number-1; RadChest's corpse is sprRadChestCorpse.
@@ -649,6 +916,8 @@ fn spawn_dropped_weapon(
         asset_server,
         PickupKind::Weapon(weapon),
         pos + Vec2::new(0.0, 24.0),
+        0,
+        false,
     );
     commands.entity(e).insert(WepPickupAmmo(false));
 }
@@ -845,6 +1114,8 @@ pub fn tick_rad_container_contact(
                 &asset_server,
                 PickupKind::Rad(1),
                 center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                0,
+                false,
             );
         }
         // Upstream Destroy spawns 4 Smoke + ExploderExplo + sndEXPChest
@@ -857,5 +1128,225 @@ pub fn tick_rad_container_contact(
             Color::srgb(0.55, 0.55, 0.60),
             (40.0, 120.0),
         );
+    }
+}
+
+/// Headless parity tests for GML ammo/HP pickup behavior
+/// (`AmmoPickup/Step_0`, `HPPickup/Step_0`, shared `sprAmmo` box) and the
+/// interaction label (`scrDrawInteractionHUD` weapon branch).
+#[cfg(test)]
+mod ammo_label_parity_tests {
+    use super::*;
+    use bevy::asset::AssetPlugin;
+    use bevy::time::TimeUpdateStrategy;
+
+    fn harness() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()));
+        app.init_asset::<Image>();
+        app.insert_resource(TimeUpdateStrategy::FixedTimesteps(1));
+        app.insert_resource(Time::<Fixed>::from_hz(crate::app::NT_SIM_HZ));
+        app.init_resource::<Toast>();
+        app.init_resource::<PortalCarriedWeapons>();
+        app.init_resource::<WeaponLabelTarget>();
+        app.insert_resource(crate::app::UiFont(Handle::default()));
+        let mut mask = FloorMask::default();
+        for cx in -2..=8 {
+            mask.cells.insert((cx, 0));
+        }
+        app.insert_resource(mask);
+        let mut catalog = AssetCatalog::default();
+        for p in [
+            "images/sprAmmo.png",
+            "images/sprBulletIcon.png",
+            "images/sprBulletIconBG.png",
+            "images/sprRevolver.png",
+        ] {
+            catalog.images.insert(p.to_string());
+        }
+        app.insert_resource(catalog);
+        app.add_systems(FixedUpdate, (tick_pickup_drag, sync_weapon_label));
+        app
+    }
+
+    fn spawn_player(app: &mut App, pos: Vec2) {
+        app.world_mut().spawn((
+            Player::default(),
+            Velocity(Vec2::ZERO),
+            Inventory {
+                weapons: [WeaponId::NONE; MAX_WEAPON_SLOTS],
+                weapon_slots: 2,
+                current: 0,
+                ammo: [0; MAX_AMMO_TYPES],
+            },
+            Transform::from_translation(pos.extend(20.0)),
+        ));
+    }
+
+    #[test]
+    fn ammo_drifts_at_gml_rate_not_vacuum() {
+        let mut app = harness();
+        spawn_player(&mut app, Vec2::ZERO);
+        // Inside the 32px GML magnet ring.
+        let near = app
+            .world_mut()
+            .spawn((
+                Pickup {
+                    kind: PickupKind::Ammo(AmmoKind::None, 0),
+                },
+                Transform::from_translation(Vec2::new(25.0, 0.0).extend(8.0)),
+            ))
+            .id();
+        // Outside the ring, no portal: must stay put.
+        let far = app
+            .world_mut()
+            .spawn((
+                Pickup {
+                    kind: PickupKind::Ammo(AmmoKind::None, 0),
+                },
+                Transform::from_translation(Vec2::new(60.0, 0.0).extend(8.0)),
+            ))
+            .id();
+        let dist = |app: &App, e: Entity| {
+            app.world()
+                .get::<Transform>(e)
+                .map(|tf| tf.translation.truncate().distance(Vec2::ZERO))
+                .unwrap_or(f32::MAX)
+        };
+        for _ in 0..2 {
+            app.update();
+        }
+        // GML 6px/step: ~12px closer after 2 ticks, never vacuumed.
+        let d = dist(&app, near);
+        assert!(d < 25.0 && d > 5.0, "ammo drift wrong: {d}");
+        assert!(
+            (dist(&app, far) - 60.0).abs() < 0.01,
+            "out-of-range ammo must not move"
+        );
+    }
+
+    #[test]
+    fn ammo_uses_shared_box_sprite_and_loop_lifetime() {
+        #[derive(Resource, Default)]
+        struct SpawnedAmmo(Option<Entity>);
+        fn spawn_test_ammo(
+            mut commands: Commands,
+            catalog: Res<AssetCatalog>,
+            asset_server: Res<AssetServer>,
+            mut out: ResMut<SpawnedAmmo>,
+        ) {
+            out.0 = Some(spawn_pickup(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                PickupKind::Ammo(AmmoKind::Shells, 99),
+                Vec2::ZERO,
+                0,
+                false,
+            ));
+        }
+        let mut app = harness();
+        app.init_resource::<SpawnedAmmo>();
+        app.add_systems(Startup, spawn_test_ammo);
+        app.update();
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let e = app.world().resource::<SpawnedAmmo>().0.unwrap();
+        // Shared sprAmmo box regardless of stored kind.
+        let sprite = app.world().get::<Sprite>(e).unwrap();
+        assert_eq!(
+            sprite.image,
+            asset_server.load::<Image>("images/sprAmmo.png"),
+            "ammo must render the shared sprAmmo box"
+        );
+        // Loop-0: (200..230 + 62 blink) steps @30Hz.
+        let secs = app
+            .world()
+            .get::<PickupLifetime>(e)
+            .unwrap()
+            .timer
+            .duration()
+            .as_secs_f32();
+        assert!(
+            (8.7..9.8).contains(&secs),
+            "loop-0 ammo lifetime wrong: {secs}"
+        );
+        assert_eq!(ammo_pickup_amount(AmmoKind::Energy), 10);
+    }
+
+    #[test]
+    fn weapon_label_shows_name_and_gauge_on_overlap() {
+        let mut app = harness();
+        spawn_player(&mut app, Vec2::ZERO);
+        app.world_mut().spawn((
+            Pickup {
+                kind: PickupKind::Weapon(WeaponId::REVOLVER),
+            },
+            GroundPhysics {
+                vel: Vec2::ZERO,
+                rotspeed: 0.8,
+            },
+            Transform::from_translation(Vec2::new(10.0, 0.0).extend(8.0)),
+        ));
+        for _ in 0..3 {
+            app.update();
+        }
+        // Name + prompt + bg + fill gauge (Revolver takes bullets).
+        let parts: Vec<(WeaponLabelRole, Vec2)> = app
+            .world_mut()
+            .query::<(&WeaponLabelPart, &Transform)>()
+            .iter(app.world())
+            .map(|(part, tf)| (part.role, tf.translation.truncate()))
+            .collect();
+        let names = parts
+            .iter()
+            .filter(|(role, _)| *role == WeaponLabelRole::Name)
+            .count();
+        let prompts = parts
+            .iter()
+            .filter(|(role, _)| *role == WeaponLabelRole::Prompt)
+            .count();
+        let gauges = parts
+            .iter()
+            .filter(|(role, _)| {
+                *role == WeaponLabelRole::Gauge || *role == WeaponLabelRole::GaugeBg
+            })
+            .count();
+        for (role, pos) in &parts {
+            if *role == WeaponLabelRole::Name {
+                assert!((pos.y - 31.0).abs() < 0.01);
+            }
+        }
+        // Read the name text directly.
+        let texts: Vec<(WeaponLabelRole, String)> = app
+            .world_mut()
+            .query::<(&WeaponLabelPart, &Text2d)>()
+            .iter(app.world())
+            .map(|(part, txt)| (part.role, txt.0.clone()))
+            .collect();
+        let name_ok = texts.iter().any(|(role, txt)| {
+            *role == WeaponLabelRole::Name && txt == weapon_id_name(WeaponId::REVOLVER)
+        });
+        assert_eq!(names, 1, "exactly one name label expected");
+        assert_eq!(prompts, 1, "interact prompt expected");
+        assert_eq!(gauges, 2, "bg + fill gauge expected");
+        assert!(name_ok, "label must show the weapon name");
+        // Walk away: label parts despawn.
+        {
+            let mut players = app
+                .world_mut()
+                .query_filtered::<&mut Transform, With<Player>>();
+            for mut tf in players.iter_mut(app.world_mut()) {
+                tf.translation.x = 200.0;
+            }
+        }
+        for _ in 0..3 {
+            app.update();
+        }
+        let left = app
+            .world_mut()
+            .query::<&WeaponLabelPart>()
+            .iter(app.world())
+            .count();
+        assert_eq!(left, 0, "label must hide away from guns");
     }
 }

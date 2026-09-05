@@ -73,6 +73,7 @@ impl Plugin for GamePlugin {
             .init_resource::<ThroneRoomState>()
             .init_resource::<progress_sys::DeferredFloorGen>()
             .init_resource::<PortalCarriedWeapons>()
+            .init_resource::<pickups::WeaponLabelTarget>()
             .init_resource::<ambience::AreaAudioState>()
             .init_resource::<ambience::AmbFilter>()
             .add_message::<reactive_audio::ReactiveAudioRequest>()
@@ -206,10 +207,13 @@ impl Plugin for GamePlugin {
                     combat::resolve_deaths
                         .in_set(NtSimSet::Progression)
                         .run_if(gameplay_active),
-                    pickups::portal_pickup_carry
+                    pickups::tick_pickup_drag
                         .in_set(NtSimSet::Progression)
                         .run_if(gameplay_active),
                     pickups::collect_pickups
+                        .in_set(NtSimSet::Progression)
+                        .run_if(gameplay_active),
+                    pickups::sync_weapon_label
                         .in_set(NtSimSet::Progression)
                         .run_if(gameplay_active),
                     pickups::tick_rad_container_contact

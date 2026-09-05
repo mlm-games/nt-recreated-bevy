@@ -244,11 +244,13 @@ pub fn try_apply_loop_portal_transition(
     run.floor = next_loop * 15 + 1;
 
     let (world, floor_in_area) = route_coordinates(run.floor);
+    let prev = run.gen_seed;
     run.world = world;
     run.floor_in_area = floor_in_area;
     run.area = area_for_floor(run.floor, run.loop_count);
     run.portal_open = false;
-    run.gen_seed = rand::random::<u64>();
+    run.gen_seed =
+        crate::game::world::derive_floor_seed(prev, run.floor, run.area as u8, run.loop_count);
 
     transition.last_completed_loop = next_loop;
 

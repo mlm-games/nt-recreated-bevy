@@ -1304,13 +1304,14 @@ pub fn ammo_max(kind: AmmoKind) -> i32 {
 }
 
 pub fn ammo_pickup_amount(kind: AmmoKind) -> i32 {
+    // GML typ_ammo (scrAmmoUpdateTypeStats): 32/8/7/6/10.
     match kind {
         AmmoKind::None => 0,
         AmmoKind::Bullets => 32,
         AmmoKind::Shells => 8,
         AmmoKind::Bolts => 7,
         AmmoKind::Explosives => 6,
-        AmmoKind::Energy => 8,
+        AmmoKind::Energy => 10,
     }
 }
 

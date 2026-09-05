@@ -642,6 +642,8 @@ pub fn move_projectiles(
                                 &asset_server,
                                 PickupKind::Weapon(weapon),
                                 center + Vec2::new(0.0, -14.0),
+                                0,
+                                false,
                             );
                         }
                         if rad_chests.get(prop_e).is_ok() {
@@ -655,6 +657,8 @@ pub fn move_projectiles(
                                     &asset_server,
                                     PickupKind::Rad(1),
                                     center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                                    0,
+                                    false,
                                 );
                             }
                         }
@@ -915,6 +919,8 @@ fn spawn_weapon_pickup_from_projectile(
         asset_server,
         PickupKind::Weapon(weapon),
         pos,
+        0,
+        false,
     );
 }
 
@@ -1170,6 +1176,8 @@ pub fn apply_explosions(
                         &ctx.asset_server,
                         PickupKind::Weapon(weapon),
                         center + Vec2::new(0.0, -14.0),
+                        0,
+                        false,
                     );
                 }
 
@@ -1184,6 +1192,8 @@ pub fn apply_explosions(
                             &ctx.asset_server,
                             PickupKind::Rad(1),
                             center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                            0,
+                            false,
                         );
                     }
                 }
@@ -2177,6 +2187,7 @@ pub fn resolve_deaths(
                     &player,
                     &pinv,
                     &phealth,
+                    run.loop_count,
                 );
             }
         } else {
@@ -2216,6 +2227,7 @@ pub fn resolve_deaths(
                 &player,
                 &pinv,
                 &phealth,
+                run.loop_count,
             );
         }
     }
@@ -2389,6 +2401,8 @@ pub fn resolve_deaths(
                         rng2.random_range(-10.0..10.0),
                         rng2.random_range(-10.0..10.0),
                     ),
+                    0,
+                    false,
                 );
             }
         }
@@ -2399,6 +2413,8 @@ pub fn resolve_deaths(
                 &asset_server,
                 PickupKind::Rad(player.rads),
                 pos,
+                0,
+                false,
             );
         }
         if player.crown == CrownKind::Death {
@@ -2548,6 +2564,8 @@ pub fn spawn_rad(
         asset_server,
         PickupKind::Rad(amount),
         pos,
+        0,
+        false,
     );
 }
 
@@ -2574,25 +2592,39 @@ pub fn maybe_spawn_drop(
     player: &Player,
     inv: &Inventory,
     health: &Health,
+    loops: u32,
 ) {
     let mut rng = rand::rng();
 
     let need = scrub_need(inv, player);
     let paw = player.drop_mult;
     let roll = rng.random_range(0.0..100.0);
+    // GML HP/Ammo Create_0: haste crown divides the despawn alarm by 3.
+    let hasted = player.crown == crate::game::content::CrownKind::Haste;
 
     if roll < (chance as f32 * (need + paw)) {
         // Health: only when hurt, and only 2/3 of the time.
         if rng.random_range(0..health.max.max(1)) as i32 > health.hp && rng.random_range(0..3) < 2 {
-            spawn_pickup(commands, catalog, asset_server, PickupKind::Medkit(2), pos);
-        } else {
-            let ammo = random_ammo_kind(&mut rng);
             spawn_pickup(
                 commands,
                 catalog,
                 asset_server,
-                PickupKind::Ammo(ammo, ammo_pickup_amount(ammo)),
+                PickupKind::Medkit(2),
                 pos,
+                loops,
+                hasted,
+            );
+        } else {
+            // GML scrDrop spawns a generic box; the granted type is decided
+            // at pickup (scrAmmoDecideType), so spawn untyped.
+            spawn_pickup(
+                commands,
+                catalog,
+                asset_server,
+                PickupKind::Ammo(AmmoKind::None, 0),
+                pos,
+                loops,
+                hasted,
             );
         }
     } else if weapon_chance > 0 && rng.random_range(0.0..100.0) < weapon_chance as f32 {
@@ -2603,6 +2635,8 @@ pub fn maybe_spawn_drop(
             asset_server,
             PickupKind::Weapon(weapon),
             pos,
+            0,
+            false,
         );
     }
 }

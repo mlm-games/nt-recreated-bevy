@@ -306,6 +306,8 @@ pub fn crown_floor_start_bonus(
                     &asset_server,
                     PickupKind::Weapon(WeaponId::ASSAULT_RIFLE),
                     tf.translation.truncate() + Vec2::new(36.0, -28.0),
+                    0,
+                    false,
                 );
             }
 

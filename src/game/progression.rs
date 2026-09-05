@@ -1070,7 +1070,6 @@ pub fn portal_check(
     mut run: ResMut<Run>,
     mut trauma: ResMut<Trauma>,
     mut chroma: ResMut<ChromaticAberration>,
-    open_mind: Res<OpenMind>,
     mask: Res<FloorMask>,
     enemy_q: Query<(), With<Enemy>>,
     enemy_shots: Query<(Entity, &Team), With<crate::game::components::Projectile>>,
@@ -1144,35 +1143,11 @@ pub fn portal_check(
         (60.0, 160.0),
     );
     // GML Portal/Create_0 appears instantly (shock + PortalL FX + sound);
-    // no scale pop-in.
+    // no scale pop-in. NOTE: no chest spawns here — GML Open Mind adds
+    // chests at level-gen time (scrPopChests), never on portal open.
     ScreenEffects::add_trauma(&mut trauma, 0.25);
     ScreenEffects::chromatic_pulse(&mut chroma, 0.25);
     audio.play_portal(&mut commands);
-
-    // Level-clear reward chest (Open Mind spawns extras).
-    crate::game::pickups::spawn_chest(
-        &mut commands,
-        &catalog,
-        &asset_server,
-        ChestKind::Ammo,
-        pos + Vec2::new(0.0, -48.0),
-    );
-    if open_mind.0 {
-        crate::game::pickups::spawn_chest(
-            &mut commands,
-            &catalog,
-            &asset_server,
-            ChestKind::Ammo,
-            pos + Vec2::new(64.0, -32.0),
-        );
-        crate::game::pickups::spawn_chest(
-            &mut commands,
-            &catalog,
-            &asset_server,
-            ChestKind::Ammo,
-            pos + Vec2::new(-64.0, -32.0),
-        );
-    }
 }
 
 pub fn portal_attract(
@@ -1330,7 +1305,13 @@ pub fn tick_portal_shock(
     mut enemy_shots: Query<(Entity, &Transform, &Team), With<crate::game::components::Projectile>>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
+    run: Res<Run>,
+    player_q: Query<&Player>,
 ) {
+    // GML HP/Ammo Create_0: haste crown divides the despawn alarm by 3.
+    let hasted = player_q
+        .single()
+        .is_ok_and(|p| p.crown == crate::game::content::CrownKind::Haste);
     for (shock_e, shock_tf, mut shock) in &mut shocks {
         shock.timer.tick(time.delta());
         let center = shock_tf.translation.truncate();
@@ -1401,23 +1382,21 @@ pub fn tick_portal_shock(
                         &asset_server,
                         PickupKind::Weapon(weapon),
                         cpos,
+                        0,
+                        false,
                     );
                 }
                 ChestKind::Ammo => {
+                    // GML shock spawns 2 generic boxes; type decided at pickup.
                     for _ in 0..2 {
-                        let ammo = match rand::rng().random_range(1..=5) {
-                            1 => AmmoKind::Bullets,
-                            2 => AmmoKind::Shells,
-                            3 => AmmoKind::Bolts,
-                            4 => AmmoKind::Explosives,
-                            _ => AmmoKind::Energy,
-                        };
                         crate::game::pickups::spawn_pickup(
                             &mut commands,
                             &catalog,
                             &asset_server,
-                            PickupKind::Ammo(ammo, ammo_pickup_amount(ammo)),
+                            PickupKind::Ammo(AmmoKind::None, 0),
                             cpos,
+                            run.loop_count,
+                            hasted,
                         );
                     }
                 }
@@ -1431,6 +1410,8 @@ pub fn tick_portal_shock(
                             &asset_server,
                             PickupKind::Rad(1),
                             cpos + Vec2::new(ang.cos() * d, ang.sin() * d),
+                            0,
+                            false,
                         );
                     }
                 }
@@ -1779,6 +1760,7 @@ pub fn tick_floor_transition(
     mut floor_started: MessageWriter<FloorStarted>,
     mut player_q: Query<(&mut Transform, &mut Health, &mut Player, &RaceState), With<Player>>,
     mut carried: ResMut<PortalCarriedWeapons>,
+    open_mind: Res<OpenMind>,
     mut spiral: Option<ResMut<crate::game::vortex::SpiralCtl>>,
 ) {
     if !ft.active {
@@ -1801,6 +1783,11 @@ pub fn tick_floor_transition(
                 return;
             };
             let plan = world::generate_level(&run);
+            // GML scrPopChests: Open Mind adds 2 random chests at gen time.
+            let mut plan = plan;
+            if open_mind.0 {
+                world::apply_open_mind_bonus(&mut plan, run.area, run.floor_in_area);
+            }
             world::spawn_level(
                 &mut commands,
                 &catalog,
@@ -1844,6 +1831,8 @@ pub fn tick_floor_transition(
                         &asset_server,
                         PickupKind::Weapon(w),
                         base + Vec2::new(ang.cos(), ang.sin()) * 24.0,
+                        0,
+                        false,
                     );
                 }
             }
@@ -2129,7 +2118,7 @@ mod mutation_progression_tests {
 #[cfg(test)]
 mod portal_vortex_parity_tests {
     use super::*;
-    use crate::game::pickups::portal_pickup_carry;
+    use crate::game::pickups::tick_pickup_drag;
     use bevy::asset::AssetPlugin;
     use bevy::time::TimeUpdateStrategy;
 
@@ -2165,7 +2154,7 @@ mod portal_vortex_parity_tests {
             FixedUpdate,
             (
                 portal_attract,
-                portal_pickup_carry,
+                tick_pickup_drag,
                 tick_portal_shock,
                 tick_portal_clear,
                 portal_enter,
