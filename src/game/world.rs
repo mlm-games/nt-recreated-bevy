@@ -2292,7 +2292,20 @@ fn spawn_prop(
         }
 
         PropKind::Mine => {
-            commands.spawn((
+            let idle_path: &'static str = "images/sprMine.png";
+            catalog.require(idle_path);
+            let hurt_path = crate::game::anim::derive_prop_hurt_path_checked(catalog, idle_path);
+            let dead_path = crate::game::anim::derive_prop_dead_path_checked(catalog, idle_path);
+            let mut mine_sprite = sprite_from_candidates(
+                catalog,
+                asset_server,
+                &[idle_path],
+                Color::srgb(0.86, 0.25, 0.18),
+                Vec2::splat(18.0),
+            );
+            let mine_flip = rand::rng().random_bool(0.5);
+            mine_sprite.flip_x = mine_flip;
+            let mut mine_e = commands.spawn((
                 GameCleanup,
                 LevelCleanup,
                 Prop {
@@ -2301,18 +2314,23 @@ fn spawn_prop(
                     destructible: true,
                     explosive: false,
                 },
+                PropHpTracker { last_hp: 2 },
+                PropSprites {
+                    idle: idle_path,
+                    hurt: hurt_path,
+                    dead: dead_path,
+                    flip_x: mine_flip,
+                },
                 ProximityMine::default(),
                 PropDeathEffect::mine(),
                 SurfacePulse::hazard(pos.y * 0.019),
-                sprite_from_candidates(
-                    catalog,
-                    asset_server,
-                    &["images/sprMine.png", "images/sprMineIdle.png"],
-                    Color::srgb(0.86, 0.25, 0.18),
-                    Vec2::splat(18.0),
-                ),
+                mine_sprite,
+                crate::game::content::sprite_anchor(catalog, idle_path),
                 Transform::from_translation(pos.extend(-8.0)),
             ));
+            if let Some(def) = catalog.anim_def(idle_path) {
+                mine_e.insert(crate::game::anim::SpriteAnim::new(idle_path, def));
+            }
             return;
         }
 
@@ -2344,7 +2362,11 @@ fn spawn_prop(
         bool,
     ) = match kind {
         PropKind::Cactus => (
-            &["images/sprCactus.png"],
+            &[
+                "images/sprCactus.png",
+                "images/sprCactus2.png",
+                "images/sprCactus3.png",
+            ],
             Color::srgb(0.38, 0.72, 0.28),
             Vec2::splat(24.0),
             24.0,
@@ -2357,7 +2379,7 @@ fn spawn_prop(
         ),
 
         PropKind::BigSkull => (
-            &["images/sprBigSkull.png"],
+            &["images/sprBigSkullOpen.png"],
             Color::srgb(0.82, 0.78, 0.62),
             Vec2::splat(32.0),
             32.0,
@@ -2383,11 +2405,7 @@ fn spawn_prop(
         ),
 
         PropKind::ToxicBarrel => (
-            &[
-                "images/sprToxicBarrel.png",
-                "images/sprToxicBarrelHurt.png",
-                "images/sprBarrel.png",
-            ],
+            &["images/sprToxicBarrel.png"],
             Color::srgb(0.35, 0.86, 0.30),
             Vec2::splat(24.0),
             24.0,
@@ -2400,11 +2418,7 @@ fn spawn_prop(
         ),
 
         PropKind::Car => (
-            &[
-                "images/sprCarIdle.png",
-                "images/sprCarHurt.png",
-                "images/sprIcyCar.png",
-            ],
+            &["images/sprCarIdle.png"],
             Color::srgb(0.62, 0.28, 0.22),
             Vec2::new(48.0, 28.0),
             38.0,
@@ -2417,11 +2431,7 @@ fn spawn_prop(
         ),
 
         PropKind::GoldBarrel => (
-            &[
-                "images/sprGoldBarrel.png",
-                "images/sprGoldBarrelHurt.png",
-                "images/sprBarrel.png",
-            ],
+            &["images/sprGoldBarrel.png"],
             Color::srgb(0.95, 0.82, 0.25),
             Vec2::splat(24.0),
             24.0,
@@ -2435,7 +2445,7 @@ fn spawn_prop(
         ),
 
         PropKind::Pipe => (
-            &["images/sprPipe.png"],
+            &["images/sprSewerPipe.png"],
             Color::srgb(0.42, 0.46, 0.45),
             Vec2::splat(24.0),
             24.0,
@@ -2461,7 +2471,7 @@ fn spawn_prop(
         ),
 
         PropKind::Cocoon => (
-            &["images/sprCocoon.png", "images/sprCocoonHurt.png"],
+            &["images/sprCocoon.png"],
             Color::srgb(0.70, 0.58, 0.72),
             Vec2::new(26.0, 32.0),
             24.0,
@@ -2474,11 +2484,7 @@ fn spawn_prop(
         ),
 
         PropKind::Snowman => (
-            &[
-                "images/sprSnowManIdle.png",
-                "images/sprSnowManHurt.png",
-                "images/sprSnowMan.png",
-            ],
+            &["images/sprSnowMan.png"],
             Color::srgb(0.90, 0.94, 1.0),
             Vec2::new(24.0, 32.0),
             24.0,
@@ -2491,7 +2497,7 @@ fn spawn_prop(
         ),
 
         PropKind::Torch => (
-            &["images/sprTorch.png", "images/sprTorchHurt.png"],
+            &["images/sprTorch.png"],
             Color::srgb(1.0, 0.62, 0.18),
             Vec2::new(12.0, 28.0),
             12.0,
@@ -2507,7 +2513,7 @@ fn spawn_prop(
             // Upstream: max_hp 230, or 50 if loops>0 (Create_0.gml)
             let hp = if run.loop_count == 0 { 230 } else { 50 };
             (
-                &["images/sprGenerator.png", "images/sprBigGenerator.png"],
+                &["images/sprBigGenerator.png"],
                 Color::srgb(0.55, 0.75, 1.0),
                 Vec2::new(40.0, 48.0),
                 40.0,
@@ -2533,7 +2539,7 @@ fn spawn_prop(
         ),
 
         PropKind::BonePile => (
-            &["images/sprBonePileIdle.png", "images/sprBonePile.png"],
+            &["images/sprBonePileIdle.png"],
             Color::srgb(0.82, 0.78, 0.62),
             Vec2::splat(24.0),
             22.0,
@@ -2545,10 +2551,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::NightBonePile => (
-            &[
-                "images/sprNightBonePileIdle.png",
-                "images/sprNightBonePile.png",
-            ],
+            &["images/sprNightBonePileIdle.png"],
             Color::srgb(0.62, 0.62, 0.68),
             Vec2::splat(24.0),
             22.0,
@@ -2576,7 +2579,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::Crystal => (
-            &["images/sprCrystalProp.png", "images/sprCrystal.png"],
+            &["images/sprCrystalProp.png"],
             Color::srgb(0.72, 0.82, 0.95),
             Vec2::splat(24.0),
             22.0,
@@ -2648,7 +2651,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::Pillar => (
-            &["images/sprNuclearPillar.png", "images/sprPillar.png"],
+            &["images/sprNuclearPillar.png"],
             Color::srgb(0.62, 0.62, 0.68),
             Vec2::splat(28.0),
             24.0,
@@ -2744,7 +2747,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::Bush => (
-            &["images/sprBushIdle.png", "images/sprBush.png"],
+            &["images/sprBushIdle.png"],
             Color::srgb(0.28, 0.58, 0.18),
             Vec2::splat(24.0),
             22.0,
@@ -2756,7 +2759,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::BigFlower => (
-            &["images/sprBigFlowerIdle.png", "images/sprBigFlower.png"],
+            &["images/sprBigFlowerIdle.png"],
             Color::srgb(0.82, 0.38, 0.58),
             Vec2::splat(26.0),
             24.0,
@@ -2780,7 +2783,7 @@ fn spawn_prop(
             true,
         ),
         PropKind::PlantPot => (
-            &["images/sprPlantPotIdle.png", "images/sprPlantPot.png"],
+            &["images/sprPlantPotIdle.png"],
             Color::srgb(0.42, 0.62, 0.28),
             Vec2::splat(24.0),
             20.0,
@@ -2810,20 +2813,66 @@ fn spawn_prop(
         }
     };
 
-    let sprite = sprite_from_candidates(
+    let existing_idles: Vec<&'static str> = candidates
+        .iter()
+        .copied()
+        .filter(|p| catalog.has(p))
+        .collect();
+    if existing_idles.is_empty() {
+        catalog.require(candidates[0]);
+    }
+    let idle_path: &'static str = if existing_idles.len() <= 1 {
+        candidates
+            .iter()
+            .copied()
+            .find(|p| catalog.has(p))
+            .unwrap_or(candidates[0])
+    } else {
+        let idx = rand::rng().random_range(0..existing_idles.len());
+        existing_idles[idx]
+    };
+
+    let (hurt_path, dead_path) = if solid && destructible {
+        (
+            crate::game::anim::derive_prop_hurt_path_checked(catalog, idle_path),
+            crate::game::anim::derive_prop_dead_path_checked(catalog, idle_path),
+        )
+    } else {
+        (idle_path, idle_path)
+    };
+
+    let flip_x = if kind == PropKind::SodaMachine {
+        false
+    } else {
+        rand::rng().random_bool(0.5)
+    };
+
+    let mut sprite = sprite_from_candidates(
         catalog,
         asset_server,
-        candidates,
+        &[idle_path],
         fallback_color,
         fallback_size,
     );
+    sprite.flip_x = flip_x;
 
     let mut entity = commands.spawn((
         GameCleanup,
         LevelCleanup,
         sprite,
+        crate::game::content::sprite_anchor(catalog, idle_path),
         Transform::from_translation(pos.extend(z)),
+        PropSprites {
+            idle: idle_path,
+            hurt: hurt_path,
+            dead: dead_path,
+            flip_x,
+        },
     ));
+
+    if let Some(def) = catalog.anim_def(idle_path) {
+        entity.insert(crate::game::anim::SpriteAnim::new(idle_path, def));
+    }
 
     if solid {
         entity.insert(Prop {
@@ -2832,6 +2881,7 @@ fn spawn_prop(
             destructible,
             explosive: legacy_explosive,
         });
+        entity.insert(PropHpTracker { last_hp: hp });
     }
 
     if let Some(effect) = death_effect {
@@ -2863,19 +2913,20 @@ fn spawn_rad_container(
     asset_server: &AssetServer,
     pos: Vec2,
 ) {
-    // Upstream RadChest: prop with hp=4, size=2, raddrop=25, sprites sprRadChest
-    let sprite = sprite_from_candidates(
+    let idle_path: &'static str = "images/sprRadChest.png";
+    catalog.require(idle_path);
+    let hurt_path = crate::game::anim::derive_prop_hurt_path_checked(catalog, idle_path);
+    let dead_path = crate::game::anim::derive_prop_dead_path_checked(catalog, idle_path);
+    let flip_x = rand::rng().random_bool(0.5);
+    let mut sprite = sprite_from_candidates(
         catalog,
         asset_server,
-        &[
-            "images/sprRadChest.png",
-            "images/sprRadChestIdle.png",
-            "images/sprRadChestHurt.png",
-        ],
+        &[idle_path],
         Color::srgb(0.85, 0.25, 0.85),
         Vec2::new(32.0, 32.0),
     );
-    commands.spawn((
+    sprite.flip_x = flip_x;
+    let mut e = commands.spawn((
         GameCleanup,
         LevelCleanup,
         Prop {
@@ -2884,10 +2935,21 @@ fn spawn_rad_container(
             destructible: true,
             explosive: false,
         },
+        PropHpTracker { last_hp: 4 },
+        PropSprites {
+            idle: idle_path,
+            hurt: hurt_path,
+            dead: dead_path,
+            flip_x,
+        },
         RadChestContainer,
         sprite,
+        crate::game::content::sprite_anchor(catalog, idle_path),
         Transform::from_translation(pos.extend(-8.0)),
     ));
+    if let Some(def) = catalog.anim_def(idle_path) {
+        e.insert(crate::game::anim::SpriteAnim::new(idle_path, def));
+    }
 }
 
 pub fn is_boss_floor(floor: u32) -> bool {

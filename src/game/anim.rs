@@ -4,7 +4,9 @@
 
 use bevy::prelude::*;
 
-use crate::game::components::{EnemySprites, Health, HurtAnim, Velocity};
+use crate::game::components::{
+    EnemySprites, Health, HurtAnim, Prop, PropHpTracker, PropSprites, Velocity,
+};
 use crate::game::content::AssetCatalog;
 
 #[derive(Clone, Copy, Debug)]
@@ -255,9 +257,10 @@ pub fn tick_hurt_anims(
         &mut bevy::sprite::Anchor,
         Option<&Velocity>,
         Option<&mut PlayerAnim>,
+        Option<&PropSprites>,
     )>,
 ) {
-    for (e, mut hurt, mut anim, mut sprite, mut anchor, vel, mut pa) in &mut q {
+    for (e, mut hurt, mut anim, mut sprite, mut anchor, vel, mut pa, prop_sprites) in &mut q {
         hurt.timer.tick(time.delta());
         let frame_done = anim.frame >= 2;
         let hard_timeout = hurt.timer.elapsed_secs() > 0.35;
@@ -282,6 +285,9 @@ pub fn tick_hurt_anims(
         }
         if let Some(ref mut pa) = pa {
             pa.moving = moving;
+        }
+        if let Some(ps) = prop_sprites {
+            sprite.flip_x = ps.flip_x;
         }
         commands.entity(e).remove::<HurtAnim>();
     }
@@ -458,6 +464,62 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprMutant14Idle.png" => "images/sprMutant14Hurt.png",
         "images/sprMutant15Idle.png" => "images/sprMutant15Hurt.png",
         "images/sprMutant16Idle.png" => "images/sprMutant16Hurt.png",
+        "images/sprBarrel.png" => "images/sprBarrelHurt.png",
+        "images/sprToxicBarrel.png" => "images/sprToxicBarrelHurt.png",
+        "images/sprGoldBarrel.png" => "images/sprGoldBarrelHurt.png",
+        "images/sprOasisBarrel.png" => "images/sprOasisBarrelHurt.png",
+        "images/sprCactus.png" => "images/sprCactusHurt.png",
+        "images/sprCactus2.png" => "images/sprCactus2Hurt.png",
+        "images/sprCactus3.png" => "images/sprCactus3Hurt.png",
+        "images/sprCactusB.png" => "images/sprCactusBHurt.png",
+        "images/sprCactusB2.png" => "images/sprCactusB2Hurt.png",
+        "images/sprCactusB3.png" => "images/sprCactusB3Hurt.png",
+        "images/sprNightCactus.png" => "images/sprNightCactusHurt.png",
+        "images/sprNightCactus2.png" => "images/sprNightCactus2Hurt.png",
+        "images/sprNightCactus3.png" => "images/sprNightCactus3Hurt.png",
+        "images/sprSewerPipe.png" => "images/sprSewerPipeHurt.png",
+        "images/sprPipe.png" => "images/sprSewerPipeHurt.png",
+        "images/sprTires.png" => "images/sprTiresHurt.png",
+        "images/sprCocoon.png" => "images/sprCocoonHurt.png",
+        "images/sprSnowMan.png" => "images/sprSnowManHurt.png",
+        "images/sprSnowManIdle.png" => "images/sprSnowManHurt.png",
+        "images/sprTorch.png" => "images/sprTorchHurt.png",
+        "images/sprBonePileIdle.png" => "images/sprBonePileHurt.png",
+        "images/sprBonePile.png" => "images/sprBonePileHurt.png",
+        "images/sprNightBonePileIdle.png" => "images/sprNightBonePileHurt.png",
+        "images/sprBushIdle.png" => "images/sprBushHurt.png",
+        "images/sprBush.png" => "images/sprBushHurt.png",
+        "images/sprBigFlowerIdle.png" => "images/sprBigFlowerHurt.png",
+        "images/sprPlantPotIdle.png" => "images/sprPlantPotHurt.png",
+        "images/sprCrystalProp.png" => "images/sprCrystalPropHurt.png",
+        "images/sprHydrant.png" => "images/sprHydrantHurt.png",
+        "images/sprIcicle.png" => "images/sprIcicleHurt.png",
+        "images/sprStreetLight.png" => "images/sprStreetLightHurt.png",
+        "images/sprSodaMachine.png" => "images/sprSodaMachineHurt.png",
+        "images/sprNewsStand.png" => "images/sprNewsStandHurt.png",
+        "images/sprTube.png" => "images/sprTubeHurt.png",
+        "images/sprMutantTube.png" => "images/sprMutantTubeHurt.png",
+        "images/sprNuclearPillar.png" => "images/sprNuclearPillarHurt.png",
+        "images/sprPillar.png" => "images/sprNuclearPillarHurt.png",
+        "images/sprSmallGenerator.png" => "images/sprSmallGeneratorHurt.png",
+        "images/sprBigGenerator.png" => "images/sprBigGeneratorHurt.png",
+        "images/sprGenerator.png" => "images/sprBigGeneratorHurt.png",
+        "images/sprAnchor.png" => "images/sprAnchorHurt.png",
+        "images/sprWaterPlant.png" => "images/sprWaterPlantHurt.png",
+        "images/sprWaterPlant2.png" => "images/sprWaterPlantHurt.png",
+        "images/sprWaterMine.png" => "images/sprWaterMineHurt.png",
+        "images/sprMine.png" => "images/sprMineHurt.png",
+        "images/sprMineIdle.png" => "images/sprMineHurt.png",
+        "images/sprMoneyPile.png" => "images/sprMoneyPileHurt.png",
+        "images/sprYVStatue.png" => "images/sprYVStatueHurt.png",
+        "images/sprPizzaBox.png" => "images/sprPizzaBoxHurt.png",
+        "images/sprCarIdle.png" => "images/sprCarHurt.png",
+        "images/sprFrozenCar.png" => "images/sprFrozenCarHurt.png",
+        "images/sprBigSkullOpen.png" => "images/sprBigSkullOpenHurt.png",
+        "images/sprBigSkull.png" => "images/sprBigSkullOpenHurt.png",
+        "images/sprRadChest.png" => "images/sprRadChestHurt.png",
+        "images/sprRadChestIdle.png" => "images/sprRadChestHurt.png",
+        "images/sprThroneStatue.png" => "images/sprThroneStatue.png",
         _ => idle, // fallback: replay idle as freeze
     }
 }
@@ -581,8 +643,128 @@ pub fn derive_dead_path(idle: &'static str) -> &'static str {
         "images/sprMutant14Idle.png" => "images/sprMutant14Dead.png",
         "images/sprMutant15Idle.png" => "images/sprMutant15Dead.png",
         "images/sprMutant16Idle.png" => "images/sprMutant16Dead.png",
+        "images/sprBanditIdle.png" => "images/sprBanditDead.png",
+        "images/sprMaggotIdle.png" => "images/sprMaggotDead.png",
+        "images/sprScorpionIdle.png" => "images/sprScorpionDead.png",
+        "images/sprRatIdle.png" => "images/sprRatDead.png",
+        "images/sprRatkingIdle.png" => "images/sprRatkingDead.png",
+        "images/sprFreak1Idle.png" => "images/sprFreak1Dead.png",
+        "images/sprJungleAssassinIdle.png" => "images/sprJungleAssassinDead.png",
+        "images/sprSnowBotIdle.png" => "images/sprSnowBotDead.png",
+        "images/sprTurretIdle.png" => "images/sprTurretDead.png",
+        "images/sprSnowBanditIdle.png" => "images/sprSnowBanditDead.png",
+        "images/sprWolfIdle.png" => "images/sprWolfDead.png",
+        "images/sprBanditBossIdle.png" => "images/sprBanditBossDead.png",
+        "images/sprGatorIdle.png" => "images/sprGatorDead.png",
+        "images/sprBuffGatorIdle.png" => "images/sprBuffGatorDead.png",
+        "images/sprRavenIdle.png" => "images/sprRavenDead.png",
+        "images/sprSalamanderIdle.png" => "images/sprSalamanderDead.png",
+        "images/sprMeleeIdle.png" => "images/sprMeleeDead.png",
+        "images/sprJungleBanditIdle.png" => "images/sprJungleBanditDead.png",
+        "images/sprBigMaggotIdle.png" => "images/sprBigMaggotDead.png",
+        "images/sprFastRatIdle.png" => "images/sprFastRatDead.png",
+        "images/sprGoldScorpionIdle.png" => "images/sprGoldScorpionDead.png",
+        "images/sprLightningCrystalIdle.png" => "images/sprLightningCrystalDead.png",
+        "images/sprExploFreakIdle.png" => "images/sprExploFreakDead.png",
+        "images/sprRhinoFreakIdle.png" => "images/sprRhinoFreakDead.png",
+        "images/sprSnowTankIdle.png" => "images/sprSnowTankDead.png",
+        "images/sprGoldTankIdle.png" => "images/sprGoldTankDead.png",
+        "images/sprGuardianIdle.png" => "images/sprGuardianDead.png",
+        "images/sprExploGuardianIdle.png" => "images/sprExploGuardianDead.png",
+        "images/sprDogGuardianWalk.png" => "images/sprDogGuardianDead.png",
+        "images/sprBoneFish1Idle.png" => "images/sprBoneFish1Dead.png",
+        "images/sprTurtleIdle.png" => "images/sprTurtleDead.png",
+        "images/sprMolefishIdle.png" => "images/sprMolefishDead.png",
+        "images/sprMolesargeIdle.png" => "images/sprMolesargeDead.png",
+        "images/sprFireBallerIdle.png" => "images/sprFireBallerDead.png",
+        "images/sprSuperFireBallerIdle.png" => "images/sprSuperFireBallerDead.png",
+        "images/sprJockIdle.png" => "images/sprJockDead.png",
+        "images/sprJungleFlyIdle.png" => "images/sprJungleFlyDead.png",
+        "images/sprInvSpiderIdle.png" => "images/sprInvSpiderDead.png",
+        "images/sprInvLaserCrystalIdle.png" => "images/sprInvLaserCrystalDead.png",
+        "images/sprPopoFreakIdle.png" => "images/sprPopoFreakDead.png",
+        "images/sprMSpawnIdle.png" => "images/sprMSpawnDead.png",
+        "images/sprFrogQueenIdle.png" => "images/sprFrogQueenDead.png",
         _ => idle,
     }
+}
+
+/// GML spr_dead naming for props (verified against objects/*/Create_0.gml).
+/// Static table only — no dynamic string building, no silent fallback.
+pub fn derive_prop_dead_path(idle: &'static str) -> &'static str {
+    match idle {
+        "images/sprBarrel.png" => "images/sprBarrelDead.png",
+        "images/sprToxicBarrel.png" => "images/sprToxicBarrelDead.png",
+        "images/sprGoldBarrel.png" => "images/sprGoldBarrelDead.png",
+        "images/sprOasisBarrel.png" => "images/sprOasisBarrelDead.png",
+        "images/sprCactus.png" => "images/sprCactusDead.png",
+        "images/sprCactus2.png" => "images/sprCactus2Dead.png",
+        "images/sprCactus3.png" => "images/sprCactus3Dead.png",
+        "images/sprCactusB.png" => "images/sprCactusBDead.png",
+        "images/sprCactusB2.png" => "images/sprCactusB2Dead.png",
+        "images/sprCactusB3.png" => "images/sprCactusB3Dead.png",
+        "images/sprNightCactus.png" => "images/sprNightCactusDead.png",
+        "images/sprNightCactus2.png" => "images/sprNightCactus2Dead.png",
+        "images/sprNightCactus3.png" => "images/sprNightCactus3Dead.png",
+        "images/sprSewerPipe.png" => "images/sprSewerPipeDead.png",
+        "images/sprPipe.png" => "images/sprSewerPipeDead.png",
+        "images/sprTires.png" => "images/sprTiresDead.png",
+        "images/sprCocoon.png" => "images/sprCocoonDead.png",
+        "images/sprSnowMan.png" => "images/sprSnowManDead.png",
+        "images/sprSnowManIdle.png" => "images/sprSnowManDead.png",
+        "images/sprTorch.png" => "images/sprTorchDead.png",
+        "images/sprBonePileIdle.png" => "images/sprBonePileDead.png",
+        "images/sprBonePile.png" => "images/sprBonePileDead.png",
+        "images/sprNightBonePileIdle.png" => "images/sprNightBonePileDead.png",
+        "images/sprBushIdle.png" => "images/sprBushDead.png",
+        "images/sprBush.png" => "images/sprBushDead.png",
+        "images/sprBigFlowerIdle.png" => "images/sprBigFlowerDead.png",
+        "images/sprPlantPotIdle.png" => "images/sprPlantPotDead.png",
+        "images/sprCrystalProp.png" => "images/sprCrystalPropDead.png",
+        "images/sprHydrant.png" => "images/sprHydrantDead.png",
+        "images/sprIcicle.png" => "images/sprIcicleDead.png",
+        "images/sprStreetLight.png" => "images/sprStreetLightDead.png",
+        "images/sprSodaMachine.png" => "images/sprSodaMachineDead.png",
+        "images/sprNewsStand.png" => "images/sprNewsStandDead.png",
+        "images/sprTube.png" => "images/sprTubeDead.png",
+        "images/sprMutantTube.png" => "images/sprMutantTubeDead.png",
+        "images/sprNuclearPillar.png" => "images/sprNuclearPillarDead.png",
+        "images/sprPillar.png" => "images/sprNuclearPillarDead.png",
+        "images/sprSmallGenerator.png" => "images/sprSmallGeneratorDead.png",
+        "images/sprBigGenerator.png" => "images/sprBigGeneratorDead.png",
+        "images/sprGenerator.png" => "images/sprBigGeneratorDead.png",
+        "images/sprAnchor.png" => "images/sprAnchorDead.png",
+        "images/sprWaterPlant.png" => "images/sprWaterPlantDead.png",
+        "images/sprWaterPlant2.png" => "images/sprWaterPlantDead.png",
+        "images/sprWaterMine.png" => "images/sprWaterMineDead.png",
+        "images/sprMine.png" => "images/sprMineDead.png",
+        "images/sprMineIdle.png" => "images/sprMineDead.png",
+        "images/sprMoneyPile.png" => "images/sprMoneyPileDead.png",
+        "images/sprYVStatue.png" => "images/sprYVStatueDead.png",
+        "images/sprPizzaBox.png" => "images/sprPizzaBoxDead.png",
+        "images/sprCarIdle.png" => "images/sprScorchmark.png",
+        "images/sprFrozenCar.png" => "images/sprScorchmark.png",
+        "images/sprBigSkullOpen.png" => "images/sprBigSkullDead.png",
+        "images/sprBigSkull.png" => "images/sprBigSkullDead.png",
+        "images/sprRadChest.png" => "images/sprRadChestCorpse.png",
+        "images/sprRadChestIdle.png" => "images/sprRadChestCorpse.png",
+        "images/sprThroneStatue.png" => "images/sprThroneStatueDead.png",
+        _ => idle,
+    }
+}
+
+/// Strict prop hurt resolver: bails with gen_assets hint if art is missing.
+pub fn derive_prop_hurt_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
+    let hurt = derive_hurt_path(idle);
+    catalog.require(hurt);
+    hurt
+}
+
+/// Strict prop dead resolver: bails with gen_assets hint if art is missing.
+pub fn derive_prop_dead_path_checked(catalog: &AssetCatalog, idle: &'static str) -> &'static str {
+    let dead = derive_prop_dead_path(idle);
+    catalog.require(dead);
+    dead
 }
 
 pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
@@ -740,6 +922,64 @@ pub fn tick_player_dying(
         dying.timer.tick(time.delta());
         if dying.timer.just_finished() {
             commands.entity(e).try_despawn();
+        }
+    }
+}
+
+/// GML prop/Step_1 + hitme damage: when hp drops but still alive, play
+/// spr_hurt until image_index > 2, then spr_idle. Lethal is owned by
+/// combat despawn + corpse.
+pub fn prop_hurt_on_damage(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    mut q: Query<
+        (
+            Entity,
+            &Prop,
+            &mut PropHpTracker,
+            &PropSprites,
+            Option<&mut SpriteAnim>,
+            &mut Sprite,
+            &mut bevy::sprite::Anchor,
+        ),
+        (With<Prop>, Without<HurtAnim>),
+    >,
+) {
+    for (e, prop, mut tracker, sprites, anim_opt, mut sprite, mut anchor) in &mut q {
+        if !prop.destructible {
+            tracker.last_hp = prop.hp;
+            continue;
+        }
+        if prop.hp <= 0 {
+            tracker.last_hp = prop.hp;
+            continue;
+        }
+        if prop.hp >= tracker.last_hp {
+            tracker.last_hp = prop.hp;
+            continue;
+        }
+        tracker.last_hp = prop.hp;
+
+        let Some(mut anim) = anim_opt else {
+            continue;
+        };
+
+        play_hurt(
+            &mut commands,
+            e,
+            &catalog,
+            &asset_server,
+            &mut anim,
+            &mut sprite,
+            sprites.hurt,
+            sprites.idle,
+            None,
+        );
+        *anchor = crate::game::content::sprite_anchor(&catalog, sprites.hurt);
+
+        if sprites.flip_x {
+            sprite.flip_x = true;
         }
     }
 }

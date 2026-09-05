@@ -3835,13 +3835,12 @@ fn sync_mutation_icons(
     } else {
         "images/sprSkillIconHUD.png"
     };
-    // Layout: mirrors LevCont/Other_10 – step = min(32,floor(320/(n+1))),
-    // half = step/2, scale = max(0.65, step/32), y = view_height-21
     let n = ids.len();
     let step = (320.0 / (n as f32 + 1.0)).floor().min(32.0);
     let scale = (step / 32.0).max(0.65);
-    let half = step * 0.5;
-    let start_x = 160.0 - (n as f32 - 1.0) * half;
+    let half = (step as i32 / 2) as f32;
+    let xview_shift = if n >= 10 { -12.0 } else { 0.0 };
+    let start_x = 160.0 + xview_shift - (n as f32 - 1.0) * half;
     let icon_y = GUI_H - 21.0;
     let mut new_entities = Vec::with_capacity(n);
     for (i, &skill_id) in ids.iter().enumerate() {

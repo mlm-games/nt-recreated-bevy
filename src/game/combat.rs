@@ -9,7 +9,7 @@ use crate::app::{AppState, Paused};
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
-use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
+use crate::game::environment::{PropDeathEffect, spawn_prop_corpse, spawn_prop_death_effect};
 use crate::game::pickups::spawn_pickup;
 use crate::game::secret_areas::SecretTriggers;
 use crate::game::world::*;
@@ -418,7 +418,16 @@ pub fn move_projectiles(
         ),
         Without<Prop>,
     >,
-    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
+    mut props: Query<
+        (
+            Entity,
+            &mut Prop,
+            &Transform,
+            Option<&PropDeathEffect>,
+            Option<&PropSprites>,
+        ),
+        With<Prop>,
+    >,
     entrances: Query<&SecretEntrance>,
     snowmen: Query<&SnowmanAmbush>,
     gold_barrels: Query<&GoldBarrelDrop>,
@@ -510,7 +519,7 @@ pub fn move_projectiles(
             hit_normal = Some(n);
         }
 
-        for (prop_e, prop, prop_tf, death) in props.iter() {
+        for (prop_e, prop, prop_tf, death, _) in props.iter() {
             let center = prop_tf.translation.truncate();
             let half = prop.size * 0.5;
             if let Some(n) =
@@ -583,17 +592,21 @@ pub fn move_projectiles(
                     let mut dead = false;
                     let mut legacy_explosive = false;
                     let mut death_copy = death_effect;
-                    if let Ok((_, mut prop, _, de)) = props.get_mut(prop_e) {
-                        // Use projectile damage (original scr_hit: hp -= amount), not fixed 1
+                    let mut sprites_copy: Option<PropSprites> = None;
+                    if let Ok((_, mut prop, _, de, sprites)) = props.get_mut(prop_e) {
                         prop.hp -= p.damage.max(1);
                         legacy_explosive = prop.explosive;
                         death_copy = de.copied();
+                        sprites_copy = sprites.copied();
                         if prop.hp <= 0 {
                             dead = true;
-                            commands.entity(prop_e).despawn();
                         }
+                        audio.play_hit(&mut commands);
                     }
                     if dead {
+                        if let Some(ps) = sprites_copy {
+                            spawn_prop_corpse(&mut commands, &catalog, &asset_server, center, &ps);
+                        }
                         spawn_prop_death_effect(
                             &mut commands,
                             center,
@@ -601,21 +614,26 @@ pub fn move_projectiles(
                             legacy_explosive,
                             p.source,
                         );
+                        commands.entity(prop_e).despawn();
                         if let Ok(entrance) = entrances.get(prop_e) {
                             secrets.queue(entrance.target);
                         }
                         if snowmen.get(prop_e).is_ok() {
                             let mut rng = rand::rng();
-                            commands.spawn(PendingEnemySpawn {
-                                kind: EnemyKind::Bandit,
-                                pos: center
-                                    + Vec2::new(
-                                        rng.random_range(-6.0..6.0),
-                                        rng.random_range(-6.0..6.0),
-                                    ),
-                                difficulty: 1.0,
-                            });
-                            spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
+                            for _ in 0..3 {
+                                commands.spawn(PendingEnemySpawn {
+                                    kind: EnemyKind::Bandit,
+                                    pos: center
+                                        + Vec2::new(
+                                            rng.random_range(-4.0..4.0),
+                                            rng.random_range(-4.0..4.0),
+                                        ),
+                                    difficulty: 1.0,
+                                });
+                            }
+                            for _ in 0..6 {
+                                spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
+                            }
                         }
                         if gold_barrels.get(prop_e).is_ok() {
                             let weapon = random_gold_weapon(&mut rand::rng());
@@ -1033,7 +1051,13 @@ pub fn apply_explosions(
     mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
     mut player_q: Query<(Entity, &Transform, &mut Health, &Player), (With<Player>, Without<Enemy>)>,
     mut props: Query<
-        (Entity, &mut Prop, &Transform, Option<&PropDeathEffect>),
+        (
+            Entity,
+            &mut Prop,
+            &Transform,
+            Option<&PropDeathEffect>,
+            Option<&PropSprites>,
+        ),
         (With<Prop>, Without<Player>),
     >,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
@@ -1078,9 +1102,8 @@ pub fn apply_explosions(
                     );
                 }
             }
-            // Explosions destroy props and can chain their payloads.
             let mut destroyed_props = Vec::new();
-            for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
+            for (prop_e, mut prop, prop_tf, death_effect, sprites) in &mut props {
                 if !prop.destructible {
                     continue;
                 }
@@ -1099,12 +1122,16 @@ pub fn apply_explosions(
                             center,
                             prop.explosive,
                             death_effect.copied(),
+                            sprites.copied(),
                         ));
                     }
                 }
             }
 
-            for (prop_e, center, legacy_explosive, death_effect) in destroyed_props {
+            for (prop_e, center, legacy_explosive, death_effect, sprites) in destroyed_props {
+                if let Some(ps) = sprites {
+                    spawn_prop_corpse(&mut commands, &ctx.catalog, &ctx.asset_server, center, &ps);
+                }
                 spawn_prop_death_effect(
                     &mut commands,
                     center,
@@ -1118,19 +1145,24 @@ pub fn apply_explosions(
                     secrets.queue(entrance.target);
                 }
 
-                // Snowmen hide a snow bandit + rad (upstream SnowMan Destroy).
                 if death_ctx.snowmen.get(prop_e).is_ok() {
                     let mut rng = rand::rng();
-                    commands.spawn(PendingEnemySpawn {
-                        kind: EnemyKind::Bandit,
-                        pos: center
-                            + Vec2::new(rng.random_range(-6.0..6.0), rng.random_range(-6.0..6.0)),
-                        difficulty: 1.0,
-                    });
-                    spawn_rad(&mut commands, &ctx.catalog, &ctx.asset_server, center, 1);
+                    for _ in 0..3 {
+                        commands.spawn(PendingEnemySpawn {
+                            kind: EnemyKind::Bandit,
+                            pos: center
+                                + Vec2::new(
+                                    rng.random_range(-4.0..4.0),
+                                    rng.random_range(-4.0..4.0),
+                                ),
+                            difficulty: 1.0,
+                        });
+                    }
+                    for _ in 0..6 {
+                        spawn_rad(&mut commands, &ctx.catalog, &ctx.asset_server, center, 1);
+                    }
                 }
 
-                // Gold barrels drop a gold weapon.
                 if death_ctx.gold_barrels.get(prop_e).is_ok() {
                     let weapon = random_gold_weapon(&mut rand::rng());
                     spawn_pickup(
@@ -1896,7 +1928,13 @@ pub fn resolve_deaths(
         commands.entity(e).insert(Dying);
         commands.entity(e).despawn();
         if !def.boss && !matches!(enemy.kind, EnemyKind::IdpdVan | EnemyKind::FrogEgg) {
-            commands.spawn((
+            let idle = def.sprite;
+            let dead = crate::game::anim::derive_dead_path(idle);
+            catalog.require(dead);
+            let (mut corpse_sprite, corpse_anim) =
+                crate::game::anim::sprite_anim(&catalog, &asset_server, dead);
+            corpse_sprite.color = Color::WHITE;
+            let mut corpse_e = commands.spawn((
                 GameCleanup,
                 LevelCleanup,
                 Corpse {
@@ -1904,16 +1942,16 @@ pub fn resolve_deaths(
                     life: Timer::from_seconds(12.0, TimerMode::Once),
                     pos,
                 },
-                Sprite {
-                    color: Color::srgba(0.35, 0.1, 0.1, 0.85),
-                    custom_size: Some(Vec2::splat(def.size * 0.7)),
-                    ..default()
-                },
+                corpse_sprite,
+                crate::game::content::sprite_anchor(&catalog, dead),
                 Transform::from_translation(pos.extend(-5.0)),
             ));
+            if let Some(mut anim) = corpse_anim {
+                anim.oneshot = true;
+                corpse_e.insert(anim);
+            }
         }
 
-        // Loop-transition hooks must run before normal drop handling so the
         // interlude starts while loot still pops.
         let player_pos_now = player_tf.translation.truncate();
         match enemy.kind {

@@ -9,7 +9,7 @@ use rand::RngExt;
 use crate::game::audio::GameAudio;
 use crate::game::components::*;
 use crate::game::content::*;
-use crate::game::environment::{PropDeathEffect, spawn_prop_death_effect};
+use crate::game::environment::{PropDeathEffect, spawn_prop_corpse, spawn_prop_death_effect};
 use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
 use crate::game::projectile_art;
@@ -1619,10 +1619,21 @@ pub fn spawn_player_projectile_with_source(
 pub fn hammerhead_chew(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut cooldown: Local<f32>,
     mut budget: ResMut<HammerheadBudget>,
     player_q: Query<(Entity, &Transform, &Player, &Velocity), With<Player>>,
-    mut props: Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), Without<WallTile>>,
+    mut props: Query<
+        (
+            Entity,
+            &mut Prop,
+            &Transform,
+            Option<&PropDeathEffect>,
+            Option<&PropSprites>,
+        ),
+        Without<WallTile>,
+    >,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
     entrances: Query<&SecretEntrance>,
     mut secrets: ResMut<SecretTriggers>,
@@ -1672,8 +1683,7 @@ pub fn hammerhead_chew(
         }
     }
 
-    // --- Existing prop chew path ---
-    for (prop_e, mut prop, prop_tf, death_effect) in &mut props {
+    for (prop_e, mut prop, prop_tf, death_effect, sprites) in &mut props {
         if !prop.destructible {
             continue;
         }
@@ -1690,6 +1700,9 @@ pub fn hammerhead_chew(
         *cooldown = 0.25;
         prop.hp -= 1;
         if prop.hp <= 0 {
+            if let Some(ps) = sprites.copied() {
+                spawn_prop_corpse(&mut commands, &catalog, &asset_server, center, &ps);
+            }
             spawn_prop_death_effect(
                 &mut commands,
                 center,

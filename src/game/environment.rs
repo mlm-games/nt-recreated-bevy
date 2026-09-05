@@ -413,6 +413,34 @@ impl PropDeathEffect {
     }
 }
 
+/// GML prop/Destroy_0: if (corpse && sprite_exists(spr_dead)) create Corpse
+/// with spr_dead + flip. Called in addition to explosion/hazard (Barrel does
+/// both). Strict: dead art must exist via gen_assets, else bail.
+pub fn spawn_prop_corpse(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    sprites: &PropSprites,
+) {
+    catalog.require(sprites.dead);
+    let mut spr = sprite_exact(catalog, asset_server, sprites.dead);
+    spr.flip_x = sprites.flip_x;
+    let mut e = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        spr,
+        crate::game::content::sprite_anchor(catalog, sprites.dead),
+        Transform::from_translation(pos.extend(-6.0)),
+        crate::game::components::PickupLifetime {
+            timer: Timer::from_seconds(12.0, TimerMode::Once),
+        },
+    ));
+    if let Some(def) = catalog.anim_def(sprites.dead) {
+        e.insert(crate::game::anim::SpriteAnim::oneshot(sprites.dead, def));
+    }
+}
+
 /// Shared terminal path for props destroyed by bullets, explosions, melee,
 /// Hammerhead, or a future chain reaction.
 pub fn spawn_prop_death_effect(
@@ -485,11 +513,13 @@ impl Default for ProximityMine {
 
 pub fn tick_proximity_mines(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     mut trauma: ResMut<Trauma>,
-    mines: Query<(Entity, &Transform, &ProximityMine), With<Prop>>,
+    mines: Query<(Entity, &Transform, &ProximityMine, Option<&PropSprites>), With<Prop>>,
     targets: Query<(&Transform, &Team), Without<ProximityMine>>,
 ) {
-    for (mine_entity, mine_tf, mine) in mines.iter() {
+    for (mine_entity, mine_tf, mine, sprites) in mines.iter() {
         let center = mine_tf.translation.truncate();
 
         let triggered = targets.iter().any(|(target_tf, team)| {
@@ -501,6 +531,9 @@ pub fn tick_proximity_mines(
             continue;
         }
 
+        if let Some(ps) = sprites.copied() {
+            spawn_prop_corpse(&mut commands, &catalog, &asset_server, center, &ps);
+        }
         spawn_prop_death_effect(&mut commands, center, Some(mine.payload), false, None);
 
         ScreenEffects::add_trauma(&mut trauma, 0.20);

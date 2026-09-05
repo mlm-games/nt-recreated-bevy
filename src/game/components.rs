@@ -1233,6 +1233,23 @@ pub struct Prop {
     pub explosive: bool,
 }
 
+/// Idle / hurt / dead strips for destructible props (GML prop + hitme).
+/// `hurt`/`dead` equal a real WAD strip; missing art bails via `require`
+/// instead of silent fallback (see `tools/gen_assets.py`).
+#[derive(Component, Clone, Copy)]
+pub struct PropSprites {
+    pub idle: &'static str,
+    pub hurt: &'static str,
+    pub dead: &'static str,
+    pub flip_x: bool,
+}
+
+/// Tracks last known prop HP so hurt anim only fires on actual damage.
+#[derive(Component, Clone, Copy)]
+pub struct PropHpTracker {
+    pub last_hp: i32,
+}
+
 /// A destructible prop that leads to a secret area when destroyed.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SecretEntrance {

@@ -198,6 +198,7 @@ impl Plugin for GamePlugin {
                         combat::projectile_hits,
                         combat::contact_damage,
                         combat::gamma_guts_aura,
+                        anim::prop_hurt_on_damage,
                     )
                         .in_set(NtSimSet::Combat)
                         .run_if(gameplay_active),
