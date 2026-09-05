@@ -334,9 +334,12 @@ pub struct Player {
     pub ultra: Option<UltraMutationId>,
 
     pub ultra_damage_mult: f32,
-
+    /// Generic ability scaling used by Throne Butt / ultras.
     pub ultra_ability_mult: f32,
     pub mutations: Vec<MutationId>,
+    /// GML wepangle flip: multiplied by -1 on every melee swing, alternating
+    /// the gun/slash angle offset.
+    pub melee_flip: bool,
 }
 
 impl Default for Player {
@@ -391,6 +394,7 @@ impl Default for Player {
             ultra_damage_mult: 1.0,
             ultra_ability_mult: 1.0,
             mutations: Vec::new(),
+            melee_flip: false,
         }
     }
 }

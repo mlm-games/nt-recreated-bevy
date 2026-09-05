@@ -120,7 +120,6 @@ pub fn player_anim_switch(
     >,
 ) {
     for (vel, mut pa, mut anim, mut sprite, mut anchor) in &mut q {
-
         if anim.oneshot && !anim.finished {
             continue;
         }
@@ -345,9 +344,7 @@ pub fn tick_fire_anims(
 }
 
 pub fn derive_hurt_path(idle: &'static str) -> &'static str {
-
     let base = if idle.contains("sprMutant") {
-
         if idle.contains("sprMutant1BIdle") {
             return "images/sprMutant1BHurt.png";
         }
@@ -493,6 +490,12 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprInvLaserCrystalIdle.png" => "images/sprInvLaserCrystalHurt.png",
         "images/sprPopoFreakIdle.png" => "images/sprPopoFreakHurt.png",
         "images/sprMSpawnIdle.png" => "images/sprMSpawnHurt.png",
+        "images/sprSniperIdle.png" => "images/sprSniperHurt.png",
+        "images/sprCrabIdle.png" => "images/sprCrabHurt.png",
+        "images/sprSpiderIdle.png" => "images/sprSpiderHurt.png",
+        "images/sprNecromancerIdle.png" => "images/sprNecromancerHurt.png",
+        "images/sprExploderIdle.png" => "images/sprExploderHurt.png",
+        "images/sprLaserCrystalIdle.png" => "images/sprLaserCrystalHurt.png",
 
         "images/sprFrogQueenIdle.png" => "images/sprFrogQueenHurt.png",
 
@@ -733,6 +736,12 @@ pub fn derive_dead_path(idle: &'static str) -> &'static str {
         "images/sprPopoFreakIdle.png" => "images/sprPopoFreakDead.png",
         "images/sprMSpawnIdle.png" => "images/sprMSpawnDead.png",
         "images/sprFrogQueenIdle.png" => "images/sprFrogQueenDead.png",
+        "images/sprSniperIdle.png" => "images/sprSniperDead.png",
+        "images/sprCrabIdle.png" => "images/sprCrabDead.png",
+        "images/sprSpiderIdle.png" => "images/sprSpiderDead.png",
+        "images/sprNecromancerIdle.png" => "images/sprNecromancerDead.png",
+        "images/sprExploderIdle.png" => "images/sprExploderDead.png",
+        "images/sprLaserCrystalIdle.png" => "images/sprLaserCrystalDead.png",
         _ => idle,
     }
 }
@@ -847,6 +856,12 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprSnowBotIdle.png" => Some("images/sprSnowBotWalk.png"),
         "images/sprSnowBanditIdle.png" => Some("images/sprSnowBanditWalk.png"),
         "images/sprWolfIdle.png" => Some("images/sprWolfWalk.png"),
+        "images/sprScorpionIdle.png" => Some("images/sprScorpionWalk.png"),
+        "images/sprSpiderIdle.png" => Some("images/sprSpiderWalk.png"),
+        "images/sprCrabIdle.png" => Some("images/sprCrabWalk.png"),
+        "images/sprSniperIdle.png" => Some("images/sprSniperWalk.png"),
+        "images/sprNecromancerIdle.png" => Some("images/sprNecromancerWalk.png"),
+        "images/sprExploderIdle.png" => Some("images/sprExploderWalk.png"),
 
         "images/sprGatorIdle.png" => Some("images/sprGatorWalk.png"),
         "images/sprBuffGatorIdle.png" => Some("images/sprBuffGatorWalk.png"),
@@ -864,8 +879,6 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprExploGuardianIdle.png" => Some("images/sprExploGuardianWalk.png"),
 
         "images/sprGuardianIdle.png" => Some("images/sprGuardianWalk.png"),
-        "images/sprTurtleIdle.png" => Some("images/sprTurtleWalk.png"),
-        "images/sprBigMaggotIdle.png" => Some("images/sprBigMaggotWalk.png"),
         "images/sprBanditBossIdle.png" => Some("images/sprBanditBossWalk.png"),
         "images/sprFireBallerIdle.png" => Some("images/sprFireBallerWalk.png"),
         "images/sprSuperFireBallerIdle.png" => Some("images/sprSuperFireBallerWalk.png"),
@@ -1091,7 +1104,6 @@ mod hurt_race_tests {
         let asset_server = app.world().resource::<AssetServer>().clone();
         let (e, mut anim, mut sprite) = spawn_victim(app.world_mut());
         {
-
             let mut cmds = app.world_mut().commands();
             play_hurt(
                 &mut cmds,
@@ -1133,7 +1145,6 @@ mod hurt_race_tests {
 
     #[test]
     fn live_hurt_insert_still_applies() {
-
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()));
         app.init_asset::<Image>();

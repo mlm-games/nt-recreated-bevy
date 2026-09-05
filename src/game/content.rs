@@ -107,7 +107,6 @@ impl AssetCatalog {
     }
 
     pub fn resolve_audio_path(&self, stem: &str) -> Option<String> {
-
         for dir in ["audio", "sounds", "audio/sfx", "audio/music", "sounds/sfx"] {
             for ext in ["ogg", "wav", "mp3", "flac"] {
                 let path = format!("{dir}/{stem}.{ext}");
@@ -181,9 +180,17 @@ pub fn scan_asset_catalog() -> AssetCatalog {
 fn gml_state_strip_fps(path: &str) -> Option<f32> {
     let stem = path.rsplit('/').next().unwrap_or(path);
     let stem = stem.strip_suffix(".png").unwrap_or(stem);
-    let state_suffix = ["Idle", "Walk", "Hurt", "Dead", "Appear", "Disappear", "Burrow"]
-        .iter()
-        .any(|s| stem.ends_with(s));
+    let state_suffix = [
+        "Idle",
+        "Walk",
+        "Hurt",
+        "Dead",
+        "Appear",
+        "Disappear",
+        "Burrow",
+    ]
+    .iter()
+    .any(|s| stem.ends_with(s));
 
     let portal_family = stem.starts_with("sprPortal")
         || stem.starts_with("sprProtoPortal")
@@ -197,9 +204,7 @@ fn gml_state_strip_fps(path: &str) -> Option<f32> {
 }
 
 pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {
-
     const REQUIRED: &[&str] = &[
-
         "images/sprBullet1.png",
         "images/sprBullet2.png",
         "images/sprEnemyBullet1.png",
@@ -214,7 +219,6 @@ pub fn assert_nt_parity_assets(catalog: &AssetCatalog) {
         "images/sprHeavyBolt.png",
         "images/sprFlameBall.png",
         "images/sprSalamanderBullet.png",
-
         "images/sprLogo.png",
         "images/sprLoadoutCrown.png",
         "images/sprPortal.png",
@@ -1250,7 +1254,6 @@ pub fn ammo_max(kind: AmmoKind) -> i32 {
 }
 
 pub fn ammo_pickup_amount(kind: AmmoKind) -> i32 {
-
     match kind {
         AmmoKind::None => 0,
         AmmoKind::Bullets => 32,
@@ -1537,7 +1540,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             attack_cooldown: 0.75,
             bullets_per_shot: 10,
             burst: true,
-            burst_interval: 0.033,
+            burst_interval: 0.066,
             fan_spread: 0.0,
             projectile_speed: 105.0,
 
@@ -1551,7 +1554,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Assassin => EnemyDef {
             name: "Assassin",
-            hp: 14,
+            hp: 7,
             speed: 84.0,
             accel: 880.0,
             radius: 11.0,
@@ -1559,8 +1562,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.2, 0.18, 0.24),
             sprite: "images/sprJungleAssassinIdle.png",
             score: 25,
-            touch_damage: 3,
-            rad_drop: 4,
+            touch_damage: 0,
+            rad_drop: 8,
             drop_chance: 16,
             weapon_chance: 0,
             preferred_range: 0.0,
@@ -1791,7 +1794,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::BigRat => EnemyDef {
             name: "Big Rat",
-            hp: 14,
+            hp: 35,
             speed: 95.0,
             accel: 4800.0,
             radius: 13.0,
@@ -1799,8 +1802,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.65, 0.5, 0.35),
             sprite: "images/sprRatkingIdle.png",
             score: 15,
-            touch_damage: 3,
-            rad_drop: 3,
+            touch_damage: 0,
+            rad_drop: 20,
             drop_chance: 8,
             weapon_chance: 0,
             preferred_range: 0.0,
@@ -1821,7 +1824,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::RobotGuard => EnemyDef {
             name: "Robot Guard",
-            hp: 12,
+            hp: 15,
             speed: 30.0,
             accel: 900.0,
             radius: 11.0,
@@ -1830,7 +1833,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprSnowBotIdle.png",
             score: 20,
             touch_damage: 0,
-            rad_drop: 4,
+            rad_drop: 5,
             drop_chance: 16,
             weapon_chance: 0,
             preferred_range: 180.0,
@@ -1851,7 +1854,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Turret => EnemyDef {
             name: "Turret",
-            hp: 24,
+            hp: 40,
             speed: 0.0,
             accel: 0.0,
             radius: 12.0,
@@ -1860,7 +1863,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprTurretIdle.png",
             score: 15,
             touch_damage: 0,
-            rad_drop: 3,
+            rad_drop: 1,
             drop_chance: 10,
             weapon_chance: 0,
             preferred_range: 999.0,
@@ -1882,7 +1885,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::SnowBandit => EnemyDef {
             name: "Snow Bandit",
-            hp: 9,
+            hp: 4,
             speed: 26.0,
             accel: 850.0,
             radius: 12.0,
@@ -1891,7 +1894,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprSnowBanditIdle.png",
             score: 20,
             touch_damage: 0,
-            rad_drop: 3,
+            rad_drop: 2,
             drop_chance: 16,
             weapon_chance: 0,
             preferred_range: 110.0,
@@ -1921,7 +1924,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprWolfIdle.png",
             score: 18,
             touch_damage: 3,
-            rad_drop: 2,
+            rad_drop: 6,
             drop_chance: 8,
             weapon_chance: 0,
             preferred_range: 0.0,
@@ -2062,7 +2065,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::IdpdGrunt => EnemyDef {
             name: "IDPD Grunt",
-            hp: 14,
+            hp: 8,
             speed: 120.0,
             accel: 1100.0,
             radius: 13.0,
@@ -2070,8 +2073,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.25, 0.45, 0.95),
             sprite: "images/sprGruntIdle.png",
             score: 18,
-            touch_damage: 3,
-            rad_drop: 4,
+            touch_damage: 0,
+            rad_drop: 0,
             drop_chance: 18,
             weapon_chance: 4,
             preferred_range: 220.0,
@@ -2092,7 +2095,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::IdpdShield => EnemyDef {
             name: "IDPD Shield",
-            hp: 24,
+            hp: 50,
             speed: 95.0,
             accel: 950.0,
             radius: 15.0,
@@ -2100,8 +2103,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.2, 0.5, 0.9),
             sprite: "images/sprShielderIdle.png",
             score: 28,
-            touch_damage: 4,
-            rad_drop: 6,
+            touch_damage: 0,
+            rad_drop: 0,
             drop_chance: 20,
             weapon_chance: 5,
             preferred_range: 180.0,
@@ -2122,7 +2125,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::IdpdElite => EnemyDef {
             name: "IDPD Elite",
-            hp: 36,
+            hp: 40,
             speed: 135.0,
             accel: 1200.0,
             radius: 14.0,
@@ -2130,8 +2133,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.4, 0.25, 1.0),
             sprite: "images/sprEliteGruntIdle.png",
             score: 45,
-            touch_damage: 4,
-            rad_drop: 10,
+            touch_damage: 0,
+            rad_drop: 0,
             drop_chance: 26,
             weapon_chance: 8,
             preferred_range: 260.0,
@@ -2304,7 +2307,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Ballguy => EnemyDef {
             name: "Ballguy",
-            hp: 8,
+            hp: 5,
             speed: 95.0,
             accel: 4200.0,
             radius: 11.0,
@@ -2313,8 +2316,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
 
             sprite: "images/sprExploderIdle.png",
             score: 12,
-            touch_damage: 2,
-            rad_drop: 3,
+            touch_damage: 0,
+            rad_drop: 5,
             drop_chance: 20,
             weapon_chance: 2,
             preferred_range: 0.0,
@@ -2365,7 +2368,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Necromancer => EnemyDef {
             name: "Necromancer",
-            hp: 18,
+            hp: 6,
             speed: 28.0,
             accel: 700.0,
             radius: 12.0,
@@ -2395,7 +2398,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Spider => EnemyDef {
             name: "Spider",
-            hp: 10,
+            hp: 18,
             speed: 130.0,
             accel: 5000.0,
             radius: 10.0,
@@ -2403,8 +2406,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.55, 0.2, 0.65),
             sprite: "images/sprSpiderIdle.png",
             score: 14,
-            touch_damage: 2,
-            rad_drop: 3,
+            touch_damage: 3,
+            rad_drop: 9,
             drop_chance: 18,
             weapon_chance: 2,
             preferred_range: 0.0,
@@ -2425,7 +2428,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Crystal => EnemyDef {
             name: "Crystal",
-            hp: 12,
+            hp: 45,
             speed: 0.0,
             accel: 0.0,
             radius: 12.0,
@@ -2434,8 +2437,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
 
             sprite: "images/sprLaserCrystalIdle.png",
             score: 16,
-            touch_damage: 0,
-            rad_drop: 4,
+            touch_damage: 20,
+            rad_drop: 22,
             drop_chance: 20,
             weapon_chance: 3,
             preferred_range: 0.0,
@@ -2456,7 +2459,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::LaserCrystal => EnemyDef {
             name: "Laser Crystal",
-            hp: 22,
+            hp: 45,
             speed: 0.0,
             accel: 0.0,
             radius: 14.0,
@@ -2464,8 +2467,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(1.0, 0.25, 0.45),
             sprite: "images/sprLaserCrystalIdle.png",
             score: 28,
-            touch_damage: 0,
-            rad_drop: 8,
+            touch_damage: 20,
+            rad_drop: 22,
             drop_chance: 30,
             weapon_chance: 5,
             preferred_range: 0.0,
@@ -2486,7 +2489,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Sniper => EnemyDef {
             name: "Sniper",
-            hp: 12,
+            hp: 6,
             speed: 40.0,
             accel: 900.0,
             radius: 11.0,
@@ -2495,7 +2498,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             sprite: "images/sprSniperIdle.png",
             score: 22,
             touch_damage: 0,
-            rad_drop: 5,
+            rad_drop: 8,
             drop_chance: 22,
             weapon_chance: 4,
             preferred_range: 220.0,
@@ -2517,7 +2520,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::Crab => EnemyDef {
             name: "Crab",
-            hp: 10,
+            hp: 12,
             speed: 70.0,
             accel: 2200.0,
             radius: 12.0,
@@ -2525,7 +2528,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.95, 0.45, 0.25),
             sprite: "images/sprCrabIdle.png",
             score: 12,
-            touch_damage: 2,
+            touch_damage: 3,
             rad_drop: 3,
             drop_chance: 15,
             weapon_chance: 2,
@@ -2732,7 +2735,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
         },
         EnemyKind::MeleeBandit => EnemyDef {
             name: "Melee Bandit",
-            hp: 6,
+            hp: 7,
             speed: 95.0,
             accel: 2200.0,
             radius: 11.0,
@@ -2740,8 +2743,8 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             color: Color::srgb(0.85, 0.35, 0.2),
             sprite: "images/sprMeleeIdle.png",
             score: 12,
-            touch_damage: 3,
-            rad_drop: 2,
+            touch_damage: 0,
+            rad_drop: 8,
             drop_chance: 10,
             weapon_chance: 0,
             preferred_range: 0.0,
@@ -2777,9 +2780,9 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             preferred_range: 100.0,
             shoot_range: 460.0,
             attack_cooldown: 1.65,
-            bullets_per_shot: 1,
-            burst: false,
-            burst_interval: 0.0,
+            bullets_per_shot: 6,
+            burst: true,
+            burst_interval: 0.133,
             fan_spread: 0.0,
 
             projectile_speed: 360.0,
@@ -2868,9 +2871,9 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
             preferred_range: 190.0,
             shoot_range: 520.0,
             attack_cooldown: 1.5,
-            bullets_per_shot: 4,
-            burst: true,
-            burst_interval: 0.09,
+            bullets_per_shot: 0,
+            burst: false,
+            burst_interval: 0.0,
             fan_spread: 0.0,
             projectile_speed: 210.0,
             projectile_spread: 0.05,

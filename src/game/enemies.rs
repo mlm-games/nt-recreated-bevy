@@ -74,7 +74,6 @@ pub fn spawn_enemy(
     scarier_face: bool,
     heavy_heart: bool,
 ) {
-
     let def = enemy_def(kind);
     let hp = (def.hp as f32 * difficulty).round().max(1.0) as i32;
     let hp = if scarier_face {
@@ -140,7 +139,6 @@ pub fn spawn_enemy(
             max: hp,
             invuln: ready_timer(),
         },
-
         crate::game::components::NextHurt::default(),
         Team::Enemy,
         Hitbox { radius: def.radius },
@@ -196,7 +194,6 @@ fn has_line_of_sight(from: Vec2, to: Vec2, mask: &FloorMask) -> bool {
         );
 
         if !mask.is_walkable(p) && !mask.is_walkable(tile_check) {
-
             if p.x.abs() < ARENA_W / 2.0 && p.y.abs() < ARENA_H / 2.0 {
                 return false;
             }
@@ -214,6 +211,7 @@ pub fn enemy_ai(
     euphoria: Res<Euphoria>,
     mask: Res<FloorMask>,
     run: Res<Run>,
+    mut ratking_cd: Local<std::collections::HashMap<Entity, Timer>>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
@@ -248,8 +246,8 @@ pub fn enemy_ai(
         .map(|(_, _, _, _, tf, _, _, _, _, _)| tf.translation.truncate())
         .collect();
 
-    for (entity, enemy, mut brain, mut vel, mut tf, mut sprite, boss, mut anim, mut anchor, hurt)
-        in &mut enemies
+    for (entity, enemy, mut brain, mut vel, mut tf, mut sprite, boss, mut anim, mut anchor, hurt) in
+        &mut enemies
     {
         let pos = tf.translation.truncate();
         let to_player = player_pos - pos;
@@ -325,14 +323,12 @@ pub fn enemy_ai(
             enemy.kind,
             EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit
         ) {
-
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
                 let los = has_line_of_sight(pos, player_pos, &mask);
                 if los {
                     if dist > 48.0 {
                         if rng.random::<f32>() < 0.25 {
-
                             let spread = rng.random_range(-10.0_f32..10.0).to_radians();
                             let base_ang = dir.y.atan2(dir.x);
                             let ang = base_ang + spread;
@@ -367,7 +363,6 @@ pub fn enemy_ai(
                                 TimerMode::Once,
                             );
                         } else {
-
                             let ang =
                                 dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
                             let wdir = Vec2::new(ang.cos(), ang.sin());
@@ -380,7 +375,6 @@ pub fn enemy_ai(
                             );
                         }
                     } else {
-
                         let away = -dir;
                         let ang =
                             away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
@@ -406,7 +400,6 @@ pub fn enemy_ai(
                     brain.gunangle = ang;
                     sprite.flip_x = vel.0.x < 0.0;
                 }
-
             }
 
             {
@@ -476,7 +469,6 @@ pub fn enemy_ai(
                     }
                 }
             } else if brain.attack.just_finished() {
-
                 let target_dir = dir.y.atan2(dir.x);
 
                 let walk_ang = target_dir
@@ -616,10 +608,8 @@ pub fn enemy_ai(
             vel.0 = Vec2::ZERO;
             sprite.flip_x = dir.x < 0.0;
         } else if dashing {
-
             tf.translation += (vel.0 * dt).extend(0.0);
         } else if brain.speed > 0.0 {
-
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
                 let los = has_line_of_sight(pos, player_pos, &mask);
@@ -698,18 +688,18 @@ pub fn enemy_ai(
                         EnemyKind::Freak | EnemyKind::ExploFreak => {
                             rng.random_range(6.0..11.0) / 30.0
                         }
-                        EnemyKind::RhinoFreak
-                        | EnemyKind::DogGuardian
-                        | EnemyKind::Turtle => rng.random_range(6.0..11.0) / 30.0,
+                        EnemyKind::RhinoFreak | EnemyKind::DogGuardian | EnemyKind::Turtle => {
+                            rng.random_range(6.0..11.0) / 30.0
+                        }
                         EnemyKind::Spider | EnemyKind::InvSpider => {
                             rng.random_range(20.0..30.0) / 30.0
                         }
                         EnemyKind::Crab => rng.random_range(10.0..20.0) / 30.0,
                         EnemyKind::Salamander => rng.random_range(10.0..60.0) / 30.0,
                         EnemyKind::Sniper => rng.random_range(20.0..30.0) / 30.0,
-                        EnemyKind::Assassin
-                        | EnemyKind::MeleeBandit
-                        | EnemyKind::Wolf => rng.random_range(6.0..11.0) / 30.0,
+                        EnemyKind::Assassin | EnemyKind::MeleeBandit | EnemyKind::Wolf => {
+                            rng.random_range(6.0..11.0) / 30.0
+                        }
                         _ => rng.random_range(0.35..0.75),
                     };
                     brain.attack = Timer::from_seconds(attack_secs, TimerMode::Once);
@@ -818,6 +808,39 @@ pub fn enemy_ai(
                     pos: pos + Vec2::new(ang.cos(), ang.sin()) * 24.0,
                     difficulty: 1.0,
                 });
+            }
+        }
+
+        if enemy.kind == EnemyKind::Ratking {
+            let cd = ratking_cd
+                .entry(entity)
+                .or_insert_with(|| Timer::from_seconds(1.0, TimerMode::Once));
+            cd.tick(time.delta());
+            if cd.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if los && rng.random::<f32>() < 0.34 {
+                    let count = rng.random_range(3..=5);
+                    for _ in 0..count {
+                        let spread = rng.random_range(-20_f32..20.0).to_radians();
+                        let base = dir.y.atan2(dir.x);
+                        let ang = base + spread;
+                        let off = Vec2::new(ang.cos(), ang.sin()) * 12.0;
+                        commands.spawn(PendingEnemySpawn {
+                            kind: EnemyKind::FastRat,
+                            pos: pos + off,
+                            difficulty: 1.0,
+                        });
+                    }
+                    *cd = Timer::from_seconds(
+                        (30.0 + rng.random_range(0.0..5.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                } else {
+                    *cd = Timer::from_seconds(
+                        (30.0 + rng.random_range(0.0..10.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
             }
         }
 
@@ -1135,7 +1158,6 @@ pub fn tick_delayed_boss_spawns(
     let spawn_pos = if let Some((p, _)) = best_wall {
         p
     } else {
-
         let mut rng = rand::rng();
         let mut best = mask.random_floor_pos(&mut rng, 120.0);
         for _ in 0..32 {
@@ -1274,7 +1296,12 @@ mod double_hp_check {
 pub fn tick_corpses(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Corpse, Option<&mut Velocity>, Option<&mut Transform>)>,
+    mut q: Query<(
+        Entity,
+        &mut Corpse,
+        Option<&mut Velocity>,
+        Option<&mut Transform>,
+    )>,
 ) {
     let dt = time.delta_secs();
     for (e, mut c, vel, tf) in &mut q {

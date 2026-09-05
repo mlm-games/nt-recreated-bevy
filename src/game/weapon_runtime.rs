@@ -254,6 +254,27 @@ fn base_weapon_name(name: &str) -> &str {
     stripped
 }
 
+/// GML melee swing sprite per weapon (scrFire spawns Slash/Shank/EnergySlash
+/// variants; Shovel/Sledge/Guitar use sprHeavySlash, Screwdriver uses Shank,
+/// EnergySword uses EnergySlash, Black Sword mega uses MegaSlash, Ultra
+/// Shovel uses UltraSlash, Blood Hammer uses BloodSlash, Lightning Hammer
+/// uses LightningSlash, Energy Hammer uses EnergyHammerSlash).
+pub fn melee_swing_sprite(weapon_name: &str) -> &'static str {
+    match base_weapon_name(weapon_name) {
+        "SHOVEL" | "SLEDGEHAMMER" | "GUITAR" | "ELECTRIC GUITAR" => "images/sprHeavySlash.png",
+        "SCREWDRIVER" => "images/sprShank.png",
+        "ENERGY SCREWDRIVER" => "images/sprEnergyShank.png",
+        "ENERGY SWORD" => "images/sprEnergySlash.png",
+        "ENERGY HAMMER" => "images/sprEnergyHammerSlash.png",
+        "BLOOD HAMMER" => "images/sprBloodSlash.png",
+        "LIGHTNING HAMMER" => "images/sprLightningSlash.png",
+        "ULTRA SHOVEL" => "images/sprUltraSlash.png",
+        "BLACK SWORD" => "images/sprSlash.png",
+        "WRENCH" | "CHICKEN SWORD" => "images/sprSlash.png",
+        _ => "images/sprSlash.png",
+    }
+}
+
 #[allow(dead_code)]
 pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
     let id = sanitize_weapon_id(id);
@@ -286,7 +307,6 @@ pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
         damage: def.damage,
         recoil: def.recoil,
         explosion: def.explosive.then_some(ExplosionSpec {
-
             radius: 130.0,
             damage: def.damage,
         }),
@@ -686,7 +706,6 @@ fn apply_family_profile(def: &mut WeaponDef, family: WeaponFamily, meta: &Weapon
         }
 
         WeaponFamily::Deployable => {
-
             set_ranged(
                 def,
                 3,
@@ -796,7 +815,6 @@ fn apply_family_profile(def: &mut WeaponDef, family: WeaponFamily, meta: &Weapon
 }
 
 fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
-
     let name = base_weapon_name(meta.wep_name);
 
     match name {
@@ -805,7 +823,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 def,
                 3,
                 1,
-                560.0,
+                480.0,
                 0.82,
                 0.07,
                 3.0,
@@ -885,7 +903,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GRENADE LAUNCHER" => {
-
             set_explosive(
                 def,
                 15,
@@ -991,7 +1008,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BAZOOKA" => {
-
             set_explosive(
                 def,
                 20,
@@ -1059,14 +1075,13 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "DISC GUN" => {
-
             set_ranged(
                 def,
                 6,
                 1,
-                420.0,
+                150.0,
                 2.2,
-                0.035,
+                0.087,
                 3.0,
                 8.0,
                 120.0,
@@ -1079,14 +1094,13 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER DISC GUN" => {
-
             set_ranged(
                 def,
                 6,
-                1,
-                460.0,
+                5,
+                150.0,
                 2.8,
-                0.02,
+                0.035,
                 4.0,
                 10.0,
                 180.0,
@@ -1099,7 +1113,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER PISTOL" => {
-
             set_ranged(
                 def,
                 2,
@@ -1118,7 +1131,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER RIFLE" => {
-
             set_ranged(
                 def,
                 2,
@@ -1137,7 +1149,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LASER MINIGUN" => {
-
             set_ranged(
                 def,
                 2,
@@ -1156,7 +1167,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SLUGGER" => {
-
             set_ranged(
                 def,
                 22,
@@ -1173,7 +1183,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "GATLING SLUGGER" => {
-
             set_ranged(
                 def,
                 22,
@@ -1209,11 +1218,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ENERGY SWORD" => {
-            set_melee(def, 12, 82.0, 2.5, 4.0, Color::srgb(0.25, 0.86, 1.0));
+            set_melee(def, 22, 82.0, 2.5, 4.0, Color::srgb(0.25, 0.86, 1.0));
         }
 
         "SUPER SLUGGER" => {
-
             set_ranged(
                 def,
                 22,
@@ -1250,11 +1258,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ENERGY SCREWDRIVER" => {
-            set_melee(def, 9, 64.0, 1.5, 2.0, Color::srgb(0.25, 0.86, 1.0));
+            set_melee(def, 22, 64.0, 1.5, 2.0, Color::srgb(0.25, 0.86, 1.0));
         }
 
         "BLOOD LAUNCHER" => {
-
             set_explosive(
                 def,
                 10,
@@ -1271,7 +1278,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "BLOOD CANNON" => {
-
             set_explosive(
                 def,
                 45,
@@ -1301,7 +1307,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER GUN" => {
-
             set_ranged(
                 def,
                 4,
@@ -1318,7 +1323,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SPLINTER PISTOL" => {
-
             set_ranged(
                 def,
                 4,
@@ -1351,7 +1355,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "TOXIC BOW" => {
-
             set_ranged(
                 def,
                 16,
@@ -1405,7 +1408,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA GUN" => {
-
             set_explosive(
                 def,
                 4,
@@ -1422,7 +1424,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA RIFLE" => {
-
             set_explosive(
                 def,
                 4,
@@ -1439,7 +1440,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA MINIGUN" => {
-
             set_explosive(
                 def,
                 4,
@@ -1456,7 +1456,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "PLASMA CANNON" | "DEVASTATOR" => {
-
             set_explosive(
                 def,
                 15,
@@ -1473,7 +1472,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ENERGY HAMMER" => {
-            set_melee(def, 24, 92.0, 2.7, 8.0, Color::srgb(0.25, 0.85, 1.0));
+            set_melee(def, 44, 92.0, 2.7, 8.0, Color::srgb(0.25, 0.85, 1.0));
         }
 
         "JACKHAMMER" => {
@@ -1555,7 +1554,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "NUKE LAUNCHER" => {
-
             set_explosive(
                 def,
                 50,
@@ -1800,8 +1798,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "LIGHTNING HAMMER" => {
-
-            set_melee(def, 22, 90.0, 2.7, 7.0, Color::srgb(0.65, 0.9, 1.0));
+            set_melee(def, 14, 90.0, 2.7, 7.0, Color::srgb(0.65, 0.9, 1.0));
 
             def.pierce = 0;
             def.hazard = None;
@@ -2151,15 +2148,32 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             );
         }
 
-        "SEEKER SHOTGUN" => {
-
+        "SEEKER PISTOL" => {
             set_ranged(
                 def,
                 9,
-                3,
-                520.0,
+                2,
+                240.0,
                 1.9,
-                0.09,
+                0.52,
+                4.0,
+                4.0,
+                60.0,
+                Color::srgb(1.0, 0.55, 0.85),
+                Vec2::new(11.0, 4.0),
+            );
+
+            def.pierce = 1;
+        }
+
+        "SEEKER SHOTGUN" => {
+            set_ranged(
+                def,
+                9,
+                6,
+                240.0,
+                1.9,
+                1.22,
                 7.0,
                 4.0,
                 90.0,
@@ -2174,10 +2188,10 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             set_ranged(
                 def,
                 3,
-                10,
-                700.0,
+                17,
+                420.0,
                 0.35,
-                0.08,
+                0.017,
                 7.0,
                 3.0,
                 40.0,
@@ -2187,7 +2201,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY REVOLVER" => {
-
             set_ranged(
                 def,
                 7,
@@ -2204,7 +2217,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY MACHINEGUN" => {
-
             set_ranged(
                 def,
                 7,
@@ -2221,22 +2233,18 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SLEDGEHAMMER" => {
-
             set_melee(def, 24, 80.0, 2.45, 6.0, Color::srgb(0.88, 0.78, 0.48));
         }
 
         "GUITAR" | "ELECTRIC GUITAR" => {
-
             set_melee(def, 26, 80.0, 2.45, 6.0, Color::srgb(0.9, 0.7, 0.3));
         }
 
         "BLACK SWORD" => {
-
             set_melee(def, 12, 66.0, 2.1, 4.0, Color::srgb(0.2, 0.2, 0.25));
         }
 
         "HEAVY SLUGGER" => {
-
             set_ranged(
                 def,
                 60,
@@ -2253,7 +2261,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "HEAVY CROSSBOW" | "HEAVY AUTO CROSSBOW" => {
-
             set_ranged(
                 def,
                 50,
@@ -2271,7 +2278,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ULTRA REVOLVER" => {
-
             set_ranged(
                 def,
                 18,
@@ -2288,7 +2294,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "ULTRA SHOTGUN" => {
-
             set_ranged(
                 def,
                 6,
@@ -2305,7 +2310,6 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "SUPER PLASMA CANNON" => {
-
             set_explosive(
                 def,
                 25,
@@ -2911,7 +2915,6 @@ mod tests {
 
     #[test]
     fn shell_weapons_multi_pellet_or_heavy_slug() {
-
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Shells || meta.wep_mele {
                 continue;
@@ -2919,7 +2922,6 @@ mod tests {
             let def = weapon_runtime_def(WeaponId(meta.id));
             let slug = def.pellets == 1;
             let ok = if slug {
-
                 def.damage >= 10 || def.split.is_some()
             } else {
                 def.pellets >= 5
@@ -2934,7 +2936,6 @@ mod tests {
 
     #[test]
     fn explosive_type_weapons_boom_or_burn() {
-
         for meta in WEAPONS.iter().skip(1) {
             if meta.wep_type != AmmoType::Explosives {
                 continue;
@@ -2965,14 +2966,13 @@ mod tests {
     fn eraser_is_dense_fast_shrapnel() {
         let def = weapon_runtime_def(id_by_name("ERASER"));
 
-        assert!(def.pellets >= 8);
-        assert!(def.speed >= 650.0);
+        assert!(def.pellets >= 15);
+        assert!(def.speed >= 300.0 && def.speed <= 540.0);
         assert_eq!(def.ammo, AmmoKind::Shells);
     }
 
     #[test]
     fn incinerator_is_flame_not_plain_bullet() {
-
         let family = weapon_family(id_by_name("INCINERATOR"));
         let def = weapon_runtime_def(id_by_name("INCINERATOR"));
 
@@ -2994,7 +2994,6 @@ mod tests {
 
     #[test]
     fn most_weapons_are_specialized_not_generic() {
-
         let mut genericish = 0;
         for meta in WEAPONS.iter().skip(1) {
             let def = weapon_runtime_def(WeaponId(meta.id));
