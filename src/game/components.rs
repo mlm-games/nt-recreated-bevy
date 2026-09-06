@@ -695,6 +695,13 @@ pub struct BoltWallDisable(pub bool);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ProjectileFade(pub &'static str);
 
+/// GML projectile `typ`: 0 = nothing (ignores slashes), 1 = deflectable
+/// (bullets/shells/disc/grenades/flak/EBullet1/EBullet3), 2 = destructible
+/// (bolts/plasma/rockets/EBullet2/horror). Slashes destroy typ 2 and
+/// deflect typ 1 (shank destroys everything).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ProjectileTyp(pub u8);
+
 #[derive(Component)]
 pub struct Projectile {
     pub damage: i32,
@@ -1030,6 +1037,8 @@ pub struct EnemyBrain {
     pub walk: f32,
 
     pub ammo: u8,
+
+    pub slash_delay: f32,
 
     pub gunangle: f32,
 }

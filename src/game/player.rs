@@ -1724,8 +1724,7 @@ fn melee_attack(
             spec.sprite
         };
         catalog.require(path);
-        let (mut spr, anim_opt) = crate::game::anim::sprite_anim(catalog, asset_server, path);
-        spr.flip_y = player.melee_flip;
+        let (spr, anim_opt) = crate::game::anim::sprite_anim(catalog, asset_server, path);
         let life_secs = anim_opt
             .as_ref()
             .map(|a| a.def.frames as f32 / a.def.fps.max(1.0))
@@ -2082,6 +2081,15 @@ pub fn spawn_player_projectile_with_source(
         ec.insert(HitsAllTeams);
 
         ec.insert(SpawnGrace(Timer::from_seconds(2.0 / 30.0, TimerMode::Once)));
+    }
+
+    if let Some(w) = weapon {
+        let ammo = crate::game::content::weapon_ammo(w);
+        let typ = match ammo {
+            AmmoKind::Bolts | AmmoKind::Energy => 2,
+            _ => 1,
+        };
+        ec.insert(ProjectileTyp(typ));
     }
 
     let fade: Option<ProjectileFade> = (|| {

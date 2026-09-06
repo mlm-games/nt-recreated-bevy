@@ -464,7 +464,16 @@ pub fn tick_slash_projectiles(
         (With<Prop>, Without<Enemy>, Without<SlashProjectile>),
     >,
     mut eproj: Query<
-        (Entity, &Transform, &mut Velocity, &mut Team, &Projectile),
+        (
+            Entity,
+            &Transform,
+            &mut Velocity,
+            &mut Team,
+            &Projectile,
+            Option<&ProjectileTyp>,
+            Option<&GrenadeFuse>,
+            Option<&ProjectileFade>,
+        ),
         (With<Projectile>, Without<SlashProjectile>),
     >,
     walls: Query<
@@ -483,21 +492,63 @@ pub fn tick_slash_projectiles(
     for (e, mut proj, mut vel, mut tf, mut slash) in &mut slash_q {
         proj.life.tick(time.delta());
         let slash_team = Team::Player;
-        let slash_dir = vel.0.normalize_or_zero();
-        let slash_ang = slash_dir.y.atan2(slash_dir.x);
         tf.translation += (vel.0 * dt).extend(0.0);
-        tf.rotation = Quat::from_rotation_z(slash_ang);
+        if vel.0.length_squared() > 1e-6 {
+            let ang = vel.0.y.atan2(vel.0.x);
+            tf.rotation = Quat::from_rotation_z(ang);
+        }
+        let slash_dir = (tf.rotation * Vec3::X).truncate().normalize_or_zero();
+        let slash_ang = slash_dir.y.atan2(slash_dir.x);
         let pos = tf.translation.truncate();
 
-        for (pe, ptf, mut pvel, mut pteam, pproj) in &mut eproj {
-            if *pteam == slash_team {
+        for (pe, ptf, mut pvel, mut pteam, pproj, ptyp, pfuse, pfade) in &mut eproj {
+            let same_team = *pteam == slash_team;
+            let is_grenade = pfuse.is_some();
+            if same_team && !is_grenade {
+                continue;
+            }
+            let typ = ptyp.map(|t| t.0).unwrap_or(1);
+            if typ == 0 {
                 continue;
             }
             let ppos = ptf.translation.truncate();
             if pos.distance(ppos) > proj.radius + pproj.radius + 6.0 {
                 continue;
             }
-            if pproj.explosive {
+            if slash.shank || typ == 2 {
+                if let Some(f) = pfade {
+                    let ang = if pvel.0.length_squared() > 0.0 {
+                        pvel.0.y.atan2(pvel.0.x)
+                    } else {
+                        slash_ang
+                    };
+                    spawn_bullet_fade_fx(&mut commands, &catalog, &asset_server, ppos, ang, f.0);
+                }
+                if pproj.explosive && !is_grenade {
+                    let off = slash_dir * 12.0;
+                    spawn_explosion_with_source_radius(
+                        &mut commands,
+                        ppos + off,
+                        pproj.damage,
+                        pproj.source,
+                        130.0,
+                        *pteam,
+                        true,
+                    );
+                    spawn_explosion_with_source_radius(
+                        &mut commands,
+                        ppos - off,
+                        pproj.damage,
+                        pproj.source,
+                        130.0,
+                        *pteam,
+                        true,
+                    );
+                    audio.play_boom(&mut commands);
+                }
+                commands.entity(pe).despawn();
+                slash.hit = true;
+            } else if is_grenade {
                 pvel.0 = slash_dir * 360.0;
                 commands.entity(pe).try_insert(ProjectileFriction(0.1));
                 VfxSpawner::spawn_burst(
@@ -511,13 +562,12 @@ pub fn tick_slash_projectiles(
                 slash.hit = true;
             } else {
                 *pteam = slash_team;
-                let spd = pvel.0.length().max(200.0);
-                pvel.0 = slash_dir * spd;
+                pvel.0 = slash_dir * pvel.0.length();
                 VfxSpawner::spawn_burst(
                     &mut commands,
                     ppos,
                     4,
-                    Color::srgb(0.6, 0.9, 1.0),
+                    Color::srgb(1.0, 1.0, 1.0),
                     (40.0, 120.0),
                 );
                 audio.play_hit(&mut commands);
@@ -1438,7 +1488,11 @@ fn spawn_split_projectiles(
                 timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
                 bonus: 1,
             },
-            ProjectileFade("images/sprBullet2Disappear.png"),
+            ProjectileTyp(1),
+            ProjectileFade(match team {
+                Team::Enemy => "images/sprEBullet3Disappear.png",
+                _ => "images/sprBullet2Disappear.png",
+            }),
             sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
@@ -1483,6 +1537,7 @@ fn spawn_plasma_children(
             },
             Velocity(dir * plasma.speed),
             PlasmaSize((plasma.size.x + plasma.size.y) * 0.5),
+            ProjectileTyp(2),
             sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
@@ -1618,6 +1673,22 @@ fn on_projectile_removed(
     if explosive {
         let radius = custom_explosion.map(|c| c.radius).unwrap_or(130.0);
         spawn_explosion_with_source_radius(commands, pos, damage, source, radius, team, true);
+        if source.is_some_and(|s| s.enemy_kind == Some(EnemyKind::Jock)) {
+            let off = if base_dir.length_squared() > 0.0 {
+                base_dir.normalize_or_zero() * 24.0
+            } else {
+                Vec2::new(24.0, 0.0)
+            };
+            spawn_explosion_with_source_radius(
+                commands,
+                pos - off,
+                damage,
+                source,
+                radius,
+                team,
+                true,
+            );
+        }
     }
 
     if let Some(SpawnHazardOnDeath(spec)) = hazard {

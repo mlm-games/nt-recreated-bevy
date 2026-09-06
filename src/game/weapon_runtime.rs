@@ -308,7 +308,7 @@ pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
         },
         "CHICKEN SWORD" => MeleeProjectileSpec {
             sprite: "images/sprSlash.png",
-            speed_f: 2.0,
+            speed_f: 0.0,
             damage_override: Some(6),
             typ: 0,
             shank: false,
@@ -339,7 +339,7 @@ pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
         "ENERGY SCREWDRIVER" => MeleeProjectileSpec {
             sprite: "images/sprEnergyShank.png",
             speed_f: 3.0,
-            damage_override: None,
+            damage_override: Some(22),
             typ: 0,
             shank: true,
             pellets: 1,
@@ -353,8 +353,8 @@ pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
         },
         "ENERGY SWORD" => MeleeProjectileSpec {
             sprite: "images/sprEnergySlash.png",
-            speed_f: 2.0,
-            damage_override: None,
+            speed_f: 0.0,
+            damage_override: Some(22),
             typ: 0,
             shank: false,
             pellets: 1,
@@ -399,7 +399,7 @@ pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
         "LIGHTNING HAMMER" => MeleeProjectileSpec {
             sprite: "images/sprLightningSlash.png",
             speed_f: 2.0,
-            damage_override: None,
+            damage_override: Some(12),
             typ: 0,
             shank: false,
             pellets: 1,
@@ -474,7 +474,7 @@ pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
         "BLACK SWORD" => MeleeProjectileSpec {
             sprite: "images/sprSlash.png",
             speed_f: 2.0,
-            damage_override: None,
+            damage_override: Some(12),
             typ: 0,
             shank: false,
             pellets: 1,
@@ -1759,7 +1759,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             set_split(
                 def,
                 16,
-                0.55,
+                std::f32::consts::PI,
                 420.0,
                 3,
                 0.32,
@@ -1788,7 +1788,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             set_split(
                 def,
                 20,
-                0.8,
+                std::f32::consts::PI,
                 460.0,
                 3,
                 0.36,

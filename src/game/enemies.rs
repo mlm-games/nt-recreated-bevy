@@ -139,6 +139,7 @@ pub fn spawn_enemy(
             strafe_timer: Timer::from_seconds(rand::rng().random_range(0.8..1.6), TimerMode::Once),
             melee: ready_timer(),
             walk: 0.0,
+            slash_delay: 0.0,
             ammo: match kind {
                 EnemyKind::Scorpion | EnemyKind::GoldScorpion => 10,
                 EnemyKind::IdpdGrunt => 2,
@@ -230,7 +231,7 @@ pub fn enemy_ai(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
-    mut _trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
+    mut trauma: ResMut<game_utils_bevy::screen_effects::Trauma>,
     euphoria: Res<Euphoria>,
     mask: Res<FloorMask>,
     run: Res<Run>,
@@ -502,6 +503,8 @@ pub fn enemy_ai(
                             if let Some(a) = anim {
                                 ec.insert(a);
                             }
+                            ec.insert(ProjectileTyp(2));
+                            ec.insert(ProjectileFade("images/sprScorpionBulletHit.png"));
                         }
                     } else {
                         let spread = rng.random_range(-20_f32..20.0).to_radians();
@@ -615,49 +618,6 @@ pub fn enemy_ai(
         }
 
         let was_dashing = brain.dash > 0.0;
-        if matches!(
-            enemy.kind,
-            EnemyKind::Assassin | EnemyKind::Spider | EnemyKind::MeleeBandit
-        ) && !was_dashing
-            && dist < 110.0
-            && dist > 36.0
-            && brain.melee.is_finished()
-        {
-            brain.dash = 0.22;
-            brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
-            vel.0 = dir * 620.0;
-            if matches!(enemy.kind, EnemyKind::Assassin | EnemyKind::MeleeBandit) {
-                let slash_path = "images/sprEnemySlash.png";
-                if catalog.has(slash_path) {
-                    let ang = dir.y.atan2(dir.x);
-                    let sdir = Vec2::new(ang.cos(), ang.sin());
-                    let (sprite_b, anim) =
-                        crate::game::anim::sprite_anim(&catalog, &asset_server, slash_path);
-                    let anchor = crate::game::content::sprite_anchor(&catalog, slash_path);
-                    let mut ec = commands.spawn((
-                        GameCleanup,
-                        LevelCleanup,
-                        Team::Enemy,
-                        Projectile {
-                            damage: 5,
-                            life: Timer::from_seconds(0.8, TimerMode::Once),
-                            radius: 6.0,
-                            knockback: 150.0,
-                            explosive: false,
-                            source: Some(DamageSource::enemy(entity, enemy.kind)),
-                        },
-                        Velocity(sdir * 60.0),
-                        sprite_b,
-                        anchor,
-                        Transform::from_translation((pos + sdir * 16.0).extend(15.0))
-                            .with_rotation(Quat::from_rotation_z(ang)),
-                    ));
-                    if let Some(a) = anim {
-                        ec.insert(a);
-                    }
-                }
-            }
-        }
 
         if matches!(enemy.kind, EnemyKind::DogGuardian)
             && !was_dashing
@@ -1065,6 +1025,8 @@ pub fn enemy_ai(
                         if let Some(a) = anim {
                             ec.insert(a);
                         }
+                        ec.insert(ProjectileTyp(1));
+                        ec.insert(ProjectileFade("images/sprEnemyBulletHit.png"));
                     }
                     show_enemy_fire(
                         &mut commands,
@@ -1174,6 +1136,8 @@ pub fn enemy_ai(
                         if let Some(a) = anim_b {
                             ec.insert(a);
                         }
+                        ec.insert(ProjectileTyp(1));
+                        ec.insert(ProjectileFade("images/sprEnemyBulletHit.png"));
                     }
                 }
             } else if brain.burst_left == 0 {
@@ -1391,6 +1355,8 @@ pub fn enemy_ai(
                         if let Some(a) = anim {
                             ec.insert(a);
                         }
+                        ec.insert(ProjectileTyp(1));
+                        ec.insert(ProjectileFade("images/sprEnemyBulletHit.png"));
                     }
                     show_enemy_fire(
                         &mut commands,
@@ -1422,8 +1388,9 @@ pub fn enemy_ai(
                         brain.gunangle = dir.y.atan2(dir.x);
                         play_enemy_cue(&mut commands, &asset_server, "sndAssassinAttack");
                         spawn_hit_warning(&mut commands, &catalog, &asset_server, pos);
+                        brain.slash_delay = 10.0;
                         brain.attack = Timer::from_seconds(
-                            (50.0 + rng.random_range(0.0..6.0)) / 30.0,
+                            (43.0 + rng.random_range(0.0..6.0)) / 30.0,
                             TimerMode::Once,
                         );
                     } else {
@@ -1463,7 +1430,11 @@ pub fn enemy_ai(
                     if dist > 48.0 && dist < 128.0 && rng.random::<f32>() < 0.34 {
                         brain.gunangle = dir.y.atan2(dir.x);
                         spawn_hit_warning(&mut commands, &catalog, &asset_server, pos);
-                        brain.walk = 10.0;
+                        brain.walk = if enemy.kind == EnemyKind::BuffGator {
+                            -15.0
+                        } else {
+                            -10.0
+                        };
                         brain.attack = Timer::from_seconds(
                             (20.0 + rng.random_range(0.0..10.0)) / 30.0,
                             TimerMode::Once,
@@ -1498,12 +1469,43 @@ pub fn enemy_ai(
                     );
                 }
             }
-            if brain.walk > 0.0 && brain.walk <= 10.0 {
-                brain.walk -= dt * 30.0;
-                if brain.walk <= 0.0 {
-                    let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
-                    vel.0 = gdir * (4.0 * 30.0);
+            if brain.walk < 0.0 {
+                brain.walk += dt * 30.0;
+                if brain.walk >= 0.0 {
                     brain.walk = 0.0;
+                    brain.gunangle = dir.y.atan2(dir.x);
+                    if enemy.kind == EnemyKind::BuffGator {
+                        play_enemy_cue(&mut commands, &asset_server, "sndFlakCannon");
+                        let ang = brain.gunangle + rng.random_range(-25_f32..25.0).to_radians();
+                        let spd = rng.random_range(240.0..300.0);
+                        fire_enemy_flak(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            entity,
+                            enemy.kind,
+                            pos,
+                            ang,
+                            spd,
+                        );
+                    } else {
+                        play_enemy_cue(&mut commands, &asset_server, "sndShotgun");
+                        for _ in 0..6 {
+                            let ang = brain.gunangle + rng.random_range(-25_f32..25.0).to_radians();
+                            let spd = rng.random_range(300.0..420.0);
+                            fire_enemy_shell(
+                                &mut commands,
+                                &catalog,
+                                &asset_server,
+                                entity,
+                                enemy.kind,
+                                pos,
+                                ang,
+                                spd,
+                            );
+                        }
+                    }
+                    ScreenEffects::add_trauma(&mut trauma, 0.1);
                 }
             }
         }
@@ -1559,6 +1561,14 @@ pub fn enemy_ai(
                 if let Some(a) = anim_b {
                     ec.insert(a);
                 }
+                ec.insert(ProjectileTyp(1));
+                ec.insert(BouncesLeft(255));
+                ec.insert(ProjectileFriction(0.1));
+                ec.insert(crate::game::components::GrenadeFuse {
+                    smoke_armed: false,
+                    friction_switched: false,
+                    alarm1: Timer::from_seconds(6.0 / 30.0, TimerMode::Once),
+                });
             }
         }
 
@@ -1604,6 +1614,20 @@ pub fn enemy_ai(
 
         if matches!(enemy.kind, EnemyKind::IdpdShield) {
             brain.melee.tick(time.delta());
+
+            if brain.slash_delay > 0.0 {
+                brain.slash_delay -= dt * 30.0;
+                if brain.slash_delay <= 0.0 {
+                    brain.slash_delay = 0.0;
+                    spawn_enemy_slash_visual(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        pos,
+                        brain.gunangle,
+                    );
+                }
+            }
             if brain.melee.just_finished() {
                 let shield_path = if catalog.has("images/sprShieldB.png") {
                     "images/sprShieldB.png"
@@ -1676,6 +1700,8 @@ pub fn enemy_ai(
                         if let Some(a) = anim_b {
                             ec.insert(a);
                         }
+                        ec.insert(ProjectileTyp(1));
+                        ec.insert(ProjectileFade("images/sprEnemyBulletHit.png"));
                         show_enemy_fire(
                             &mut commands,
                             &catalog,
@@ -1753,6 +1779,7 @@ pub fn enemy_ai(
                             if let Some(a) = anim_b {
                                 ec.insert(a);
                             }
+                            ec.insert(ProjectileTyp(2));
                             show_enemy_fire(
                                 &mut commands,
                                 &catalog,
@@ -1822,7 +1849,12 @@ pub fn enemy_ai(
                 | EnemyKind::ExploGuardian
                 | EnemyKind::Jock
         );
-        if def.bullets_per_shot > 0 && dist < brain.shoot_range && !dashing && !uses_charge {
+        if def.bullets_per_shot > 0
+            && dist < brain.shoot_range
+            && !dashing
+            && !uses_charge
+            && !matches!(enemy.kind, EnemyKind::Gator | EnemyKind::BuffGator)
+        {
             if def.burst {
                 if brain.burst_left > 0 {
                     brain.burst_timer.tick(time.delta());
@@ -2071,6 +2103,107 @@ fn show_enemy_fire(
     *anchor = crate::game::content::sprite_anchor(&catalog, fire);
 }
 
+/// GML Gator Alarm_2: one EnemyBullet3 pellet (friction 0.6, bounce,
+/// typ 1, damage 1). JungleBandit fires the same object.
+#[allow(clippy::too_many_arguments)]
+fn fire_enemy_shell(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    owner: Entity,
+    kind: EnemyKind,
+    pos: Vec2,
+    angle: f32,
+    speed: f32,
+) {
+    let sdir = Vec2::new(angle.cos(), angle.sin());
+    let (sprite, anchor, anim) = enemy_bullet_sprite(catalog, asset_server, kind, enemy_def(kind));
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Team::Enemy,
+        Projectile {
+            damage: 1,
+            life: Timer::from_seconds(3.0, TimerMode::Once),
+            radius: 3.5,
+            knockback: 150.0,
+            explosive: false,
+            source: Some(DamageSource::enemy(owner, kind)),
+        },
+        Velocity(sdir * speed),
+        ProjectileFriction(0.6),
+        BouncesLeft(255),
+        ShellWallBounce(0.0),
+        ProjectileTyp(1),
+        ProjectileFade("images/sprEBullet3Disappear.png"),
+        sprite,
+        anchor,
+        Transform::from_translation((pos + sdir * 16.0).extend(15.0))
+            .with_rotation(Quat::from_rotation_z(angle)),
+    ));
+    if let Some(a) = anim {
+        ec.insert(a);
+    }
+}
+
+/// GML BuffGator Alarm_2: one EnemyFlak (friction 0.4, typ 1, direct damage
+/// 0; splits into 16 EnemyBullet3 on death).
+#[allow(clippy::too_many_arguments)]
+fn fire_enemy_flak(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    owner: Entity,
+    kind: EnemyKind,
+    pos: Vec2,
+    angle: f32,
+    speed: f32,
+) {
+    let path = "images/sprEFlak.png";
+    let sprite = if catalog.has(path) {
+        crate::game::content::sprite_exact(catalog, asset_server, path)
+    } else {
+        crate::game::projectile_art::enemy_projectile_sprite(asset_server, catalog, kind, None)
+    };
+    let anchor = crate::game::content::sprite_anchor(catalog, path);
+    let sdir = Vec2::new(angle.cos(), angle.sin());
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Team::Enemy,
+        Projectile {
+            damage: 0,
+            life: Timer::from_seconds(3.0, TimerMode::Once),
+            radius: 6.0,
+            knockback: 150.0,
+            explosive: false,
+            source: Some(DamageSource::enemy(owner, kind)),
+        },
+        Velocity(sdir * speed),
+        ProjectileFriction(0.4),
+        ProjectileTyp(1),
+        ProjectileFade("images/sprEnemyBulletHit.png"),
+        SplitOnDeath(SplitDef {
+            pellets: 16,
+            spread: std::f32::consts::PI,
+            speed: 300.0,
+            damage: 1,
+            lifetime: 2.5,
+            radius: 3.0,
+            knockback: 150.0,
+            color: Color::srgb(1.0, 0.7, 0.3),
+            size: Vec2::new(8.0, 3.0),
+        }),
+        sprite,
+        anchor,
+        Transform::from_translation((pos + sdir * 16.0).extend(15.0))
+            .with_rotation(Quat::from_rotation_z(angle)),
+    ));
+    if let Some(def) = catalog.anim_def(path) {
+        ec.insert(crate::game::anim::SpriteAnim::new(path, def));
+    }
+}
+
 fn fire_enemy_bullet(
     commands: &mut Commands,
     catalog: &AssetCatalog,
@@ -2109,24 +2242,51 @@ fn fire_enemy_bullet(
     if let Some(a) = anim {
         ec.insert(a);
     }
-    if !explosive_kind(enemy.kind) {
-        let bullet_path = crate::game::projectile_art::enemy_projectile_path(enemy.kind);
+    finish_enemy_bullet(&mut ec, enemy.kind);
+}
+
+fn explosive_kind(kind: EnemyKind) -> bool {
+    matches!(kind, EnemyKind::Jock)
+}
+
+/// GML per-kind projectile traits: spr_fade, typ (0 = ignores slashes,
+/// 1 = deflectable, 2 = slash-destructible), EnemyBullet3 friction+bounce
+/// for gator/jungle-bandit shells.
+fn finish_enemy_bullet(ec: &mut EntityCommands, kind: EnemyKind) {
+    let typ = match kind {
+        EnemyKind::Scorpion | EnemyKind::GoldScorpion => 2,
+        EnemyKind::Guardian | EnemyKind::Turtle => 0,
+        EnemyKind::ExploGuardian | EnemyKind::Jock => 2,
+        _ => 1,
+    };
+    ec.insert(ProjectileTyp(typ));
+    if !explosive_kind(kind) {
+        let bullet_path = crate::game::projectile_art::enemy_projectile_path(kind);
         let fade_path = if bullet_path.contains("Scorpion") {
             "images/sprScorpionBulletHit.png"
         } else if bullet_path.contains("IDPD") {
             "images/sprIDPDBulletHit.png"
+        } else if matches!(
+            kind,
+            EnemyKind::Gator
+                | EnemyKind::BuffGator
+                | EnemyKind::JungleBandit
+                | EnemyKind::Molesarge
+        ) {
+            "images/sprEBullet3Disappear.png"
         } else {
             "images/sprEnemyBulletHit.png"
         };
         ec.insert(ProjectileFade(fade_path));
     }
-    if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+    if matches!(
+        kind,
+        EnemyKind::Gator | EnemyKind::BuffGator | EnemyKind::JungleBandit | EnemyKind::Molesarge
+    ) {
         ec.insert(ProjectileFriction(0.6));
+        ec.insert(BouncesLeft(255));
+        ec.insert(ShellWallBounce(0.0));
     }
-}
-
-fn explosive_kind(kind: EnemyKind) -> bool {
-    matches!(kind, EnemyKind::Jock)
 }
 
 fn fire_enemy_shot(
@@ -2177,20 +2337,7 @@ fn fire_enemy_shot(
         if let Some(a) = anim {
             ec.insert(a);
         }
-        if !explosive_kind(enemy.kind) {
-            let bullet_path = crate::game::projectile_art::enemy_projectile_path(enemy.kind);
-            let fade_path = if bullet_path.contains("Scorpion") {
-                "images/sprScorpionBulletHit.png"
-            } else if bullet_path.contains("IDPD") {
-                "images/sprIDPDBulletHit.png"
-            } else {
-                "images/sprEnemyBulletHit.png"
-            };
-            ec.insert(ProjectileFade(fade_path));
-        }
-        if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
-            ec.insert(ProjectileFriction(0.6));
-        }
+        finish_enemy_bullet(&mut ec, enemy.kind);
     }
 }
 
@@ -2412,6 +2559,41 @@ pub fn tick_corpses(
             crate::game::components::apply_gml_friction(&mut v.0, 0.4, dt);
             t.translation += v.0.extend(0.0) * dt;
         }
+    }
+}
+
+/// GML MeleeBandit Alarm_2: visual-only EnemySlash (no hitme/wall events in
+/// GML, so it never damages). Spawns at the bandit, flies at gunangle ± 5.
+pub fn spawn_enemy_slash_visual(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+    gunangle: f32,
+) {
+    let slash_path = "images/sprEnemySlash.png";
+    if !catalog.has(slash_path) {
+        return;
+    }
+    let mut rng = rand::rng();
+    let ang = gunangle + rng.random_range(-5_f32..5.0).to_radians();
+    let sdir = Vec2::new(ang.cos(), ang.sin());
+    let (sprite_b, anim) = crate::game::anim::sprite_anim(catalog, asset_server, slash_path);
+    let anchor = crate::game::content::sprite_anchor(catalog, slash_path);
+    let mut ec = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        Velocity(sdir * 60.0),
+        sprite_b,
+        anchor,
+        Transform::from_translation(pos.extend(15.0))
+            .with_rotation(Quat::from_rotation_z(gunangle)),
+        crate::game::components::PickupLifetime {
+            timer: Timer::from_seconds(1.0, TimerMode::Once),
+        },
+    ));
+    if let Some(a) = anim {
+        ec.insert(a);
     }
 }
 

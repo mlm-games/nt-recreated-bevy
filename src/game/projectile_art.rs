@@ -293,14 +293,14 @@ pub fn enemy_projectile_path(kind: EnemyKind) -> &'static str {
         EnemyKind::FireBaller | EnemyKind::SuperFireBaller => "images/sprFlameBall.png",
         EnemyKind::Turtle => "images/sprGuardianBullet.png",
         EnemyKind::Sniper => "images/sprEnemyBullet4.png",
-        EnemyKind::Bandit
-        | EnemyKind::JungleBandit
-        | EnemyKind::SnowBandit
-        | EnemyKind::MeleeBandit => "images/sprEnemyBullet1.png",
+        EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::MeleeBandit => {
+            "images/sprEnemyBullet1.png"
+        }
+        EnemyKind::JungleBandit | EnemyKind::Molesarge => "images/sprEBullet3.png",
         EnemyKind::Rat | EnemyKind::BigRat | EnemyKind::FastRat | EnemyKind::Ratking => {
             "images/sprEnemyBullet1.png"
         }
-        EnemyKind::Gator | EnemyKind::BuffGator => "images/sprEnemyBullet1.png",
+        EnemyKind::Gator | EnemyKind::BuffGator => "images/sprEBullet3.png",
         EnemyKind::Raven => "images/sprEnemyBullet1.png",
         EnemyKind::Spider | EnemyKind::InvSpider => "images/sprEnemyBullet1.png",
         EnemyKind::Salamander => "images/sprSalamanderBullet.png",

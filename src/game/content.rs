@@ -2732,7 +2732,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
 
             projectile_speed: 360.0,
             projectile_spread: 0.436,
-            projectile_damage: 2,
+            projectile_damage: 1,
             projectile_radius: 3.5,
             projectile_lifetime: 0.6,
             projectile_color: Color::srgb(1.0, 0.75, 0.35),
@@ -2884,7 +2884,7 @@ pub fn enemy_def(kind: EnemyKind) -> EnemyDef {
 
             projectile_speed: 360.0,
             projectile_spread: 0.14,
-            projectile_damage: 3,
+            projectile_damage: 1,
             projectile_radius: 4.0,
             projectile_lifetime: 3.5,
             projectile_color: Color::srgb(0.55, 1.0, 0.35),
