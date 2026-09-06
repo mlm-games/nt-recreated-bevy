@@ -98,13 +98,16 @@ pub fn player_move(
             commands.entity(entity).remove::<Dash>();
         }
     } else {
-        if input.move_axis != Vec2::ZERO {
+        // GML Player/Step_0 only clamps while adding walk accel: external
+        // impulses above maxspeed (melee lunge, knockback) are preserved
+        // and decay via friction instead of being hard-clamped away.
+        let max_speed = player.speed * player.speed_mult;
+        if input.move_axis != Vec2::ZERO && vel.0.length() < max_speed {
             let dir = input.move_axis.normalize_or_zero();
             vel.0 += dir * player.accel * dt;
-        }
-        let max_speed = player.speed * player.speed_mult;
-        if vel.0.length() > max_speed {
-            vel.0 = vel.0.normalize() * max_speed;
+            if vel.0.length() > max_speed {
+                vel.0 = vel.0.normalize_or_zero() * max_speed;
+            }
         }
 
         crate::game::components::apply_gml_friction(&mut vel.0, player.friction, dt);
@@ -1653,6 +1656,20 @@ pub fn slash_life_secs(frames: u32) -> f32 {
     (frames.max(1) as f32 / 12.0).clamp(0.09, 0.6)
 }
 
+/// GML scrFire melee: `wepangle *= -1` on every swing, so the held weapon
+/// alternates sides each click (fresh roll only if it was somehow 0).
+pub fn flip_melee_angle(wep_angle: f32) -> f32 {
+    if wep_angle == 0.0 {
+        if rand::rng().random_bool(0.5) {
+            120.0
+        } else {
+            -120.0
+        }
+    } else {
+        -wep_angle
+    }
+}
+
 fn melee_attack(
     commands: &mut Commands,
     trauma: &mut Trauma,
@@ -1687,6 +1704,7 @@ fn melee_attack(
             } else {
                 -4.0
             };
+            wv.wep_angle = flip_melee_angle(wv.wep_angle);
         }
     }
 
@@ -3325,6 +3343,13 @@ mod shell_spawn_tests {
         (1..=12)
             .filter(|t| ((*t as f32 - 1.0) / 30.0) < life && (*t - 1) % 5 == 0)
             .collect()
+    }
+
+    #[test]
+    fn melee_swing_alternates_held_weapon_side() {
+        assert_eq!(flip_melee_angle(120.0), -120.0);
+        assert_eq!(flip_melee_angle(-120.0), 120.0);
+        assert_eq!(flip_melee_angle(flip_melee_angle(120.0)), 120.0);
     }
 
     #[test]
