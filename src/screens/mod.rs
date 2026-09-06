@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use game_utils_bevy::loading::{LoadingProgress, LoadingTip, assets_progress};
-use game_utils_bevy::transitions::{Transition, TransitionKind};
+use game_utils_bevy::transitions::{Transition, TransitionPhase};
 
 use crate::app::AppState;
 use crate::asset_tracking::AssetsLoading;
@@ -17,31 +17,14 @@ impl Plugin for ScreensPlugin {
                      asset_server: Res<AssetServer>,
                      mut progress: ResMut<LoadingProgress>,
                      mut tip: ResMut<LoadingTip>| {
-                        c.insert_resource(LoadingTimer(Timer::from_seconds(0.35, TimerMode::Once)));
+                        c.insert_resource(LoadingTimer(Timer::from_seconds(1.2, TimerMode::Once)));
                         c.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
-                        // GML loads all art upfront (no streaming pop-in), so
-                        // the loading beat tracks the real sprite set instead
-                        // of snapping to 100%: cold starts take honest seconds,
-                        // warm starts pass quickly. Audio stays streamed.
-                        let mut handles = vec![
+                        let handles = vec![
                             asset_server
                                 .load::<Font>("fonts/Silkscreen-Regular.ttf")
                                 .untyped(),
                             asset_server.load::<Font>("fonts/default.ttf").untyped(),
                         ];
-                        if let Ok(entries) = std::fs::read_dir("assets/images") {
-                            for entry in entries.flatten() {
-                                if let Ok(name) = entry.file_name().into_string()
-                                    && name.ends_with(".png")
-                                {
-                                    handles.push(
-                                        asset_server
-                                            .load::<Image>(format!("images/{name}"))
-                                            .untyped(),
-                                    );
-                                }
-                            }
-                        }
                         c.insert_resource(AssetsLoading(handles));
                         progress.0 = 0.0;
 
@@ -63,6 +46,7 @@ struct LoadingTimer(Timer);
 
 fn tick_loading(
     time: Res<Time<Real>>,
+    mut next_state: ResMut<NextState<AppState>>,
     mut tr: ResMut<Transition<AppState>>,
     asset_server: Res<AssetServer>,
     timer: Option<ResMut<LoadingTimer>>,
@@ -81,6 +65,13 @@ fn tick_loading(
     tip.0 = format!("GENERATING... {}%", (prog * 100.0).round() as u32);
 
     if prog >= 1.0 && timer.0.tick(time.delta()).just_finished() {
-        tr.begin_to_state_with_speed(AppState::InGame, TransitionKind::Fade, 32.0);
+        tr.active = false;
+        tr.phase = TransitionPhase::Idle;
+        tr.progress = 0.0;
+        tr.overlay_alpha = 0.0;
+        tr.circle_progress = 0.0;
+        tr.block_input = false;
+        tr.pending_state = None;
+        next_state.set(AppState::InGame);
     }
 }
