@@ -653,13 +653,34 @@ pub struct ShellBonus {
     pub bonus: i32,
 }
 
+/// GML FlameShell/Step_0: unlike the rest of the shell family it has no
+/// fade anim and is destroyed outright once speed drops under 5 px/step
+/// (Destroy spawns the Flame). Marker for the slow-death branch of
+/// `tick_bullet2_fade`.
 #[derive(Component, Clone, Copy, Debug)]
-pub struct ShellWallBounce(pub f32);
+pub struct FlameShellSlowDeath;
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ShellWallBounce {
+    /// GML `wallbounce` in px/step: re-added to speed after the 0.8 cut.
+    pub add: f32,
+    /// GML speed cap in px/s (Bullet2 16, Slug/EBullet3 18).
+    pub cap: f32,
+    /// GML per-bounce decay (Bullet2 0.95, Slug/EBullet3 0.9).
+    pub decay: f32,
+    /// GML wall bonus re-arm: Some((threshold, amount)). Bullet2-class
+    /// re-arms while wallbounce > 0, HeavySlug only while > 2, Slug and
+    /// enemy shells never.
+    pub rearm: Option<(f32, i32)>,
+}
 
 /// GML Slash/Shank projectile state (melee weapons fire real projectiles,
 /// not hitscan). `typ`: 0 = nothing, 1 = deflectable, 2 = destructible.
 /// `shank` passes through walls (screwdriver). `walled` latches after first
-/// wall hit so MeleeHitWall + shake + sound fire once.
+/// wall hit so MeleeHitWall + shake + sound fire once. `reach`/`back`/
+/// `half_width` describe the oriented hitbox: GML sprites carry their origin
+/// (e.g. sprSlash xorigin 0 = arc extends 48px forward), so hits must be
+/// tested against the forward segment, not a circle at the entity.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct SlashProjectile {
     pub typ: u8,
@@ -671,6 +692,9 @@ pub struct SlashProjectile {
     pub blood: bool,
     pub lightning: bool,
     pub hammer_wallbreak: bool,
+    pub reach: f32,
+    pub back: f32,
+    pub half_width: f32,
 }
 
 /// GML Disc revert: team becomes neutral after leaving creator radius,

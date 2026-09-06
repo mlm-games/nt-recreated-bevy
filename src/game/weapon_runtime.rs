@@ -275,7 +275,13 @@ pub struct MeleeProjectileSpec {
 }
 
 pub fn melee_projectile_spec(weapon_name: &str) -> MeleeProjectileSpec {
-    match base_weapon_name(weapon_name) {
+    // NOTE: base_weapon_name strips ULTRA, so match the full name first.
+    let key = if weapon_name.starts_with("ULTRA ") {
+        weapon_name
+    } else {
+        base_weapon_name(weapon_name)
+    };
+    match key {
         "WRENCH" => MeleeProjectileSpec {
             sprite: "images/sprSlash.png",
             speed_f: 2.0,
@@ -1747,7 +1753,9 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 8,
                 1,
                 340.0,
-                0.65,
+                // GML FlakBullet has no lifetime: friction slows it to a
+                // stop, then it splits. Long cap here; stop-detonate governs.
+                1.2,
                 0.07,
                 10.0,
                 7.0,
@@ -1776,7 +1784,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 10,
                 1,
                 360.0,
-                0.7,
+                1.2,
                 0.05,
                 12.0,
                 8.0,

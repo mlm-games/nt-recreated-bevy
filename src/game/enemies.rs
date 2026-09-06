@@ -2133,7 +2133,13 @@ fn fire_enemy_shell(
         Velocity(sdir * speed),
         ProjectileFriction(0.6),
         BouncesLeft(255),
-        ShellWallBounce(0.0),
+        // GML EnemyBullet3 wall: cap 18, decay 0.9, no bonus re-arm.
+        ShellWallBounce {
+            add: 0.0,
+            cap: 540.0,
+            decay: 0.9,
+            rearm: None,
+        },
         ProjectileTyp(1),
         ProjectileFade("images/sprEBullet3Disappear.png"),
         sprite,
@@ -2285,7 +2291,13 @@ fn finish_enemy_bullet(ec: &mut EntityCommands, kind: EnemyKind) {
     ) {
         ec.insert(ProjectileFriction(0.6));
         ec.insert(BouncesLeft(255));
-        ec.insert(ShellWallBounce(0.0));
+        // GML EnemyBullet3 wall: cap 18, decay 0.9, no bonus re-arm.
+        ec.insert(ShellWallBounce {
+            add: 0.0,
+            cap: 540.0,
+            decay: 0.9,
+            rearm: None,
+        });
     }
 }
 

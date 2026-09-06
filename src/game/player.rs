@@ -1725,6 +1725,19 @@ fn melee_attack(
         };
         catalog.require(path);
         let (spr, anim_opt) = crate::game::anim::sprite_anim(catalog, asset_server, path);
+        // GML melee hitboxes come from the collision MASK, not the visible
+        // sprite: every Slash-family object keeps mask mskSlash (64x48,
+        // origin 16,24 -> 47 fwd / 16 back / 24 half) even when sprite_index
+        // changes, except black-sword mega (mskMegaSlash 96x72 origin 24,36).
+        // Shank/EnergyShank have no mask, so they use their own sprite bbox
+        // (L1 R31 T3 B12 of 32x16, origin -5,8 -> 36 fwd from 6px ahead).
+        let (slash_reach, slash_back, slash_half) = if mega {
+            (71.0, 24.0, 36.0)
+        } else if spec.shank {
+            (36.0, -6.0, 5.0)
+        } else {
+            (47.0, 16.0, 24.0)
+        };
         let life_secs = anim_opt
             .as_ref()
             .map(|a| a.def.frames as f32 / a.def.fps.max(1.0))
@@ -1756,6 +1769,10 @@ fn melee_attack(
                 blood: spec.blood,
                 lightning: spec.lightning,
                 hammer_wallbreak: spec.hammer_wallbreak,
+                // GML mask hitbox, computed above.
+                reach: slash_reach,
+                back: slash_back,
+                half_width: slash_half,
             },
             spr,
             crate::game::content::sprite_anchor(catalog, path),
@@ -1909,6 +1926,59 @@ pub fn spawn_player_projectile_with_source(
     weapon: Option<WeaponId>,
 ) {
     let angle = dir.y.atan2(dir.x);
+    // GML shell stats follow the PROJECTILE object, not the ammo type:
+    // pop gun fires Bullet2, sluggers fire Slug variants, ultra shotgun
+    // fires UltraShell, flak fires FlakBullet (no bounce, bonus 2).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ShellKind {
+        Bullet2,
+        Slug,
+        HeavySlug,
+        HyperSlug,
+        UltraShell,
+        FlameShell,
+        Flak,
+    }
+    let shell_kind: Option<ShellKind> = weapon.and_then(|w| {
+        let base =
+            crate::game::weapon_runtime::base_weapon_name(crate::game::content::weapon_id_name(w));
+        // NOTE: base_weapon_name strips ULTRA/GOLDEN prefixes, so match the
+        // full name for the ultra shotgun.
+        let full = crate::game::content::weapon_id_name(w);
+        if split.is_some() && crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+            return Some(ShellKind::Flak);
+        }
+        if base.contains("HYPER SLUGGER") {
+            return Some(ShellKind::HyperSlug);
+        }
+        if base.contains("HEAVY SLUGGER") {
+            return Some(ShellKind::HeavySlug);
+        }
+        if base.contains("SLUGGER") {
+            return Some(ShellKind::Slug);
+        }
+        if full == "ULTRA SHOTGUN" {
+            return Some(ShellKind::UltraShell);
+        }
+        if base.contains("FLAME SHOTGUN") {
+            return Some(ShellKind::FlameShell);
+        }
+        if base.contains("POP GUN") {
+            return Some(ShellKind::Bullet2);
+        }
+        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+            return Some(ShellKind::Bullet2);
+        }
+        None
+    });
+    // GML shotgun pellets (Bullet2/Slug/UltraShell) have no lifetime: they
+    // fly until friction slows them under speed 6, then fade out. A short
+    // life cap would kill them at full speed before they ever slow down.
+    let lifetime = if shell_kind.is_some_and(|k| k != ShellKind::Flak) {
+        lifetime.max(4.0)
+    } else {
+        lifetime
+    };
     let (sprite, anchor, anim_opt) =
         if let (Some(cat), Some(srv), Some(w)) = (catalog, asset_server, weapon) {
             let candidates = projectile_art::player_projectile_candidates(w);
@@ -1969,18 +2039,139 @@ pub fn spawn_player_projectile_with_source(
         ec.insert(anim);
     }
 
+    #[derive(Clone, Copy)]
+    struct ShellStats {
+        friction: f32,
+        fade: Option<&'static str>,
+        base: f32,
+        shoulders: f32,
+        cap: f32,
+        decay: f32,
+        bonus: i32,
+        rearm: Option<(f32, i32)>,
+        flak: bool,
+    }
+    let shell_stats: Option<ShellStats> = match shell_kind {
+        None => None,
+        // GML FlakBullet: friction 0.4, pointblank bonus 2, never bounces.
+        // SuperFlakBullet fades via sprSuperFlakHit, plain flak is silent.
+        Some(ShellKind::Flak) => {
+            let super_flak = weapon.is_some_and(|w| {
+                crate::game::content::weapon_id_name(w).contains("SUPER FLAK")
+            });
+            Some(ShellStats {
+                friction: 0.4,
+                fade: super_flak.then_some("images/sprSuperFlakHit.png"),
+                base: 0.0,
+                shoulders: 0.0,
+                cap: 480.0,
+                decay: 0.95,
+                bonus: 2,
+                rearm: None,
+                flak: true,
+            })
+        }
+        Some(ShellKind::Bullet2) => Some(ShellStats {
+            friction: 0.6,
+            fade: Some("images/sprBullet2Disappear.png"),
+            base: 0.0,
+            shoulders: 5.0,
+            cap: 480.0,
+            decay: 0.95,
+            bonus: 1,
+            rearm: Some((0.0, 1)),
+            flak: false,
+        }),
+        Some(ShellKind::Slug) => Some(ShellStats {
+            friction: 0.8,
+            // GML Slug/Step_0 slows into sprSlugDisappear (sprSlugHit is the
+            // wall/hit burst FX, not the slow fade).
+            fade: Some("images/sprSlugDisappear.png"),
+            base: 0.0,
+            shoulders: 4.0,
+            cap: 540.0,
+            decay: 0.9,
+            bonus: 2,
+            rearm: None,
+            flak: false,
+        }),
+        Some(ShellKind::HeavySlug) => Some(ShellStats {
+            friction: 1.0,
+            fade: Some("images/sprHeavySlugDisappear.png"),
+            base: 2.0,
+            shoulders: 6.0,
+            cap: 480.0,
+            decay: 0.95,
+            // GML HeavySlug starts with bonus 0; wallbounce > 2 re-arms 10.
+            bonus: 0,
+            rearm: Some((2.0, 10)),
+            flak: false,
+        }),
+        Some(ShellKind::HyperSlug) => Some(ShellStats {
+            friction: 0.8,
+            // GML HyperSlug/Step_0 slows into sprSlugDisappear.
+            fade: Some("images/sprSlugDisappear.png"),
+            base: 0.0,
+            shoulders: 5.0,
+            cap: 480.0,
+            decay: 0.95,
+            bonus: 2,
+            rearm: Some((0.0, 2)),
+            flak: false,
+        }),
+        Some(ShellKind::UltraShell) => Some(ShellStats {
+            friction: 0.3,
+            fade: Some("images/sprUltraShellDisappear.png"),
+            base: 0.0,
+            shoulders: 0.0,
+            cap: 480.0,
+            decay: 0.95,
+            bonus: 2,
+            // Inherits Bullet2's wall event (re-arm while wallbounce > 0).
+            rearm: Some((0.0, 2)),
+            flak: false,
+        }),
+        Some(ShellKind::FlameShell) => Some(ShellStats {
+            friction: 0.6,
+            // GML FlameShell/Step_0 destroys outright under speed 5 with no
+            // fade anim; see FlameShellSlowDeath.
+            fade: None,
+            base: 0.0,
+            shoulders: 1.0,
+            cap: 480.0,
+            decay: 0.95,
+            bonus: 1,
+            rearm: Some((0.0, 1)),
+            flak: false,
+        }),
+    };
+
+    if shell_kind == Some(ShellKind::FlameShell) {
+        ec.insert(FlameShellSlowDeath);
+    }
     if bounces > 0 {
         ec.insert(BouncesLeft(bounces));
-        if let Some(w) = weapon {
-            if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
-                ec.insert(ShellWallBounce(5.0));
-            }
+        if let Some(st) = shell_stats
+            && !st.flak
+        {
+            ec.insert(ShellWallBounce {
+                add: st.shoulders,
+                cap: st.cap,
+                decay: st.decay,
+                rearm: st.rearm,
+            });
         }
     } else if let Some(w) = weapon {
-        let is_flak = split.is_some() && crate::game::content::weapon_ammo(w) == AmmoKind::Shells;
-        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells && !is_flak {
+        if shell_kind == Some(ShellKind::Flak) {
+            // GML FlakBullet never bounces (dies on wall + splits).
+        } else if let Some(st) = shell_stats {
             ec.insert(BouncesLeft(255));
-            ec.insert(ShellWallBounce(0.0));
+            ec.insert(ShellWallBounce {
+                add: st.base,
+                cap: st.cap,
+                decay: st.decay,
+                rearm: st.rearm,
+            });
         }
         if crate::game::weapon_runtime::base_weapon_name(crate::game::content::weapon_id_name(w))
             .contains("BOUNCER")
@@ -2005,16 +2196,12 @@ pub fn spawn_player_projectile_with_source(
                 friction_switched: false,
                 alarm1: Timer::from_seconds(6.0 / 30.0, TimerMode::Once),
             });
-        } else if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
-            if split.is_some() {
-                ec.insert(ProjectileFriction(0.4));
-            } else {
-                ec.insert(ProjectileFriction(0.6));
-                ec.insert(ShellBonus {
-                    timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
-                    bonus: 1,
-                });
-            }
+        } else if let Some(st) = shell_stats {
+            ec.insert(ProjectileFriction(st.friction));
+            ec.insert(ShellBonus {
+                timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                bonus: st.bonus,
+            });
         }
     }
     if pierce > 0 || archetype.chain_lightning.is_some() {
@@ -2093,14 +2280,11 @@ pub fn spawn_player_projectile_with_source(
     }
 
     let fade: Option<ProjectileFade> = (|| {
+        if let Some(st) = shell_stats {
+            return st.fade.map(ProjectileFade);
+        }
         let w = weapon?;
         let ammo = crate::game::content::weapon_ammo(w);
-        if ammo == AmmoKind::Shells {
-            if split.is_some() {
-                return None;
-            }
-            return Some(ProjectileFade("images/sprBullet2Disappear.png"));
-        }
         if ammo != AmmoKind::Bullets {
             return None;
         }
@@ -2896,5 +3080,191 @@ mod steroids_dual_tests {
         let b_secondary = steroids_secondary_slot(b_primary, 2);
         assert_eq!(a_primary, b_secondary);
         assert_eq!(a_secondary, b_primary);
+    }
+}
+
+#[cfg(test)]
+mod shell_spawn_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn spawn_shell(weapon: WeaponId, split: Option<SplitDef>) -> World {
+        let mut world = World::new();
+        world.run_system_once(
+            move |mut commands: Commands| {
+                spawn_player_projectile_with_source(
+                    &mut commands,
+                    None,
+                    None,
+                    Vec2::ZERO,
+                    Vec2::X,
+                    410.0,
+                    2,
+                    0.34,
+                    3.5,
+                    28.0,
+                    false,
+                    Color::WHITE,
+                    Vec2::new(8.0, 3.0),
+                    0,
+                    0,
+                    None,
+                    split,
+                    ProjectileArchetype::default(),
+                    None,
+                    Some(weapon),
+                );
+            },
+        );
+        world
+    }
+
+    fn get_friction(world: &mut World) -> f32 {
+        world
+            .query::<&ProjectileFriction>()
+            .iter(world)
+            .next()
+            .expect("shell must have GML friction")
+            .0
+    }
+
+    #[test]
+    fn shotgun_pellets_slow_down_and_fade() {
+        let mut world = spawn_shell(WeaponId::SHOTGUN, None);
+        assert!((get_friction(&mut world) - 0.6).abs() < 1e-6);
+        let proj = world
+            .query::<&Projectile>()
+            .iter(&world)
+            .next()
+            .unwrap();
+        // GML Bullet2 has no lifetime: fade-out must govern, not a 0.34s cap.
+        assert!((proj.life.duration().as_secs_f32() - 4.0).abs() < 1e-6);
+        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        assert_eq!(fade.0, "images/sprBullet2Disappear.png");
+        let typ = world.query::<&ProjectileTyp>().iter(&world).next().unwrap();
+        assert_eq!(typ.0, 1);
+        assert!(world.query::<&BouncesLeft>().iter(&world).next().is_some());
+        let wb = world
+            .query::<&ShellWallBounce>()
+            .iter(&world)
+            .next()
+            .unwrap();
+        assert!((wb.cap - 480.0).abs() < 1e-6);
+        assert!((wb.decay - 0.95).abs() < 1e-6);
+        let bonus = world.query::<&ShellBonus>().iter(&world).next().unwrap();
+        assert_eq!(bonus.bonus, 1);
+    }
+
+    #[test]
+    fn pop_gun_fires_real_shells() {
+        // GML pop gun fires Bullet2 despite using bullet ammo: it must slow
+        // down, bounce and fade like shotgun pellets.
+        let mut world = spawn_shell(WeaponId(69), None);
+        assert!((get_friction(&mut world) - 0.6).abs() < 1e-6);
+        assert!(world.query::<&BouncesLeft>().iter(&world).next().is_some());
+        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        assert_eq!(fade.0, "images/sprBullet2Disappear.png");
+    }
+
+    #[test]
+    fn slugger_uses_slug_stats() {
+        let mut world = spawn_shell(WeaponId(21), None);
+        assert!((get_friction(&mut world) - 0.8).abs() < 1e-6);
+        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        assert_eq!(fade.0, "images/sprSlugDisappear.png");
+        let wb = world
+            .query::<&ShellWallBounce>()
+            .iter(&world)
+            .next()
+            .unwrap();
+        assert!((wb.cap - 540.0).abs() < 1e-6);
+        assert!((wb.decay - 0.9).abs() < 1e-6);
+        let bonus = world.query::<&ShellBonus>().iter(&world).next().unwrap();
+        assert_eq!(bonus.bonus, 2);
+    }
+
+    #[test]
+    fn hyper_slugger_slows_into_slug_disappear() {
+        let mut world = spawn_shell(WeaponId(118), None);
+        assert!((get_friction(&mut world) - 0.8).abs() < 1e-6);
+        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        assert_eq!(fade.0, "images/sprSlugDisappear.png");
+    }
+
+    #[test]
+    fn flame_shell_has_no_fade_and_dies_slow() {
+        let mut world = spawn_shell(WeaponId(75), None);
+        assert!((get_friction(&mut world) - 0.6).abs() < 1e-6);
+        assert!(
+            world
+                .query::<&ProjectileFade>()
+                .iter(&world)
+                .next()
+                .is_none()
+        );
+        assert!(
+            world
+                .query::<&FlameShellSlowDeath>()
+                .iter(&world)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn two_frame_shells_carry_no_anim_until_fade() {
+        // GML 2-frame shells still swap sprite_index on slowdown, so the
+        // fade system must handle pellets with no SpriteAnim (regression:
+        // every shell lived out the full 4s backstop).
+        let mut world = spawn_shell(WeaponId(5), None);
+        assert!(
+            world
+                .query::<&crate::game::anim::SpriteAnim>()
+                .iter(&world)
+                .next()
+                .is_none()
+        );
+    }
+    #[test]
+    fn ultra_shotgun_uses_ultrashell_stats() {
+        let mut world = spawn_shell(WeaponId(93), None);
+        assert!((get_friction(&mut world) - 0.3).abs() < 1e-6);
+        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        assert_eq!(fade.0, "images/sprUltraShellDisappear.png");
+    }
+
+    #[test]
+    fn flak_never_bounces_and_keeps_bonus() {
+        let split = SplitDef {
+            pellets: 16,
+            spread: std::f32::consts::PI,
+            speed: 420.0,
+            damage: 3,
+            lifetime: 0.32,
+            radius: 3.0,
+            knockback: 50.0,
+            color: Color::WHITE,
+            size: Vec2::new(8.0, 3.0),
+        };
+        let mut world = spawn_shell(WeaponId(38), Some(split));
+        assert!((get_friction(&mut world) - 0.4).abs() < 1e-6);
+        assert!(world.query::<&BouncesLeft>().iter(&world).next().is_none());
+        assert!(world.query::<&ProjectileFade>().iter(&world).next().is_none());
+        let bonus = world.query::<&ShellBonus>().iter(&world).next().unwrap();
+        assert_eq!(bonus.bonus, 2);
+    }
+
+    #[test]
+    fn gml_friction_slows_pellets_to_fade_speed() {
+        let mut vel = Vec2::X * 410.0;
+        let dt = 1.0 / 30.0;
+        for _ in 0..13 {
+            crate::game::components::apply_gml_friction(&mut vel, 0.6, dt);
+        }
+        assert!(vel.length() < 180.0, "pellets must reach fade speed");
+        for _ in 0..60 {
+            crate::game::components::apply_gml_friction(&mut vel, 0.6, dt);
+        }
+        assert_eq!(vel, Vec2::ZERO);
     }
 }

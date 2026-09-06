@@ -294,14 +294,26 @@ pub fn tick_projectile_friction(
     }
 }
 
-/// GML Bullet2/Step_0: image_angle = direction; if speed < 6 and sprite !=
-/// spr_fade, switch to sprBullet2Disappear (0.4fps). This is why shotgun
-/// pellets visually vanish after travelling instead of flying bright.
+/// GML shell slowdown deaths: Bullet2/Slug/HeavySlug/HyperSlug/UltraShell
+/// swap to their `spr_fade` at speed < 6 px/step and Other_7 destroys the
+/// instance when the fade anim ends, so shorten life to the fade length.
+/// GML 2-frame shells carry no anim state, so spawn the fade anim here.
+/// FlameShell instead dies outright under 5 px/step with no fade (its
+/// Destroy spawns the Flame, handled by the normal life-end path).
 pub fn tick_bullet2_fade(
+    mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut q: Query<
-        (&Velocity, &mut Sprite, &mut SpriteAnim, &Projectile),
+        (
+            Entity,
+            &Velocity,
+            &mut Sprite,
+            Option<&mut SpriteAnim>,
+            &mut Projectile,
+            Option<&ProjectileFade>,
+            Option<&FlameShellSlowDeath>,
+        ),
         (
             With<Projectile>,
             With<ShellWallBounce>,
@@ -309,18 +321,34 @@ pub fn tick_bullet2_fade(
         ),
     >,
 ) {
-    for (vel, mut sprite, mut anim, _proj) in &mut q {
+    for (e, vel, mut sprite, anim_opt, mut proj, fade, flame) in &mut q {
+        if flame.is_some() {
+            if vel.0.length() < 150.0 {
+                proj.life = Timer::from_seconds(0.0, TimerMode::Once);
+            }
+            continue;
+        }
         if vel.0.length() >= 180.0 {
             continue;
         }
-        let fade_path = "images/sprBullet2Disappear.png";
-        if anim.path == fade_path || !catalog.has(fade_path) {
+        let Some(fade_path) = fade.map(|f| f.0) else {
+            continue;
+        };
+        if anim_opt.as_ref().is_some_and(|a| a.path == fade_path) || !catalog.has(fade_path) {
             continue;
         }
         if let Some(def) = catalog.anim_def(fade_path) {
-            anim.set_path(fade_path, def, false);
+            let fade_len = def.frames as f32 / def.fps.max(1.0);
             sprite.image = asset_server.load(fade_path.to_string());
-            sprite.rect = Some(anim.rect());
+            if let Some(mut anim) = anim_opt {
+                anim.set_path(fade_path, def, false);
+                sprite.rect = Some(anim.rect());
+            } else {
+                let anim = SpriteAnim::new(fade_path, def);
+                sprite.rect = Some(anim.rect());
+                commands.entity(e).insert(anim);
+            }
+            proj.life = Timer::from_seconds(fade_len.max(0.1), TimerMode::Once);
         }
     }
 }
@@ -409,6 +437,47 @@ pub fn tick_hit_effects(
 /// MeleeHitWall + shake damage/3 once, deflects enemy bullets (typ 1),
 /// destroys typ 2 / redirects grenades, Blood/Lightning/Hammer extras.
 /// Life end = anim end (Other_7 destroy); BloodSlash misses self-hit 1.
+/// GML slash hitbox: oriented sprite bbox, not a circle. True when circle
+/// (c, r) touches the forward segment, padded by the sprite half-height.
+fn slash_touches(
+    pos: Vec2,
+    dir: Vec2,
+    reach: f32,
+    back: f32,
+    half_width: f32,
+    c: Vec2,
+    r: f32,
+) -> bool {
+    let rel = c - pos;
+    let along = rel.dot(dir);
+    if along < -back - r || along > reach + r {
+        return false;
+    }
+    let side = (rel - dir * along).length();
+    side <= half_width + r
+}
+
+/// Segment-vs-AABB variant for props/walls: closest point on the slash
+/// segment to the box center must land inside the padded box.
+#[allow(clippy::too_many_arguments)]
+fn slash_hits_aabb(
+    pos: Vec2,
+    dir: Vec2,
+    reach: f32,
+    back: f32,
+    half_width: f32,
+    center: Vec2,
+    half: Vec2,
+) -> bool {
+    let a = pos - dir * back;
+    let b = pos + dir * reach;
+    let ab = b - a;
+    let t = ((center - a).dot(ab) / ab.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    let closest = a + ab * t;
+    (closest.x - center.x).abs() <= half.x + half_width
+        && (closest.y - center.y).abs() <= half.y + half_width
+}
+
 #[allow(clippy::type_complexity)]
 pub fn tick_slash_projectiles(
     time: Res<Time<Fixed>>,
@@ -512,7 +581,15 @@ pub fn tick_slash_projectiles(
                 continue;
             }
             let ppos = ptf.translation.truncate();
-            if pos.distance(ppos) > proj.radius + pproj.radius + 6.0 {
+            if !slash_touches(
+                pos,
+                slash_dir,
+                slash.reach,
+                slash.back,
+                slash.half_width,
+                ppos,
+                pproj.radius,
+            ) {
                 continue;
             }
             if slash.shank || typ == 2 {
@@ -585,7 +662,15 @@ pub fn tick_slash_projectiles(
                 continue;
             }
             let epos = etf.translation.truncate();
-            if pos.distance(epos) > proj.radius + ebox.radius {
+            if !slash_touches(
+                pos,
+                slash_dir,
+                slash.reach,
+                slash.back,
+                slash.half_width,
+                epos,
+                ebox.radius,
+            ) {
                 continue;
             }
             ehealth.hp -= proj.damage;
@@ -650,11 +735,15 @@ pub fn tick_slash_projectiles(
             }
             let center = ptf.translation.truncate();
             let half = prop.size * 0.5;
-            let closest = Vec2::new(
-                pos.x.clamp(center.x - half.x, center.x + half.x),
-                pos.y.clamp(center.y - half.y, center.y + half.y),
-            );
-            if pos.distance(closest) > proj.radius {
+            if !slash_hits_aabb(
+                pos,
+                slash_dir,
+                slash.reach,
+                slash.back,
+                slash.half_width,
+                center,
+                half,
+            ) {
                 continue;
             }
             prop.hp -= proj.damage.max(1);
@@ -695,14 +784,19 @@ pub fn tick_slash_projectiles(
             for (we, _cell, wtf) in &walls {
                 let wpos = wtf.translation.truncate();
                 let half = Vec2::splat(8.0);
-                let closest = Vec2::new(
-                    pos.x.clamp(wpos.x - half.x, wpos.x + half.x),
-                    pos.y.clamp(wpos.y - half.y, wpos.y + half.y),
-                );
-                if pos.distance(closest) < proj.radius {
-                    wall_hit = Some((we, wpos, slash_ang));
-                    break;
+                if !slash_hits_aabb(
+                    pos,
+                    slash_dir,
+                    slash.reach,
+                    slash.back,
+                    slash.half_width,
+                    wpos,
+                    half,
+                ) {
+                    continue;
                 }
+                wall_hit = Some((we, wpos, slash_ang));
+                break;
             }
             if wall_hit.is_none() && (pos.x.abs() > ARENA_W / 2.0 || pos.y.abs() > ARENA_H / 2.0) {
                 wall_hit = Some((Entity::PLACEHOLDER, pos, slash_ang));
@@ -910,7 +1004,7 @@ pub fn move_projectiles(
         Query<&mut PlasmaSize>,
         Query<&ProjectileFade>,
         Query<&SpriteAnim>,
-        Query<&ShellBonus>,
+        Query<&mut ShellBonus>,
     )>,
     mut props: Query<
         (
@@ -1254,17 +1348,23 @@ pub fn move_projectiles(
                 let mut bounced =
                     crate::game::projectile_math::bounce_velocity(vel.0, normal) * factor;
                 if let Some(mut wb) = shell_bounce {
-                    let add = wb.0;
+                    // GML shell wall: speed*0.8 (in `factor`) + wallbounce,
+                    // capped, then wallbounce decays. HeavySlug re-arms its
+                    // pointblank bonus while wallbounce > 2.
                     let sp = bounced.length();
-                    let new_sp = if sp + add * 30.0 > 16.0 * 30.0 {
-                        16.0 * 30.0
-                    } else {
-                        sp + add * 30.0
-                    };
+                    let add = wb.add * 30.0;
+                    let new_sp = if sp + add > wb.cap { wb.cap } else { sp + add };
                     if sp > 0.001 {
                         bounced = bounced.normalize() * new_sp;
                     }
-                    wb.0 *= 0.95;
+                    if let Some((threshold, amount)) = wb.rearm
+                        && wb.add > threshold
+                        && let Ok(mut b) = aux.p4().get_mut(e)
+                    {
+                        b.bonus = amount;
+                        b.timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                    }
+                    wb.add *= wb.decay;
                 }
                 vel.0 = bounced;
                 tf.rotation = Quat::from_rotation_z(vel.0.y.atan2(vel.0.x));
@@ -1483,7 +1583,12 @@ fn spawn_split_projectiles(
             Velocity(dir * split.speed),
             ProjectileFriction(0.6),
             BouncesLeft(255),
-            ShellWallBounce(0.0),
+            ShellWallBounce {
+                add: 0.0,
+                cap: 480.0,
+                decay: 0.95,
+                rearm: None,
+            },
             ShellBonus {
                 timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
                 bonus: 1,
