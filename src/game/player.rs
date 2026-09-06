@@ -1978,7 +1978,8 @@ pub fn spawn_player_projectile_with_source(
             }
         }
     } else if let Some(w) = weapon {
-        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+        let is_flak = split.is_some() && crate::game::content::weapon_ammo(w) == AmmoKind::Shells;
+        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells && !is_flak {
             ec.insert(BouncesLeft(255));
             ec.insert(ShellWallBounce(0.0));
         }
@@ -2006,11 +2007,15 @@ pub fn spawn_player_projectile_with_source(
                 alarm1: Timer::from_seconds(6.0 / 30.0, TimerMode::Once),
             });
         } else if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
-            ec.insert(ProjectileFriction(0.6));
-            ec.insert(ShellBonus {
-                timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
-                bonus: 1,
-            });
+            if split.is_some() {
+                ec.insert(ProjectileFriction(0.4));
+            } else {
+                ec.insert(ProjectileFriction(0.6));
+                ec.insert(ShellBonus {
+                    timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                    bonus: 1,
+                });
+            }
         }
     }
     if pierce > 0 || archetype.chain_lightning.is_some() {
@@ -2077,6 +2082,29 @@ pub fn spawn_player_projectile_with_source(
         ec.insert(HitsAllTeams);
 
         ec.insert(SpawnGrace(Timer::from_seconds(2.0 / 30.0, TimerMode::Once)));
+    }
+
+    let fade: Option<ProjectileFade> = (|| {
+        let w = weapon?;
+        let ammo = crate::game::content::weapon_ammo(w);
+        if ammo == AmmoKind::Shells {
+            if split.is_some() {
+                return None;
+            }
+            return Some(ProjectileFade("images/sprBullet2Disappear.png"));
+        }
+        if ammo != AmmoKind::Bullets {
+            return None;
+        }
+        let base =
+            crate::game::weapon_runtime::base_weapon_name(crate::game::content::weapon_id_name(w));
+        if base.contains("DISC") {
+            return None;
+        }
+        Some(ProjectileFade("images/sprBulletHit.png"))
+    })();
+    if let Some(f) = fade {
+        ec.insert(f);
     }
 
     let e = ec.id();

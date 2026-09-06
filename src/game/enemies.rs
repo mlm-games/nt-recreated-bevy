@@ -2109,6 +2109,20 @@ fn fire_enemy_bullet(
     if let Some(a) = anim {
         ec.insert(a);
     }
+    if !explosive_kind(enemy.kind) {
+        let bullet_path = crate::game::projectile_art::enemy_projectile_path(enemy.kind);
+        let fade_path = if bullet_path.contains("Scorpion") {
+            "images/sprScorpionBulletHit.png"
+        } else if bullet_path.contains("IDPD") {
+            "images/sprIDPDBulletHit.png"
+        } else {
+            "images/sprEnemyBulletHit.png"
+        };
+        ec.insert(ProjectileFade(fade_path));
+    }
+    if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+        ec.insert(ProjectileFriction(0.6));
+    }
 }
 
 fn explosive_kind(kind: EnemyKind) -> bool {
@@ -2162,6 +2176,20 @@ fn fire_enemy_shot(
         ));
         if let Some(a) = anim {
             ec.insert(a);
+        }
+        if !explosive_kind(enemy.kind) {
+            let bullet_path = crate::game::projectile_art::enemy_projectile_path(enemy.kind);
+            let fade_path = if bullet_path.contains("Scorpion") {
+                "images/sprScorpionBulletHit.png"
+            } else if bullet_path.contains("IDPD") {
+                "images/sprIDPDBulletHit.png"
+            } else {
+                "images/sprEnemyBulletHit.png"
+            };
+            ec.insert(ProjectileFade(fade_path));
+        }
+        if matches!(enemy.kind, EnemyKind::Scorpion | EnemyKind::GoldScorpion) {
+            ec.insert(ProjectileFriction(0.6));
         }
     }
 }

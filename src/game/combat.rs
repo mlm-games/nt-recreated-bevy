@@ -727,6 +727,109 @@ fn distance_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     p.distance(closest)
 }
 
+/// GML hitme-style damage to a destructible prop (cactus, barrel, ...).
+/// Bullets/shells/bolts/plasma/grenades use check_inframes=false (no gate);
+/// pass nexthurt_window=Some(frame+5) only for Disc (check_inframes=true).
+#[allow(clippy::too_many_arguments)]
+fn damage_destructible_prop(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    props: &mut Query<
+        (
+            Entity,
+            &mut Prop,
+            &Transform,
+            Option<&PropDeathEffect>,
+            Option<&PropSprites>,
+            Option<&mut NextHurt>,
+        ),
+        With<Prop>,
+    >,
+    entrances: &Query<&SecretEntrance>,
+    snowmen: &Query<&SnowmanAmbush>,
+    gold_barrels: &Query<&GoldBarrelDrop>,
+    rad_chests: &Query<&RadChestContainer>,
+    secrets: &mut SecretTriggers,
+    audio: &GameAudio,
+    prop_e: Entity,
+    center: Vec2,
+    damage: i32,
+    source: Option<DamageSource>,
+    nexthurt_window: Option<u64>,
+) {
+    let mut dead = false;
+    let mut legacy_explosive = false;
+    let mut death_copy: Option<PropDeathEffect> = None;
+    let mut sprites_copy: Option<PropSprites> = None;
+    if let Ok((_, mut prop, _, de, sprites, nexthurt)) = props.get_mut(prop_e) {
+        prop.hp -= damage.max(1);
+        if let Some(window) = nexthurt_window
+            && let Some(mut nh) = nexthurt
+        {
+            nh.0 = window;
+        }
+        if prop.hp <= 0 {
+            dead = true;
+        }
+        audio.play_hit(commands);
+        legacy_explosive = prop.explosive;
+        death_copy = de.copied();
+        sprites_copy = sprites.copied();
+    }
+    if !dead {
+        return;
+    }
+    if let Some(ps) = sprites_copy {
+        spawn_prop_corpse(commands, catalog, asset_server, center, &ps);
+    }
+    spawn_prop_death_effect(commands, center, death_copy, legacy_explosive, source);
+    commands.entity(prop_e).try_despawn();
+    if let Ok(entrance) = entrances.get(prop_e) {
+        secrets.queue(entrance.target);
+    }
+    if snowmen.get(prop_e).is_ok() {
+        let mut rng = rand::rng();
+        for _ in 0..3 {
+            commands.spawn(PendingEnemySpawn {
+                kind: EnemyKind::Bandit,
+                pos: center + Vec2::new(rng.random_range(-4.0..4.0), rng.random_range(-4.0..4.0)),
+                difficulty: 1.0,
+            });
+        }
+        for _ in 0..6 {
+            spawn_rad(commands, catalog, asset_server, center, 1);
+        }
+    }
+    if gold_barrels.get(prop_e).is_ok() {
+        let weapon = random_gold_weapon(&mut rand::rng());
+        spawn_pickup(
+            commands,
+            catalog,
+            asset_server,
+            PickupKind::Weapon(weapon),
+            center + Vec2::new(0.0, -14.0),
+            0,
+            false,
+        );
+    }
+    if rad_chests.get(prop_e).is_ok() {
+        for _ in 0..25 {
+            let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+            let d = rand::rng().random_range(6.0..26.0);
+            spawn_pickup(
+                commands,
+                catalog,
+                asset_server,
+                PickupKind::Rad(1),
+                center + Vec2::new(ang.cos() * d, ang.sin() * d),
+                0,
+                false,
+            );
+        }
+    }
+}
+
 pub fn move_projectiles(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
@@ -749,14 +852,16 @@ pub fn move_projectiles(
             Option<&SpawnsWeaponPickup>,
             Option<&PlasmaBurst>,
             Option<&crate::game::components::GrenadeFuse>,
-            Option<&ProjectileFade>,
-            Option<&SpriteAnim>,
         ),
         (Without<Prop>, Without<SlashProjectile>),
     >,
-    mut disc_q: Query<&mut DiscFlight>,
-    mut plasma_q: Query<&mut PlasmaSize>,
-    shell_bonus_q: Query<&ShellBonus>,
+    mut aux: ParamSet<(
+        Query<&mut DiscFlight>,
+        Query<&mut PlasmaSize>,
+        Query<&ProjectileFade>,
+        Query<&SpriteAnim>,
+        Query<&ShellBonus>,
+    )>,
     mut props: Query<
         (
             Entity,
@@ -794,12 +899,14 @@ pub fn move_projectiles(
         spawn_pickup_spec,
         plasma_burst,
         grenade_fuse,
-        fade,
-        anim,
     ) in &mut q
     {
         p.life.tick(time.delta());
-        let anim_path: Option<&str> = anim.as_ref().map(|a| a.path.as_str());
+        let fade = aux.p2().get(e).ok().copied();
+        let already_faded = match (fade, aux.p3().get(e).ok()) {
+            (Some(f), Some(a)) => a.path == f.0,
+            _ => false,
+        };
 
         if sticky.as_ref().is_some_and(|s| s.armed) {
             if p.life.just_finished() {
@@ -837,8 +944,8 @@ pub fn move_projectiles(
                         deploys_sentry.copied(),
                         spawn_pickup_spec.copied(),
                         plasma_burst.copied(),
-                        fade.copied(),
-                        anim_path,
+                        fade,
+                        already_faded,
                     );
                 }
                 commands.entity(e).despawn();
@@ -848,7 +955,30 @@ pub fn move_projectiles(
 
         tf.translation += (vel.0 * dt).extend(0.0);
         let pos = tf.translation.truncate();
-        if let Ok(mut d) = disc_q.get_mut(e) {
+        if split.is_some() && vel.0 == Vec2::ZERO {
+            on_projectile_removed(
+                &mut commands,
+                &catalog,
+                &asset_server,
+                pos,
+                *team,
+                p.source,
+                hazard.copied(),
+                split.copied(),
+                vel.0,
+                p.explosive,
+                p.damage,
+                custom_explosion.copied(),
+                deploys_sentry.copied(),
+                spawn_pickup_spec.copied(),
+                plasma_burst.copied(),
+                fade,
+                already_faded,
+            );
+            commands.entity(e).despawn();
+            continue;
+        }
+        if let Ok(mut d) = aux.p0().get_mut(e) {
             d.dist += dt * 30.0;
         }
         let out = pos.x.abs() > ARENA_W / 2.0 + 80.0 || pos.y.abs() > ARENA_H / 2.0 + 80.0;
@@ -870,8 +1000,8 @@ pub fn move_projectiles(
                 deploys_sentry.copied(),
                 spawn_pickup_spec.copied(),
                 plasma_burst.copied(),
-                fade.copied(),
-                anim_path,
+                fade,
+                already_faded,
             );
             commands.entity(e).despawn();
             continue;
@@ -899,7 +1029,27 @@ pub fn move_projectiles(
         }
 
         if let Some(normal) = hit_normal {
-            if let Ok(mut ps) = plasma_q.get_mut(e) {
+            if let Ok(mut ps) = aux.p1().get_mut(e) {
+                if let Some((prop_e, center, true, _)) = hit_prop {
+                    let dmg = ((p.damage as f32 * ps.0).floor() as i32).max(1);
+                    damage_destructible_prop(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        &mut props,
+                        &entrances,
+                        &snowmen,
+                        &gold_barrels,
+                        &rad_chests,
+                        &mut secrets,
+                        &audio,
+                        prop_e,
+                        center,
+                        dmg,
+                        p.source,
+                        None,
+                    );
+                }
                 ps.0 -= 0.1;
                 VfxSpawner::spawn_burst(
                     &mut commands,
@@ -927,14 +1077,42 @@ pub fn move_projectiles(
                         deploys_sentry.copied(),
                         spawn_pickup_spec.copied(),
                         plasma_burst.copied(),
-                        fade.copied(),
-                        anim_path,
+                        fade,
+                        already_faded,
                     );
                     commands.entity(e).despawn();
                 }
                 continue;
             }
-            if let Ok(d) = disc_q.get(e) {
+            if let Ok(d) = aux.p0().get(e) {
+                if let Some((prop_e, center, true, _)) = hit_prop {
+                    let gated = props
+                        .get(prop_e)
+                        .ok()
+                        .and_then(|(_, _, _, _, _, nh)| nh)
+                        .is_some_and(|nh| nh.0 > frame.0);
+                    if !gated {
+                        damage_destructible_prop(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut props,
+                            &entrances,
+                            &snowmen,
+                            &gold_barrels,
+                            &rad_chests,
+                            &mut secrets,
+                            &audio,
+                            prop_e,
+                            center,
+                            p.damage,
+                            p.source,
+                            Some(frame.0 + 5),
+                        );
+                    }
+                    audio.play_hit(&mut commands);
+                    continue;
+                }
                 if d.dist > 50.0 {
                     VfxSpawner::spawn_burst(
                         &mut commands,
@@ -960,14 +1138,42 @@ pub fn move_projectiles(
                         deploys_sentry.copied(),
                         spawn_pickup_spec.copied(),
                         plasma_burst.copied(),
-                        fade.copied(),
-                        anim_path,
+                        fade,
+                        already_faded,
                     );
                     commands.entity(e).despawn();
                     continue;
                 }
             }
             if let Some(mut sticky_inner) = sticky {
+                if !p.explosive
+                    && let Some((prop_e, center, true, _)) = hit_prop
+                {
+                    let hp_before = props
+                        .get(prop_e)
+                        .map(|(_, prop, _, _, _, _)| prop.hp)
+                        .unwrap_or(0);
+                    damage_destructible_prop(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        &mut props,
+                        &entrances,
+                        &snowmen,
+                        &gold_barrels,
+                        &rad_chests,
+                        &mut secrets,
+                        &audio,
+                        prop_e,
+                        center,
+                        p.damage,
+                        p.source,
+                        None,
+                    );
+                    if hp_before < ((p.damage as f32 * 0.5).ceil() as i32) {
+                        continue;
+                    }
+                }
                 sticky_inner.armed = true;
                 if let Some((prop_e, center, _, _)) = hit_prop {
                     sticky_inner.stuck_to = Some(prop_e);
@@ -988,8 +1194,10 @@ pub fn move_projectiles(
                 continue;
             }
 
+            let hit_destructible = matches!(hit_prop, Some((_, _, true, _)));
             if let Some(mut bounce) = bounces
                 && bounce.0 > 0
+                && !hit_destructible
             {
                 bounce.0 -= 1;
                 let factor = if grenade_fuse.is_some() { 0.6 } else { 0.8 };
@@ -1019,7 +1227,7 @@ pub fn move_projectiles(
                     Color::srgb(0.62, 0.60, 0.55),
                     (12.0, 35.0),
                 );
-                if disc_q.get(e).is_ok() {
+                if aux.p0().get(e).is_ok() {
                     VfxSpawner::spawn_burst(
                         &mut commands,
                         pos,
@@ -1036,91 +1244,30 @@ pub fn move_projectiles(
                 continue;
             }
 
-            if let Some((prop_e, center, destructible, death_effect)) = hit_prop {
-                if destructible {
-                    let mut dead = false;
-                    let mut legacy_explosive = false;
-                    let mut death_copy = death_effect;
-                    let mut sprites_copy: Option<PropSprites> = None;
-                    if let Ok((_, mut prop, _, de, sprites, nexthurt)) = props.get_mut(prop_e) {
-                        if let Some(nh) = nexthurt.as_ref()
-                            && nh.0 > frame.0
-                        {
-                        } else {
-                            prop.hp -= p.damage.max(1);
-                            if let Some(mut nh) = nexthurt {
-                                nh.0 = frame.0 + 5;
-                            }
-                            if prop.hp <= 0 {
-                                dead = true;
-                            }
-                            audio.play_hit(&mut commands);
-                        }
-                        legacy_explosive = prop.explosive;
-                        death_copy = de.copied();
-                        sprites_copy = sprites.copied();
-                    }
-                    if dead {
-                        if let Some(ps) = sprites_copy {
-                            spawn_prop_corpse(&mut commands, &catalog, &asset_server, center, &ps);
-                        }
-                        spawn_prop_death_effect(
-                            &mut commands,
-                            center,
-                            death_copy,
-                            legacy_explosive,
-                            p.source,
-                        );
-                        commands.entity(prop_e).try_despawn();
-                        if let Ok(entrance) = entrances.get(prop_e) {
-                            secrets.queue(entrance.target);
-                        }
-                        if snowmen.get(prop_e).is_ok() {
-                            let mut rng = rand::rng();
-                            for _ in 0..3 {
-                                commands.spawn(PendingEnemySpawn {
-                                    kind: EnemyKind::Bandit,
-                                    pos: center
-                                        + Vec2::new(
-                                            rng.random_range(-4.0..4.0),
-                                            rng.random_range(-4.0..4.0),
-                                        ),
-                                    difficulty: 1.0,
-                                });
-                            }
-                            for _ in 0..6 {
-                                spawn_rad(&mut commands, &catalog, &asset_server, center, 1);
-                            }
-                        }
-                        if gold_barrels.get(prop_e).is_ok() {
-                            let weapon = random_gold_weapon(&mut rand::rng());
-                            spawn_pickup(
-                                &mut commands,
-                                &catalog,
-                                &asset_server,
-                                PickupKind::Weapon(weapon),
-                                center + Vec2::new(0.0, -14.0),
-                                0,
-                                false,
-                            );
-                        }
-                        if rad_chests.get(prop_e).is_ok() {
-                            for _ in 0..25 {
-                                let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
-                                let d = rand::rng().random_range(6.0..26.0);
-                                spawn_pickup(
-                                    &mut commands,
-                                    &catalog,
-                                    &asset_server,
-                                    PickupKind::Rad(1),
-                                    center + Vec2::new(ang.cos() * d, ang.sin() * d),
-                                    0,
-                                    false,
-                                );
-                            }
-                        }
-                    }
+            if let Some((prop_e, center, true, _)) = hit_prop {
+                let mut dmg = p.damage.max(1);
+                if let Ok(b) = aux.p4().get(e)
+                    && !b.timer.is_finished()
+                {
+                    dmg += b.bonus;
                 }
+                damage_destructible_prop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    &mut props,
+                    &entrances,
+                    &snowmen,
+                    &gold_barrels,
+                    &rad_chests,
+                    &mut secrets,
+                    &audio,
+                    prop_e,
+                    center,
+                    dmg,
+                    p.source,
+                    None,
+                );
             }
 
             if !p.explosive {
@@ -1193,8 +1340,8 @@ pub fn move_projectiles(
                 deploys_sentry.copied(),
                 spawn_pickup_spec.copied(),
                 plasma_burst.copied(),
-                fade.copied(),
-                anim_path,
+                fade,
+                already_faded,
             );
             commands.entity(e).despawn();
         }
@@ -1284,6 +1431,14 @@ fn spawn_split_projectiles(
                 source,
             },
             Velocity(dir * split.speed),
+            ProjectileFriction(0.6),
+            BouncesLeft(255),
+            ShellWallBounce(0.0),
+            ShellBonus {
+                timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                bonus: 1,
+            },
+            ProjectileFade("images/sprBullet2Disappear.png"),
             sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
@@ -1327,6 +1482,7 @@ fn spawn_plasma_children(
                 source,
             },
             Velocity(dir * plasma.speed),
+            PlasmaSize((plasma.size.x + plasma.size.y) * 0.5),
             sprite,
             Transform::from_translation(pos.extend(16.0))
                 .with_rotation(Quat::from_rotation_z(angle)),
@@ -1443,11 +1599,10 @@ fn on_projectile_removed(
     spawn_pickup_spec: Option<SpawnsWeaponPickup>,
     plasma_burst: Option<PlasmaBurst>,
     fade: Option<ProjectileFade>,
-    anim_path: Option<&str>,
+    already_faded: bool,
 ) {
-    // GML projectile/Destroy: scrBulletHitFX(spr_fade) unless already faded.
     if let Some(f) = fade
-        && anim_path.is_none_or(|p| p != f.0)
+        && !already_faded
     {
         let angle = if base_dir.length_squared() > 0.0 {
             base_dir.y.atan2(base_dir.x)
@@ -1802,16 +1957,20 @@ pub fn projectile_hits(
             Option<&DeploysSentry>,
             Option<&SpawnsWeaponPickup>,
             Option<&PlasmaBurst>,
-            Option<&ProjectileFade>,
-            Option<&SpriteAnim>,
         ),
         (Without<Hitbox>, Without<SlashProjectile>),
     >,
-    shell_bonus_q: Query<&ShellBonus>,
-    plasma_size_q: Query<&PlasmaSize>,
-    hits_all_q: Query<Entity, With<HitsAllTeams>>,
-    grace_q: Query<Entity, With<SpawnGrace>>,
+    mut aux: ParamSet<(
+        Query<&ShellBonus>,
+        Query<&mut PlasmaSize>,
+        Query<&DiscFlight>,
+        Query<&ProjectileFade>,
+        Query<&SpriteAnim>,
+        Query<Entity, With<HitsAllTeams>>,
+        Query<Entity, With<SpawnGrace>>,
+    )>,
     frame: Res<CurrentFrame>,
+    time: Res<Time<Fixed>>,
     mut targets: Query<
         (
             Entity,
@@ -1828,12 +1987,12 @@ pub fn projectile_hits(
 ) {
     let player = player_state.single().ok();
 
-    let hits_all_set: std::collections::HashSet<Entity> = hits_all_q.iter().collect();
-    let grace_set: std::collections::HashSet<Entity> = grace_q.iter().collect();
+    let hits_all_set: std::collections::HashSet<Entity> = aux.p5().iter().collect();
+    let grace_set: std::collections::HashSet<Entity> = aux.p6().iter().collect();
 
     for (
         proj_e,
-        proj_tf,
+        mut proj_tf,
         proj_team,
         proj,
         mut proj_vel,
@@ -1847,11 +2006,13 @@ pub fn projectile_hits(
         deploys_sentry,
         spawn_pickup_spec,
         plasma_burst,
-        proj_fade,
-        proj_anim,
     ) in projectiles.iter_mut()
     {
-        let proj_anim_path: Option<&str> = proj_anim.as_ref().map(|a| a.path.as_str());
+        let proj_fade = aux.p3().get(proj_e).ok().copied();
+        let proj_already_faded = match (proj_fade, aux.p4().get(proj_e).ok()) {
+            (Some(f), Some(a)) => a.path == f.0,
+            _ => false,
+        };
         if sticky.as_ref().is_some_and(|s| s.armed) {
             continue;
         }
@@ -1863,6 +2024,10 @@ pub fn projectile_hits(
         let mut hit_pos = proj_pos;
         let mut hit_target = None::<Entity>;
         let mut stuck_bolt = false;
+        let is_disc = aux.p2().get(proj_e).is_ok();
+        let is_plasma = aux.p1().get(proj_e).is_ok();
+        let mut passthrough = false;
+        let mut plasma_died = false;
 
         for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield, nexthurt) in
             targets.iter_mut()
@@ -1879,7 +2044,9 @@ pub fn projectile_hits(
                 continue;
             }
 
-            if let Some(set) = hit_set.as_ref()
+            if !is_disc
+                && !is_plasma
+                && let Some(set) = hit_set.as_ref()
                 && set.0.contains(&target_e)
             {
                 continue;
@@ -1887,6 +2054,13 @@ pub fn projectile_hits(
 
             let target_pos = target_tf.translation.truncate();
             if proj_pos.distance(target_pos) > proj.radius + hitbox.radius {
+                continue;
+            }
+
+            if is_disc
+                && let Some(nh) = nexthurt.as_ref()
+                && nh.0 > frame.0
+            {
                 continue;
             }
 
@@ -1925,12 +2099,12 @@ pub fn projectile_hits(
             }
 
             let mut dmg = proj.damage;
-            if let Ok(bonus) = shell_bonus_q.get(proj_e) {
+            if let Ok(bonus) = aux.p0().get(proj_e) {
                 if !bonus.timer.is_finished() {
                     dmg += bonus.bonus;
                 }
             }
-            if let Ok(ps) = plasma_size_q.get(proj_e) {
+            if let Ok(ps) = aux.p1().get(proj_e) {
                 dmg = ((dmg as f32 * ps.0).floor() as i32).max(1);
             }
             let hp_before = health.hp;
@@ -1969,6 +2143,27 @@ pub fn projectile_hits(
                 target_pos,
                 Color::srgb(1.0, 0.92, 0.35),
             );
+
+            if is_disc || is_plasma {
+                passthrough = true;
+            }
+            if is_plasma {
+                if let Ok(mut ps) = aux.p1().get_mut(proj_e) {
+                    ps.0 -= 0.1;
+                    if ps.0 <= 0.5 {
+                        plasma_died = true;
+                    }
+                }
+                let dt = time.delta_secs();
+                proj_tf.translation -= (proj_vel.0 * dt).extend(0.0);
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    target_pos,
+                    2,
+                    Color::srgba(0.6, 0.6, 0.62, 0.7),
+                    (15.0, 55.0),
+                );
+            }
 
             {
                 let hit_sprite = match *proj_team {
@@ -2029,6 +2224,9 @@ pub fn projectile_hits(
                     stuck_bolt = true;
                 }
             }
+            if passthrough {
+                continue;
+            }
             break;
         }
 
@@ -2046,7 +2244,7 @@ pub fn projectile_hits(
             retaliate_sharp_teeth(&mut commands, proj.damage, hit_pos, &frame, &mut targets);
         }
 
-        if damaged {
+        if damaged && !passthrough && !is_disc && !is_plasma {
             if let Some(target_e) = hit_target {
                 if let Some(ref mut set) = hit_set {
                     crate::game::projectile_math::record_hit(&mut set.0, target_e);
@@ -2075,11 +2273,19 @@ pub fn projectile_hits(
                 deploys_sentry.copied(),
                 spawn_pickup_spec.copied(),
                 plasma_burst.copied(),
-                proj_fade.copied(),
-                proj_anim_path,
+                proj_fade,
+                proj_already_faded,
             );
             commands.entity(proj_e).despawn();
         };
+
+        if plasma_died {
+            terminal(&mut commands);
+            continue;
+        }
+        if passthrough {
+            continue;
+        }
 
         if damaged && let Some(ref chain) = chain {
             chain_to_nearby_targets(
