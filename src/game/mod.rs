@@ -115,6 +115,8 @@ impl Plugin for GamePlugin {
                             crown::tick_crown_protection,
                             crown::tick_crown_love,
                             crown::tick_crown_curses,
+                            crown::tick_crown_love_convert,
+                            crown::tick_crown_luck,
                             crown::crown_floor_start_bonus,
                             crown::tick_crown_pedestal,
                             loop_transition::tick_campfire,
@@ -152,6 +154,7 @@ impl Plugin for GamePlugin {
                         player_sys::blink_player,
                         player_sys::weapon_switch,
                         player_sys::player_ability,
+                        player_sys::tick_hold_abilities,
                     )
                         .in_set(NtSimSet::Input)
                         .run_if(gameplay_active),
@@ -164,6 +167,7 @@ impl Plugin for GamePlugin {
                         player_sys::tick_hazard_clouds,
                         player_sys::ally_ai,
                         enemies::enemy_ai,
+                        enemies::tick_bigmaggot_inspector,
                         enemies::tick_frog_eggs,
                         enemies::tick_delayed_boss_spawns,
                         enemies::tick_boss_intro,

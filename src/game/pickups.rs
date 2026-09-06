@@ -120,7 +120,6 @@ pub fn spawn_pickup(
             });
         }
         PickupKind::Medkit(_) | PickupKind::Ammo(..) => {
-
             let init =
                 ((200.0 + rng.random_range(0.0..30.0)) / ((5.0 + loops as f32) / 5.0)).ceil();
             let total_steps = if hasted { init / 3.0 } else { init } + 62.0;
@@ -129,7 +128,6 @@ pub fn spawn_pickup(
             });
         }
         PickupKind::Weapon(_) => {
-
             ec.insert(WepPickupAmmo(true));
 
             let ang = rng.random_range(0.0..std::f32::consts::TAU);
@@ -324,9 +322,7 @@ pub fn collect_pickups(
                 pickup_tf.translation += (dir * 900.0 * telek_mult * dt).extend(0.0);
             }
         } else if is_ammo || is_medkit {
-
         } else if is_rad {
-
             let has_hunger = player.mutations.contains(&MutationId::PlutoniumHunger);
             let rad_range = 80.0 + if has_hunger { 60.0 } else { 0.0 };
             let magnet_to_player = dist < rad_range || (telek_active && dist < magnet);
@@ -361,7 +357,6 @@ pub fn collect_pickups(
                 continue;
             }
         } else if is_ammo || is_medkit {
-
             if dist > 14.0 {
                 continue;
             }
@@ -381,7 +376,6 @@ pub fn collect_pickups(
             );
             match chest {
                 ChestKind::Weapon => {
-
                     let weapon = random_weapon(&mut rand::rng());
                     spawn_pickup(
                         &mut commands,
@@ -396,7 +390,6 @@ pub fn collect_pickups(
                     toast.show(&format!("{}", weapon_id_name(weapon)));
                 }
                 ChestKind::Ammo => {
-
                     let ammo = decide_ammo_type(&inv);
                     let amount = ammo_pickup_amount(ammo) * 2;
                     let cap = player.ammo_cap(ammo);
@@ -413,7 +406,6 @@ pub fn collect_pickups(
                     toast.show("Ammo refilled");
                 }
                 ChestKind::Rad => {
-
                     for _ in 0..25 {
                         let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
                         let d = rand::rng().random_range(6.0..26.0);
@@ -432,6 +424,27 @@ pub fn collect_pickups(
             }
             ScreenEffects::add_trauma(&mut trauma, 0.15);
             GameFeel::rumble_controller(&mut rumble, &gamepads, 0.3, 0.4, 0.15);
+            if player.crown == CrownKind::Hatred && health.hp > 1 {
+                health.hp -= 1;
+                let n = if matches!(chest, ChestKind::Rad) {
+                    24
+                } else {
+                    16
+                };
+                for _ in 0..n {
+                    let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
+                    let d = rand::rng().random_range(6.0..26.0);
+                    spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Rad(1),
+                        pickup_pos + Vec2::new(ang.cos() * d, ang.sin() * d),
+                        0,
+                        false,
+                    );
+                }
+            }
             continue;
         }
 
@@ -468,7 +481,6 @@ pub fn collect_pickups(
                 audio.play_pickup(&mut commands);
             }
             PickupKind::Ammo(..) => {
-
                 let ammo = decide_ammo_type(&inv);
                 let mut amount = ammo_pickup_amount(ammo);
                 if player.crown == crate::game::content::CrownKind::Haste {
@@ -567,9 +579,7 @@ pub fn collect_pickups(
                 audio.play_chest(&mut commands);
                 toast.show(&format!("Picked up {}", weapon_id_name(weapon)));
             }
-            PickupKind::Chest(_) => {
-
-            }
+            PickupKind::Chest(_) => {}
         }
     }
 }
@@ -614,7 +624,6 @@ fn ammo_gauge_paths(kind: AmmoKind) -> Option<(&'static str, &'static str)> {
 }
 
 fn gauge_frame(fill: f32) -> usize {
-
     (7.0 - (7.0 * fill.clamp(0.0, 1.0)).ceil()).clamp(0.0, 7.0) as usize
 }
 
@@ -853,7 +862,6 @@ fn spawn_dropped_weapon(
     weapon: WeaponId,
     pos: Vec2,
 ) {
-
     let e = spawn_pickup(
         commands,
         catalog,
@@ -1019,7 +1027,6 @@ pub fn tick_rad_container_contact(
             player_pos.y.clamp(center.y - half.y, center.y + half.y),
         );
         if player_pos.distance(closest) > crate::game::components::PLAYER_RADIUS + 2.0 {
-
             if player_pos.distance(center) > half.x + crate::game::components::PLAYER_RADIUS + 4.0 {
                 continue;
             }

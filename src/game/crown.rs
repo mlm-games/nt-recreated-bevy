@@ -29,7 +29,6 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Haste => {
-
             player.fire_rate_mult *= 1.0;
         }
 
@@ -48,10 +47,10 @@ pub fn apply_crown_to_spawn(
         }
 
         CrownKind::Destiny => {
-
             if inv.weapons[1] == WeaponId::NONE {
                 inv.weapons[1] = WeaponId(17);
             }
+            player.mutation_picks_owed += 1;
         }
 
         CrownKind::Love => {
@@ -231,7 +230,16 @@ pub fn crown_floor_start_bonus(
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
-    mut q: Query<(&Player, &mut CrownState, &mut Inventory, &Transform), With<Player>>,
+    mut q: Query<
+        (
+            &Player,
+            &mut CrownState,
+            &mut Inventory,
+            &Transform,
+            &mut Health,
+        ),
+        With<Player>,
+    >,
 ) {
     let mut started: Option<FloorStarted> = None;
     for event in events.read() {
@@ -241,10 +249,9 @@ pub fn crown_floor_start_bonus(
         return;
     };
 
-    for (player, mut state, mut inv, tf) in &mut q {
+    for (player, mut state, mut inv, tf, mut health) in &mut q {
         match player.crown {
             CrownKind::Destiny => {
-
                 if !state.destiny_ready {
                     continue;
                 }
@@ -269,7 +276,6 @@ pub fn crown_floor_start_bonus(
             }
 
             CrownKind::Risk => {
-
                 for ammo in [
                     AmmoKind::Bullets,
                     AmmoKind::Shells,
@@ -282,8 +288,13 @@ pub fn crown_floor_start_bonus(
                 }
             }
 
-            CrownKind::Guns => {
+            CrownKind::Luck => {
+                if health.hp > 1 {
+                    health.hp = 1;
+                }
+            }
 
+            CrownKind::Guns => {
                 if crate::game::secret_areas::is_secret_area(start.area) {
                     continue;
                 }
@@ -305,6 +316,63 @@ pub fn crown_floor_start_bonus(
 
 pub fn crown_name_for_toast(crown: CrownKind) -> &'static str {
     crown_name(crown.to_u8())
+}
+
+/// GML Crown of Love: all chestprops (except Proto/Rogue) + RadChest → Ammo.
+/// Runs on floor start and continuously for boss-drop chests.
+pub fn tick_crown_love_convert(
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    player_q: Query<&Player, With<Player>>,
+    mut chests: Query<(Entity, &mut Pickup, &Transform)>,
+) {
+    let Ok(player) = player_q.single() else {
+        return;
+    };
+    if player.crown != CrownKind::Love {
+        return;
+    }
+    for (e, pickup, tf) in &mut chests {
+        let is_convertible = matches!(
+            pickup.kind,
+            PickupKind::Chest(ChestKind::Weapon) | PickupKind::Chest(ChestKind::Rad)
+        );
+        if !is_convertible {
+            continue;
+        }
+        let pos = tf.translation.truncate();
+        commands.entity(e).despawn();
+        pickups::spawn_chest(&mut commands, &catalog, &asset_server, ChestKind::Ammo, pos);
+    }
+}
+
+/// GML Crown of Luck: 10% of non-boss enemies spawn at 1 HP.
+pub fn tick_crown_luck(
+    player_q: Query<&Player, With<Player>>,
+    mut enemies: Query<(Entity, &Enemy, &mut Health), With<Enemy>>,
+    mut seen: Local<std::collections::HashSet<Entity>>,
+) {
+    let Ok(player) = player_q.single() else {
+        return;
+    };
+    if player.crown != CrownKind::Luck {
+        seen.clear();
+        return;
+    }
+    let mut rng = rand::rng();
+    for (e, enemy, mut health) in &mut enemies {
+        if !seen.insert(e) {
+            continue;
+        }
+        let def = crate::game::content::enemy_def(enemy.kind);
+        if def.boss {
+            continue;
+        }
+        if rng.random::<f32>() <= 0.1 {
+            health.hp = 1;
+        }
+    }
 }
 
 pub fn tick_crown_pedestal(
@@ -390,7 +458,6 @@ mod tests {
 
     #[test]
     fn crown_haste_reduces_fire_cooldown_multiplier() {
-
         let mut p = base_player();
         let mut h = base_health();
         let mut inv = base_inv();

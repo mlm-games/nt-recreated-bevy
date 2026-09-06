@@ -1219,6 +1219,29 @@ pub fn apply_explosions(
             audio.play_hurt(&mut commands);
         }
 
+        if let Ok((_, _, _, crown_player)) = player_q.single() {
+            if crown_player.crown == crate::game::content::CrownKind::Death {
+                let mut rng = rand::rng();
+                for _ in 0..3 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let at = pos + Vec2::new(ang.cos(), ang.sin()) * 12.0;
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        Explosion {
+                            timer: Timer::from_seconds(0.04, TimerMode::Once),
+                            radius: 46.0,
+                            damage: 3,
+                            team: boom.team,
+                            hits_player: boom.hits_player,
+                            source: boom.source,
+                        },
+                        Transform::from_translation(at.extend(20.0)),
+                    ));
+                }
+            }
+        }
+
         commands.entity(e).despawn();
     }
 }
@@ -2139,6 +2162,25 @@ pub fn resolve_deaths(
                 );
                 ScreenEffects::add_trauma(&mut trauma, 0.12);
             }
+            EnemyKind::BigMaggot => {
+                let mut rng = rand::rng();
+                for _ in 0..6 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let off = Vec2::new(ang.cos(), ang.sin()) * 12.0;
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::Maggot,
+                        pos: pos + off,
+                        difficulty: 1.0,
+                    });
+                }
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    16,
+                    Color::srgb(0.95, 0.5, 0.2),
+                    (60.0, 220.0),
+                );
+            }
             _ => {}
         }
 
@@ -2170,12 +2212,17 @@ pub fn resolve_deaths(
             } else {
                 0
             };
+            let blood_tax = if player.crown == crate::game::content::CrownKind::Blood {
+                1
+            } else {
+                0
+            };
             spawn_rad_burst(
                 &mut commands,
                 &catalog,
                 &asset_server,
                 pos,
-                (enemy.rad_drop as u32).min(24) + melting_bonus,
+                ((enemy.rad_drop as u32).min(24) + melting_bonus).saturating_sub(blood_tax),
             );
 
             spawn_chest(
@@ -2220,12 +2267,17 @@ pub fn resolve_deaths(
             } else {
                 0
             };
+            let blood_tax = if player.crown == crate::game::content::CrownKind::Blood {
+                1
+            } else {
+                0
+            };
             spawn_rad_burst(
                 &mut commands,
                 &catalog,
                 &asset_server,
                 pos,
-                enemy.rad_drop as u32 + melting_bonus,
+                (enemy.rad_drop as u32 + melting_bonus).saturating_sub(blood_tax),
             );
             maybe_spawn_drop(
                 &mut commands,
@@ -2630,7 +2682,9 @@ pub fn maybe_spawn_drop(
         } else {
             rng.random_range(0..3) < 2
         };
-        if rng.random_range(0..health.max.max(1)) as i32 > health.hp && medkit_win {
+        let life_blocks = player.crown == crate::game::content::CrownKind::Life;
+        let guns_blocks_ammo = player.crown == crate::game::content::CrownKind::Guns;
+        if rng.random_range(0..health.max.max(1)) as i32 > health.hp && medkit_win && !life_blocks {
             spawn_pickup(
                 commands,
                 catalog,
@@ -2641,15 +2695,17 @@ pub fn maybe_spawn_drop(
                 hasted,
             );
         } else {
-            spawn_pickup(
-                commands,
-                catalog,
-                asset_server,
-                PickupKind::Ammo(AmmoKind::None, 0),
-                pos,
-                loops,
-                hasted,
-            );
+            if !guns_blocks_ammo {
+                spawn_pickup(
+                    commands,
+                    catalog,
+                    asset_server,
+                    PickupKind::Ammo(AmmoKind::None, 0),
+                    pos,
+                    loops,
+                    hasted,
+                );
+            }
         }
     } else if weapon_chance > 0 && rng.random_range(0.0..100.0) < weapon_chance as f32 {
         let weapon = random_weapon(&mut rng);

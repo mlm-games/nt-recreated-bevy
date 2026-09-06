@@ -342,6 +342,8 @@ pub struct Player {
     /// GML wepangle flip: multiplied by -1 on every melee swing, alternating
     /// the gun/slash angle offset.
     pub melee_flip: bool,
+    /// Skeleton Blood Gamble streak (GML skeletongamble).
+    pub skeleton_gamble: u32,
 }
 
 impl Default for Player {
@@ -401,6 +403,7 @@ impl Default for Player {
             ultra_ability_mult: 1.0,
             mutations: Vec::new(),
             melee_flip: false,
+            skeleton_gamble: 0,
         }
     }
 }
@@ -1255,6 +1258,20 @@ pub struct ShieldFollower {
 #[derive(Component)]
 pub struct Telekinesis {
     pub timer: Timer,
+}
+
+/// Horror beam hold state (GML horrortime). While spec held and rads remain,
+/// time builds at 0.9/s and each tick spawns round(time+1) bullets.
+#[derive(Component, Default)]
+pub struct HorrorCharge {
+    pub time: f32,
+}
+
+/// Frog toxic charge (GML froggas 0..30). Hold roots player and charges,
+/// release spawns N gas clouds.
+#[derive(Component, Default)]
+pub struct FrogCharge {
+    pub gas: f32,
 }
 
 #[derive(Component)]

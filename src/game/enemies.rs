@@ -1923,6 +1923,89 @@ pub fn enemy_ai(
     }
 }
 
+/// BigMaggot burrow + Inspector mind-control pull (GML BigMaggot/Alarm_1,
+/// Burrow/Alarm_0, Inspector/Other_10). Split into its own system to stay
+/// under Bevy's 16-param system limit.
+pub fn tick_bigmaggot_inspector(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mask: Res<FloorMask>,
+    mut burrow: Local<std::collections::HashMap<Entity, (f32, bool)>>,
+    mut ctrl: Local<std::collections::HashMap<Entity, f32>>,
+    player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
+    mut player_vel: Query<&mut Velocity, (With<Player>, Without<Enemy>)>,
+    healths: Query<&Health, (With<Enemy>, Without<Player>)>,
+    mut enemies: Query<(Entity, &Enemy, &mut Velocity, &mut Transform), With<Enemy>>,
+) {
+    let Ok((player_tf, _)) = player_q.single() else {
+        return;
+    };
+    let player_pos = player_tf.translation.truncate();
+    let dt = time.delta_secs();
+    let mut rng = rand::rng();
+
+    for (entity, enemy, mut vel, mut tf) in &mut enemies {
+        let pos = tf.translation.truncate();
+        let to_player = player_pos - pos;
+        let dist = to_player.length();
+        let dir = to_player.normalize_or_zero();
+
+        if enemy.kind == EnemyKind::BigMaggot {
+            let los = has_line_of_sight(pos, player_pos, &mask);
+            let entry = burrow.entry(entity).or_insert((0.0, false));
+            if los {
+                entry.0 = 0.0;
+                if !entry.1 {
+                    entry.1 = true;
+                    vel.0 = dir * 90.0;
+                }
+            } else {
+                entry.0 += dt;
+                let damaged = healths.get(entity).map(|h| h.hp < h.max).unwrap_or(false);
+                if damaged && entry.0 > 1.0 && rng.random::<f32>() < dt * 0.5 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    let dest = player_pos + Vec2::new(ang.cos(), ang.sin()) * 64.0;
+                    if mask.is_walkable(dest) {
+                        tf.translation.x = dest.x;
+                        tf.translation.y = dest.y;
+                        vel.0 = Vec2::ZERO;
+                        entry.0 = 0.0;
+                        entry.1 = false;
+                        VfxSpawner::spawn_burst(
+                            &mut commands,
+                            dest,
+                            10,
+                            Color::srgb(0.6, 0.45, 0.3),
+                            (40.0, 140.0),
+                        );
+                    }
+                }
+            }
+        }
+
+        if enemy.kind == EnemyKind::IdpdInspector && dist < 240.0 && dist > 1.0 {
+            let los = has_line_of_sight(pos, player_pos, &mask);
+            if los {
+                let t = ctrl.entry(entity).or_insert(0.0);
+                *t += dt;
+                if *t > 0.5 {
+                    if let Ok(mut pv) = player_vel.single_mut() {
+                        let pull = (pos - player_pos).normalize_or_zero() * 30.0;
+                        pv.0 += pull * dt;
+                        if pv.0.length() > 200.0 {
+                            pv.0 = pv.0.normalize() * 200.0;
+                        }
+                    }
+                }
+            } else {
+                ctrl.remove(&entity);
+            }
+        } else if enemy.kind == EnemyKind::IdpdInspector {
+            ctrl.remove(&entity);
+        }
+    }
+}
+
 fn enemy_bullet_sprite(
     catalog: &AssetCatalog,
     asset_server: &AssetServer,

@@ -479,15 +479,126 @@ pub fn player_ability(
             if w == WeaponId::NONE {
                 return;
             }
+            let meta = crate::game::content::weapon_meta(w);
+            let is_golden = meta.wep_gold;
+            let wep_rads = meta.wep_rads;
             inv.weapons[slot] = WeaponId::NONE;
             if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
                 inv.current = next;
             }
+            let tb = if player.throne_butt { 1 } else { 0 };
+            let life_crown = player.crown == crate::game::content::CrownKind::Life;
+            let mut rng = rand::rng();
+            if is_golden {
+                for _ in 0..(4 + tb) {
+                    let wants_hp =
+                        !life_crown && rng.random_range(0..health.max.max(1)) as i32 > health.hp;
+                    let off =
+                        Vec2::new(rng.random_range(-12.0..12.0), rng.random_range(-12.0..12.0));
+                    if wants_hp {
+                        crate::game::pickups::spawn_pickup(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            PickupKind::Medkit(2),
+                            pos + off,
+                            0,
+                            false,
+                        );
+                    } else {
+                        let kind = match rng.random_range(0..5) {
+                            0 => AmmoKind::Bullets,
+                            1 => AmmoKind::Shells,
+                            2 => AmmoKind::Bolts,
+                            3 => AmmoKind::Explosives,
+                            _ => AmmoKind::Energy,
+                        };
+                        let amount = crate::game::content::ammo_pickup_amount(kind);
+                        crate::game::pickups::spawn_pickup(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            PickupKind::Ammo(kind, amount),
+                            pos + off,
+                            0,
+                            false,
+                        );
+                    }
+                }
+            }
             let regurgitate = matches!(player.ultra, Some(UltraMutationId::RobotRegurgitate));
-            health.hp = (health.hp + if regurgitate { 3 } else { 2 }).min(health.max);
-            player.rads = player
-                .rads
-                .saturating_add(if regurgitate { 40 } else { 20 });
+            if regurgitate && rng.random::<f32>() <= 0.43 {
+                if player.crown == crate::game::content::CrownKind::Love {
+                    crate::game::pickups::spawn_chest(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        ChestKind::Ammo,
+                        pos + Vec2::new(16.0, 0.0),
+                    );
+                } else if rng.random_range(0..health.max.max(1)) as i32 > health.hp
+                    && rng.random_range(0..3) < 2
+                {
+                    crate::game::pickups::spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Medkit(4),
+                        pos + Vec2::new(16.0, 0.0),
+                        0,
+                        false,
+                    );
+                } else {
+                    let kind = match rng.random_range(0..3) {
+                        0 => ChestKind::Weapon,
+                        _ => ChestKind::Ammo,
+                    };
+                    crate::game::pickups::spawn_chest(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        kind,
+                        pos + Vec2::new(16.0, 0.0),
+                    );
+                }
+            }
+            for _ in 0..(1 + tb) {
+                let wants_hp =
+                    !life_crown && rng.random_range(0..health.max.max(1)) as i32 > health.hp;
+                let off = Vec2::new(rng.random_range(-12.0..12.0), rng.random_range(-12.0..12.0));
+                if wants_hp {
+                    crate::game::pickups::spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Medkit(2),
+                        pos + off,
+                        0,
+                        false,
+                    );
+                } else {
+                    let kind = match rng.random_range(0..5) {
+                        0 => AmmoKind::Bullets,
+                        1 => AmmoKind::Shells,
+                        2 => AmmoKind::Bolts,
+                        3 => AmmoKind::Explosives,
+                        _ => AmmoKind::Energy,
+                    };
+                    let amount = crate::game::content::ammo_pickup_amount(kind);
+                    crate::game::pickups::spawn_pickup(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        PickupKind::Ammo(kind, amount),
+                        pos + off,
+                        0,
+                        false,
+                    );
+                }
+            }
+            if wep_rads > 0 {
+                player.rads = player.rads.saturating_add(15);
+            }
 
             let unlocked = crate::game::generated::unlocks::check_progress_unlocks(
                 &mut save, 0, 0, false, true, false,
@@ -721,30 +832,40 @@ pub fn player_ability(
             audio.play_boom(&mut commands);
         }
         AbilityKind::BloodGamble => {
-            if health.hp <= 1 {
+            let cur = inv.weapons[inv.current.min(inv.weapon_slots.saturating_sub(1))];
+            if cur == WeaponId::NONE {
                 return;
             }
-            health.hp -= 1;
-            let roll = [
-                WeaponId::REVOLVER,
-                WeaponId::SHOTGUN,
-                WeaponId::CROSSBOW,
-                WeaponId::MACHINEGUN,
-                WeaponId::SMG,
-                WeaponId::GRENADE_LAUNCHER,
-                WeaponId::ASSAULT_RIFLE,
-                WeaponId::WRENCH,
-            ];
-            let idx = (pos.x.abs() as usize + player.rads as usize) % roll.len();
-            let cur = inv.current;
-            inv.weapons[cur] = roll[idx];
-            VfxSpawner::spawn_burst(
-                &mut commands,
-                pos,
-                14,
-                Color::srgb(0.95, 0.95, 0.95),
-                (70.0, 180.0),
-            );
+            let meta = crate::game::content::weapon_meta(cur);
+            let ammo_kind = weapon_ammo(cur);
+            let amount = crate::game::content::ammo_pickup_amount(ammo_kind).max(1) as i32;
+            let cost = meta.wep_cost as i32;
+            if cost <= 0 {
+                return;
+            }
+            player.skeleton_gamble += 1;
+            let mut rng = rand::rng();
+            let proc = rng.random_range(0..amount) < cost;
+            let tb_gate = !player.throne_butt || rng.random_range(0..3) < 2;
+            if proc && tb_gate {
+                health.hp -= 1;
+                player.skeleton_gamble = 0;
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    12,
+                    Color::srgb(0.8, 0.1, 0.1),
+                    (60.0, 160.0),
+                );
+            } else {
+                VfxSpawner::spawn_burst(
+                    &mut commands,
+                    pos,
+                    14,
+                    Color::srgb(0.95, 0.95, 0.95),
+                    (70.0, 180.0),
+                );
+            }
             audio.play_pickup(&mut commands);
         }
         AbilityKind::ToxicPuke => {
@@ -1234,24 +1355,51 @@ fn fire_one_gun(
     if let Ok(mut charges) = pop_q.get_mut(player_ent) {
         if charges.0 > 0 {
             charges.0 -= 1;
-            spawn_pellets(
-                commands,
-                trauma,
-                hitstop,
-                audio,
-                rumble,
-                gamepads,
-                catalog,
-                asset_server,
-                run,
-                shake_scale,
-                player_ent,
-                tf,
-                aim,
-                player,
-                weapon_id,
-                def,
-            );
+            let mut can_dup = true;
+            if def.melee.is_none() && def.ammo != AmmoKind::None && def.ammo_cost > 0 {
+                match pay_fire_cost(inv, health, def.ammo, def.ammo_cost, archetype.blood_ammo) {
+                    AmmoPayment::Paid | AmmoPayment::Blood(_) => {}
+                    AmmoPayment::Failed => {
+                        can_dup = false;
+                    }
+                }
+            }
+            if can_dup {
+                spawn_pellets(
+                    commands,
+                    trauma,
+                    hitstop,
+                    audio,
+                    rumble,
+                    gamepads,
+                    catalog,
+                    asset_server,
+                    run,
+                    shake_scale,
+                    player_ent,
+                    tf,
+                    aim,
+                    player,
+                    weapon_id,
+                    def,
+                );
+                let mult = if player.throne_butt
+                    || matches!(player.ultra, Some(UltraMutationId::VenuzBack2Bizniz))
+                {
+                    3.0
+                } else {
+                    2.0
+                };
+                let timer = if visual_slot == 0 {
+                    &mut cooldown.timer
+                } else {
+                    &mut cooldown.timer_b
+                };
+                timer.set_duration(std::time::Duration::from_secs_f32(
+                    (def.cooldown * player.fire_rate_mult * mult).max(0.03),
+                ));
+                vel.0 -= aim.0.normalize_or_zero() * 8.0 * 30.0 * 0.15;
+            }
             if charges.0 == 0 {
                 commands.entity(player_ent).remove::<PopPopCharges>();
             }
@@ -2114,9 +2262,11 @@ pub fn move_swing_fx(
 pub fn tick_snare_zones(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
+    player_q: Query<&Player, With<Player>>,
     mut zones: Query<(Entity, &Transform, &mut SnareZone)>,
-    enemies: Query<(Entity, &Transform), (With<Enemy>, Without<Slowed>)>,
+    mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Slowed>)>,
 ) {
+    let throne_butt = player_q.single().map(|p| p.throne_butt).unwrap_or(false);
     for (e, ztf, mut zone) in &mut zones {
         zone.timer.tick(time.delta());
         if zone.timer.just_finished() {
@@ -2124,11 +2274,14 @@ pub fn tick_snare_zones(
             continue;
         }
         let z = ztf.translation.truncate();
-        for (ee, etf) in &enemies {
+        for (ee, etf, mut health) in &mut enemies {
             if etf.translation.truncate().distance(z) <= zone.radius {
+                if throne_butt && health.hp <= (health.max / 3).max(1) && health.hp > 0 {
+                    health.hp = 0;
+                }
                 commands.entity(ee).insert(Slowed {
                     timer: Timer::from_seconds(0.4, TimerMode::Once),
-                    factor: zone.slow,
+                    factor: if throne_butt { 0.02 } else { zone.slow },
                 });
             }
         }
@@ -2483,6 +2636,197 @@ pub fn tick_weapon_visuals(
         tf.rotation = Quat::from_rotation_z(angle);
         sprite.flip_y = aim.0.x < 0.0;
     }
+}
+
+/// Hold abilities (GML hold_spec RMB): Eyes telekinesis push/pull,
+/// Horror rad-drain beam, Frog charge/release. Runs every Fixed tick.
+pub fn tick_hold_abilities(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    input: Res<NtInput>,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    audio: Res<GameAudio>,
+    mut player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Player,
+            &mut Health,
+            &mut Velocity,
+            &AimDir,
+            &RaceState,
+        ),
+        With<Player>,
+    >,
+    mut enemies: Query<(Entity, &Transform, &mut Velocity), (With<Enemy>, Without<Player>)>,
+    mut projectiles: Query<(&Transform, &mut Velocity, &Team), With<Projectile>>,
+    mut horror_q: Query<&mut HorrorCharge>,
+    mut frog_q: Query<&mut FrogCharge>,
+    mut telek_q: Query<&mut Telekinesis>,
+) {
+    let Ok((player_e, ptf, mut player, mut health, mut pvel, aim, race)) = player_q.single_mut()
+    else {
+        return;
+    };
+    let held = input.spec_held;
+    let pos = ptf.translation.truncate();
+    let dt = time.delta_secs();
+
+    if player.ability == AbilityKind::Telekinesis && held {
+        let strength = if player.throne_butt { 60.0 } else { 30.0 };
+        if let Ok(mut t) = telek_q.single_mut() {
+            t.timer = Timer::from_seconds(0.25, TimerMode::Once);
+        } else {
+            commands.entity(player_e).insert(Telekinesis {
+                timer: Timer::from_seconds(0.25, TimerMode::Once),
+            });
+        }
+        for (_, etf, mut evel) in &mut enemies {
+            let epos = etf.translation.truncate();
+            if (epos.x - pos.x).abs() > 160.0 || (epos.y - pos.y).abs() > 120.0 {
+                continue;
+            }
+            let to_player = (pos - epos).normalize_or_zero();
+            evel.0 += to_player * strength * dt;
+        }
+        for (ptf_proj, mut v, team) in &mut projectiles {
+            if *team != Team::Enemy {
+                continue;
+            }
+            let ppos = ptf_proj.translation.truncate();
+            if (ppos.x - pos.x).abs() > 160.0 || (ppos.y - pos.y).abs() > 120.0 {
+                continue;
+            }
+            let out = (ppos - pos).normalize_or_zero();
+            v.0 += out * strength * dt;
+        }
+    }
+
+    if player.ability == AbilityKind::HorrorBeam {
+        if held {
+            let mut time_val = if let Ok(c) = horror_q.get(player_e) {
+                c.time
+            } else {
+                commands.entity(player_e).insert(HorrorCharge { time: 0.0 });
+                0.0
+            };
+            let cost = (time_val + 1.0).floor() as u32;
+            if player.rads >= cost && cost > 0 {
+                player.rads -= cost;
+                time_val += 0.03 * dt * 30.0;
+                if let Ok(mut c) = horror_q.get_mut(player_e) {
+                    c.time = time_val;
+                }
+                let n = (time_val + 1.0).round() as usize;
+                let dir = aim.0.normalize_or_zero();
+                for _ in 0..n.min(12) {
+                    let jitter = Vec2::new(
+                        rand::rng().random_range(-8.0..8.0),
+                        rand::rng().random_range(-8.0..8.0),
+                    );
+                    let bdir = (dir * 24.0 + jitter).normalize_or_zero();
+                    let path = "images/sprHorrorBullet.png";
+                    let (sprite, anchor) = if catalog.has(path) {
+                        (
+                            crate::game::content::sprite_exact(&catalog, &asset_server, path),
+                            crate::game::content::sprite_anchor(&catalog, path),
+                        )
+                    } else {
+                        (
+                            Sprite {
+                                color: Color::srgb(0.6, 0.2, 0.9),
+                                custom_size: Some(Vec2::splat(8.0)),
+                                ..default()
+                            },
+                            bevy::sprite::Anchor::CENTER,
+                        )
+                    };
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        Team::Player,
+                        Projectile {
+                            damage: 3,
+                            life: Timer::from_seconds(1.2, TimerMode::Once),
+                            radius: 5.0,
+                            knockback: 60.0,
+                            explosive: false,
+                            source: Some(DamageSource::player_weapon(player_e, WeaponId::NONE)),
+                        },
+                        Velocity(bdir * 360.0),
+                        sprite,
+                        anchor,
+                        Transform::from_translation((pos + dir * 18.0).extend(12.0)),
+                    ));
+                }
+                if player.throne_butt && rand::rng().random_range(0..30) == 0 {
+                    health.hp = (health.hp + 1).min(health.max);
+                }
+            }
+            let _ = audio;
+        } else {
+            if let Ok(mut c) = horror_q.get_mut(player_e) {
+                c.time = 0.0;
+            }
+            if horror_q.get(player_e).is_ok() {
+                commands.entity(player_e).remove::<HorrorCharge>();
+            }
+        }
+    }
+
+    if player.ability == AbilityKind::ToxicPuke {
+        if held {
+            let mut gas = if let Ok(c) = frog_q.get(player_e) {
+                c.gas
+            } else {
+                commands.entity(player_e).insert(FrogCharge { gas: 0.0 });
+                0.0
+            };
+            if gas < 30.0 {
+                gas += dt * 30.0;
+                if let Ok(mut c) = frog_q.get_mut(player_e) {
+                    c.gas = gas.min(30.0);
+                }
+            }
+            pvel.0 = Vec2::ZERO;
+        } else if frog_q.get(player_e).is_ok() {
+            let gas = frog_q.get(player_e).map(|c| c.gas).unwrap_or(0.0);
+            commands.entity(player_e).remove::<FrogCharge>();
+            let n = gas.round() as usize;
+            if n > 0 {
+                for _ in 0..n.min(30) {
+                    let off = Vec2::new(
+                        rand::rng().random_range(-10.0..10.0),
+                        rand::rng().random_range(-10.0..10.0),
+                    );
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        AbilityHazard,
+                        HazardCloud {
+                            kind: HazardKind::Toxic,
+                            radius: 26.0,
+                            damage: 3,
+                            timer: Timer::from_seconds(4.0, TimerMode::Once),
+                            tick: Timer::from_seconds(0.3, TimerMode::Repeating),
+                        },
+                        Transform::from_translation((pos + off).extend(5.0)),
+                        Sprite {
+                            color: Color::srgba(0.35, 0.85, 0.4, 0.4),
+                            custom_size: Some(Vec2::splat(52.0)),
+                            ..default()
+                        },
+                    ));
+                }
+                audio.play_boom(&mut commands);
+            }
+        }
+    } else if frog_q.get(player_e).is_ok() {
+        commands.entity(player_e).remove::<FrogCharge>();
+    }
+
+    let _ = race;
 }
 
 fn steroids_secondary_slot(current: usize, slots: usize) -> usize {
