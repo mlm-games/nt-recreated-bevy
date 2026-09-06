@@ -36,10 +36,34 @@ pub struct GameAudio {
     pub slugger: Handle<AudioSource>,
     pub grenade: Handle<AudioSource>,
     pub splinter: Handle<AudioSource>,
+
+    pub gold_pistol: Handle<AudioSource>,
+    pub gold_machinegun: Handle<AudioSource>,
+    pub gold_shotgun: Handle<AudioSource>,
+    pub gold_crossbow: Handle<AudioSource>,
+    pub gold_grenade: Handle<AudioSource>,
+    pub gold_plasma: Handle<AudioSource>,
+    pub gold_laser: Handle<AudioSource>,
+    pub melee_flip: Handle<AudioSource>,
+    pub cross_reload: Handle<AudioSource>,
+    pub shot_reload: Handle<AudioSource>,
+    pub nade_reload: Handle<AudioSource>,
+    pub plasma_reload: Handle<AudioSource>,
+    pub lightning_reload: Handle<AudioSource>,
+    pub oasis_shoot: Handle<AudioSource>,
+    pub sniper_target: Handle<AudioSource>,
+    pub sniper_fire: Handle<AudioSource>,
+    pub assassin_attack: Handle<AudioSource>,
+    pub laser_charge: Handle<AudioSource>,
+    pub lightning_charge: Handle<AudioSource>,
+    pub snowtank_aim: Handle<AudioSource>,
+    pub goldtank_aim: Handle<AudioSource>,
+    pub explo_charge: Handle<AudioSource>,
+    pub mimic_slurp: Handle<AudioSource>,
+    pub van_warning: Handle<AudioSource>,
 }
 
 fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
-
     for dir in ["audio", "sounds"] {
         for ext in ["ogg", "wav", "mp3", "flac"] {
             let path = format!("{dir}/{stem}.{ext}");
@@ -85,6 +109,30 @@ impl GameAudio {
             slugger: load_sfx(asset_server, catalog, "sndSlugger"),
             grenade: load_sfx(asset_server, catalog, "sndGrenade"),
             splinter: load_sfx(asset_server, catalog, "sndSplinterGun"),
+            gold_pistol: load_sfx(asset_server, catalog, "sndGoldPistol"),
+            gold_machinegun: load_sfx(asset_server, catalog, "sndGoldMachinegun"),
+            gold_shotgun: load_sfx(asset_server, catalog, "sndDoubleShotgun"),
+            gold_crossbow: load_sfx(asset_server, catalog, "sndGoldCrossbow"),
+            gold_grenade: load_sfx(asset_server, catalog, "sndGoldGrenade"),
+            gold_plasma: load_sfx(asset_server, catalog, "sndGoldPlasma"),
+            gold_laser: load_sfx(asset_server, catalog, "sndGoldLaser"),
+            melee_flip: load_sfx(asset_server, catalog, "sndMeleeFlip"),
+            cross_reload: load_sfx(asset_server, catalog, "sndCrossReload"),
+            shot_reload: load_sfx(asset_server, catalog, "sndShotReload"),
+            nade_reload: load_sfx(asset_server, catalog, "sndNadeReload"),
+            plasma_reload: load_sfx(asset_server, catalog, "sndPlasmaReload"),
+            lightning_reload: load_sfx(asset_server, catalog, "sndLightningReload"),
+            oasis_shoot: load_sfx(asset_server, catalog, "sndOasisShoot"),
+            sniper_target: load_sfx(asset_server, catalog, "sndSniperTarget"),
+            sniper_fire: load_sfx(asset_server, catalog, "sndSniperFire"),
+            assassin_attack: load_sfx(asset_server, catalog, "sndAssassinAttack"),
+            laser_charge: load_sfx(asset_server, catalog, "sndLaserCrystalCharge"),
+            lightning_charge: load_sfx(asset_server, catalog, "sndLightningCrystalCharge"),
+            snowtank_aim: load_sfx(asset_server, catalog, "sndSnowTankAim"),
+            goldtank_aim: load_sfx(asset_server, catalog, "sndGoldTankAim"),
+            explo_charge: load_sfx(asset_server, catalog, "sndExploGuardianCharge"),
+            mimic_slurp: load_sfx(asset_server, catalog, "sndMimicSlurp"),
+            van_warning: load_sfx(asset_server, catalog, "sndVanWarning"),
         }
     }
 
@@ -162,6 +210,117 @@ impl GameAudio {
 
     pub fn play_ultra_empty(&self, commands: &mut Commands) {
         AudioM::play_sfx_varied(commands, self.ultra_empty.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_melee_flip(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.melee_flip.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_cross_reload(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.cross_reload.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_shot_reload(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.shot_reload.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_nade_reload(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.nade_reload.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_plasma_reload(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.plasma_reload.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_lightning_reload(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.lightning_reload.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_sniper_target(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.sniper_target.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_sniper_fire(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.sniper_fire.clone(), 0.5, 0.08);
+    }
+
+    pub fn play_assassin_attack(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.assassin_attack.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_laser_charge(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.laser_charge.clone(), 0.5, 0.05);
+    }
+
+    pub fn play_lightning_charge(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.lightning_charge.clone(), 0.5, 0.05);
+    }
+
+    pub fn play_snowtank_aim(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.snowtank_aim.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_goldtank_aim(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.goldtank_aim.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_explo_charge(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.explo_charge.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_mimic_slurp(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.mimic_slurp.clone(), 0.6, 0.05);
+    }
+
+    pub fn play_van_warning(&self, commands: &mut Commands) {
+        AudioM::play_sfx_varied(commands, self.van_warning.clone(), 0.7, 0.05);
+    }
+
+    /// GML snd_play_gun tiers: main 0.3, small 0.6, big 0.33 (all pitch ±0.1).
+    /// Underwater (Oasis) overrides to sndOasisShoot.
+    pub fn play_weapon_fire_gml(
+        &self,
+        commands: &mut Commands,
+        weapon_name: &str,
+        underwater: bool,
+    ) {
+        if underwater {
+            AudioM::play_sfx_varied(commands, self.oasis_shoot.clone(), 0.5, 0.1);
+            return;
+        }
+        let is_gold = weapon_name.contains("GOLDEN")
+            || weapon_name.contains("GOLD ")
+            || weapon_name.starts_with("GOLD");
+        if is_gold {
+            let n = weapon_name;
+            if n.contains("PISTOL") || n.contains("REVOLVER") {
+                AudioM::play_sfx_varied(commands, self.gold_pistol.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("MACHINEGUN") || n.contains("SMG") || n.contains("MINIGUN") {
+                AudioM::play_sfx_varied(commands, self.gold_machinegun.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("SHOTGUN") || n.contains("ERASER") {
+                AudioM::play_sfx_varied(commands, self.gold_shotgun.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("CROSSBOW") || n.contains("XBOW") {
+                AudioM::play_sfx_varied(commands, self.gold_crossbow.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("GRENADE")
+                || n.contains("ROCKET")
+                || n.contains("NUKE")
+                || n.contains("BAZOOKA")
+            {
+                AudioM::play_sfx_varied(commands, self.gold_grenade.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("PLASMA") {
+                AudioM::play_sfx_varied(commands, self.gold_plasma.clone(), 0.5, 0.1);
+                return;
+            } else if n.contains("LASER") || n.contains("ION") {
+                AudioM::play_sfx_varied(commands, self.gold_laser.clone(), 0.5, 0.1);
+                return;
+            }
+        }
+        self.play_weapon_fire(commands, weapon_name);
     }
 
     pub fn play_weapon_fire(&self, commands: &mut Commands, weapon_name: &str) {

@@ -1491,7 +1491,7 @@ fn populate(
                         EnemyKind::Spider,
                         EnemyKind::Spider,
                         EnemyKind::LaserCrystal,
-                        EnemyKind::Crystal,
+                        EnemyKind::LaserCrystal,
                     ]
                 };
                 cands.extend(loop_extras.iter().copied());
@@ -1820,7 +1820,7 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
         4 => vec![
             EnemyKind::Spider,
             EnemyKind::Spider,
-            EnemyKind::Crystal,
+            EnemyKind::LaserCrystal,
             EnemyKind::LaserCrystal,
         ],
         5 => vec![

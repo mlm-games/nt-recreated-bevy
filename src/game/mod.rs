@@ -140,6 +140,8 @@ impl Plugin for GamePlugin {
                         )
                             .in_set(NtSimSet::Always),
                         anim::tick_fire_anims.in_set(NtSimSet::Always),
+                        enemies::tick_hit_warnings.in_set(NtSimSet::Always),
+                        enemies::tick_shield_followers.in_set(NtSimSet::Always),
                     ),
                     (anim::player_anim_switch, anim::enemy_anim_switch).in_set(NtSimSet::Input),
                     (

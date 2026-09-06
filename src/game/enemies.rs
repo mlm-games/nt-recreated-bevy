@@ -114,7 +114,18 @@ pub fn spawn_enemy(
             preferred_range: def.preferred_range,
             shoot_range: def.shoot_range,
             attack: Timer::from_seconds(
-                def.attack_cooldown * rand::rng().random_range(0.5..1.5),
+                match kind {
+                    EnemyKind::Turret => (60.0 + rand::rng().random_range(0.0..60.0)) / 30.0,
+                    EnemyKind::SnowTank => (30.0 + rand::rng().random_range(0.0..10.0)) / 30.0,
+                    EnemyKind::GoldSnowtank => (120.0 + rand::rng().random_range(0.0..10.0)) / 30.0,
+                    EnemyKind::LaserCrystal
+                    | EnemyKind::LightningCrystal
+                    | EnemyKind::InvLaserCrystal => {
+                        (50.0 + rand::rng().random_range(0.0..90.0)) / 30.0
+                    }
+                    EnemyKind::Guardian => (40.0 + rand::rng().random_range(0.0..10.0)) / 30.0,
+                    _ => def.attack_cooldown * rand::rng().random_range(0.5..1.5),
+                },
                 TimerMode::Once,
             ),
             burst_left: 0,
@@ -130,6 +141,10 @@ pub fn spawn_enemy(
             walk: 0.0,
             ammo: match kind {
                 EnemyKind::Scorpion | EnemyKind::GoldScorpion => 10,
+                EnemyKind::IdpdGrunt => 2,
+                EnemyKind::IdpdInspector => 4,
+                EnemyKind::IdpdElite => 4,
+                EnemyKind::Jock => 5,
                 _ => 0,
             },
             gunangle: rand::rng().random_range(0.0..std::f32::consts::TAU),
@@ -176,6 +191,14 @@ fn ready_timer() -> Timer {
     t
 }
 
+/// Play a GML enemy telegraph cue via direct asset load (avoids adding
+/// GameAudio to enemy_ai's 16-param system signature).
+fn play_enemy_cue(commands: &mut Commands, asset_server: &AssetServer, stem: &str) {
+    let path = format!("audio/{stem}.wav");
+    let handle: Handle<AudioSource> = asset_server.load(path);
+    game_utils_bevy::audio::AudioM::play_sfx_varied(commands, handle, 0.6, 0.05);
+}
+
 fn has_line_of_sight(from: Vec2, to: Vec2, mask: &FloorMask) -> bool {
     let dir = to - from;
     let dist = dir.length();
@@ -214,6 +237,7 @@ pub fn enemy_ai(
     mut ratking_cd: Local<std::collections::HashMap<Entity, Timer>>,
     mut sniper_state: Local<std::collections::HashMap<Entity, (Timer, bool)>>,
     mut wolf_roll: Local<std::collections::HashMap<Entity, Timer>>,
+    mut charge_state: Local<std::collections::HashMap<Entity, Timer>>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
@@ -316,6 +340,22 @@ pub fn enemy_ai(
             brain.walk -= dt * 30.0;
             if brain.walk < 0.0 {
                 brain.walk = 0.0;
+            }
+        }
+
+        if enemy.kind == EnemyKind::Turtle && brain.walk > 0.0 && hurt.is_none() {
+            let fire = "images/sprTurtleFire.png";
+            if catalog.has(fire) {
+                if let (Some(anim_mut), Some(anchor_mut)) = (anim.as_mut(), anchor.as_mut()) {
+                    if anim_mut.path != fire {
+                        if let Some(def) = catalog.anim_def(fire) {
+                            anim_mut.set_path(fire, def, false);
+                            sprite.image = asset_server.load(fire.to_string());
+                            sprite.rect = Some(anim_mut.rect());
+                            **anchor_mut = crate::game::content::sprite_anchor(&catalog, fire);
+                        }
+                    }
+                }
             }
         }
 
@@ -621,13 +661,14 @@ pub fn enemy_ai(
 
         if matches!(enemy.kind, EnemyKind::DogGuardian)
             && !was_dashing
-            && dist < 220.0
+            && dist < 160.0
             && dist > 40.0
             && brain.melee.is_finished()
+            && rng.random::<f32>() < 0.67
         {
             let (dash_time, dash_speed) = (0.42, 700.0);
             brain.dash = dash_time;
-            brain.melee = Timer::from_seconds(1.6, TimerMode::Once);
+            brain.melee = Timer::from_seconds(10.0, TimerMode::Once);
             vel.0 = dir * dash_speed;
         }
 
@@ -887,47 +928,107 @@ pub fn enemy_ai(
             let cd = ratking_cd
                 .entry(entity)
                 .or_insert_with(|| Timer::from_seconds(1.0, TimerMode::Once));
-            cd.tick(time.delta());
-            if cd.just_finished() {
-                let los = has_line_of_sight(pos, player_pos, &mask);
-                if los && rng.random::<f32>() < 0.34 {
-                    let count = rng.random_range(3..=5);
-                    for _ in 0..count {
-                        let spread = rng.random_range(-20_f32..20.0).to_radians();
-                        let base = dir.y.atan2(dir.x);
-                        let ang = base + spread;
-                        let off = Vec2::new(ang.cos(), ang.sin()) * 12.0;
-                        commands.spawn(PendingEnemySpawn {
-                            kind: EnemyKind::FastRat,
-                            pos: pos + off,
-                            difficulty: 1.0,
-                        });
+            if brain.burst_left > 0 {
+                brain.burst_timer.tick(time.delta());
+                if brain.burst_timer.just_finished() {
+                    let spread = rng.random_range(-20_f32..20.0).to_radians();
+                    let base = dir.y.atan2(dir.x);
+                    let ang = base + spread;
+                    let off = Vec2::new(ang.cos(), ang.sin()) * 12.0;
+                    commands.spawn(PendingEnemySpawn {
+                        kind: EnemyKind::FastRat,
+                        pos: pos + off,
+                        difficulty: 1.0,
+                    });
+                    brain.burst_left = brain.burst_left.saturating_sub(1);
+                    if brain.burst_left > 0 {
+                        brain.burst_timer = Timer::from_seconds(6.0 / 30.0, TimerMode::Once);
                     }
-                    *cd = Timer::from_seconds(
-                        (30.0 + rng.random_range(0.0..5.0)) / 30.0,
-                        TimerMode::Once,
-                    );
-                } else {
-                    *cd = Timer::from_seconds(
-                        (30.0 + rng.random_range(0.0..10.0)) / 30.0,
-                        TimerMode::Once,
-                    );
+                }
+            } else {
+                cd.tick(time.delta());
+                if cd.just_finished() {
+                    let los = has_line_of_sight(pos, player_pos, &mask);
+                    if los && rng.random::<f32>() < 0.34 {
+                        brain.burst_left = rng.random_range(3..=5);
+                        brain.burst_timer = Timer::from_seconds(6.0 / 30.0, TimerMode::Once);
+                        *cd = Timer::from_seconds(
+                            (30.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    } else {
+                        *cd = Timer::from_seconds(
+                            (30.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
                 }
             }
         }
 
         if enemy.kind == EnemyKind::Sniper {
-            let (cd, aiming) = sniper_state
-                .entry(entity)
-                .or_insert_with(|| (Timer::from_seconds(1.0, TimerMode::Once), false));
+            let (cd, aiming) = sniper_state.entry(entity).or_insert_with(|| {
+                (
+                    Timer::from_seconds(
+                        (60.0 + rand::rng().random_range(0.0..90.0)) / 30.0,
+                        TimerMode::Once,
+                    ),
+                    false,
+                )
+            });
             cd.tick(time.delta());
+            if *aiming && cd.remaining_secs() > 5.0 / 30.0 {
+                brain.gunangle = dir.y.atan2(dir.x);
+            }
             if cd.just_finished() {
                 let los = has_line_of_sight(pos, player_pos, &mask);
                 if !*aiming {
-                    if los && dist > 96.0 && rng.random::<f32>() < 0.67 {
-                        *aiming = true;
-                        brain.gunangle = dir.y.atan2(dir.x);
-                        *cd = Timer::from_seconds(70.0 / 30.0, TimerMode::Once);
+                    if los {
+                        if dist > 96.0 {
+                            if rng.random::<f32>() < 0.67 {
+                                play_enemy_cue(&mut commands, &asset_server, "sndSniperTarget");
+                                *aiming = true;
+                                brain.gunangle = dir.y.atan2(dir.x);
+                                brain.walk = 0.0;
+                                vel.0 = Vec2::ZERO;
+                                *cd = Timer::from_seconds(30.0 / 30.0, TimerMode::Once);
+                            } else {
+                                let ang = dir.y.atan2(dir.x)
+                                    + rng.random_range(-80_f32..80.0).to_radians();
+                                let wdir = Vec2::new(ang.cos(), ang.sin());
+                                vel.0 = wdir * (0.4 * 30.0);
+                                brain.walk = 10.0 + rng.random_range(0.0..10.0);
+                                brain.gunangle = dir.y.atan2(dir.x);
+                                *cd = Timer::from_seconds(
+                                    (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                                    TimerMode::Once,
+                                );
+                            }
+                        } else {
+                            let away = -dir;
+                            let ang =
+                                away.y.atan2(away.x) + rng.random_range(-10_f32..10.0).to_radians();
+                            let wdir = Vec2::new(ang.cos(), ang.sin());
+                            vel.0 = wdir * (0.4 * 30.0);
+                            brain.walk = 40.0 + rng.random_range(0.0..10.0);
+                            brain.gunangle = dir.y.atan2(dir.x);
+                            *cd = Timer::from_seconds(
+                                (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                                TimerMode::Once,
+                            );
+                        }
+                        sprite.flip_x = player_pos.x < pos.x;
+                    } else if rng.random::<f32>() < 0.25 {
+                        let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (0.4 * 30.0);
+                        brain.walk = 20.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = ang;
+                        *cd = Timer::from_seconds(
+                            (brain.walk + 2.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                        sprite.flip_x = vel.0.x < 0.0;
                     } else {
                         *cd = Timer::from_seconds(
                             (20.0 + rng.random_range(0.0..10.0)) / 30.0,
@@ -936,6 +1037,7 @@ pub fn enemy_ai(
                     }
                 } else {
                     *aiming = false;
+                    play_enemy_cue(&mut commands, &asset_server, "sndSniperFire");
                     let base = brain.gunangle;
                     for off in [4.0_f32, -4.0, 0.0] {
                         let ang = base + off.to_radians();
@@ -978,6 +1080,277 @@ pub fn enemy_ai(
                     *cd = Timer::from_seconds(
                         (40.0 + rng.random_range(0.0..5.0)) / 30.0,
                         TimerMode::Once,
+                    );
+                }
+            }
+        }
+
+        if matches!(
+            enemy.kind,
+            EnemyKind::LaserCrystal
+                | EnemyKind::LightningCrystal
+                | EnemyKind::InvLaserCrystal
+                | EnemyKind::SnowTank
+                | EnemyKind::GoldSnowtank
+                | EnemyKind::Guardian
+                | EnemyKind::ExploGuardian
+        ) {
+            let (charge_frames, min_range, max_range, aim_chance): (f32, f32, f32, f32) =
+                match enemy.kind {
+                    EnemyKind::LaserCrystal | EnemyKind::InvLaserCrystal => {
+                        (30.0, 64.0, 160.0, 1.0)
+                    }
+                    EnemyKind::LightningCrystal => (20.0, 0.0, 96.0, 1.0),
+                    EnemyKind::SnowTank => (40.0, 64.0, 240.0, 1.0 / 6.0),
+                    EnemyKind::GoldSnowtank => (10.0, 64.0, 160.0, 0.5),
+                    EnemyKind::Guardian => (12.0, 0.0, 999.0, 1.0),
+                    EnemyKind::ExploGuardian => (60.0, 0.0, 90.0, 1.0),
+                    _ => (30.0, 0.0, 999.0, 1.0),
+                };
+            if let Some(chg) = charge_state.get_mut(&entity) {
+                chg.tick(time.delta());
+                if chg.just_finished() {
+                    charge_state.remove(&entity);
+                    let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
+                    if matches!(enemy.kind, EnemyKind::SnowTank | EnemyKind::GoldSnowtank) {
+                        brain.burst_left = 16;
+                        brain.burst_timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                        brain.strafe_dir = 0.0;
+                    } else {
+                        brain.burst_left = def.bullets_per_shot;
+                        brain.burst_timer =
+                            Timer::from_seconds(def.burst_interval, TimerMode::Once);
+                        fire_enemy_bullet(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut rng,
+                            entity,
+                            enemy,
+                            def,
+                            pos,
+                            gdir,
+                            euphoria,
+                        );
+                        brain.burst_left = brain.burst_left.saturating_sub(1);
+                    }
+                    show_enemy_fire(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        entity,
+                        def.sprite,
+                        &mut anim,
+                        &mut *sprite,
+                        &mut anchor,
+                        hurt.is_some(),
+                    );
+                    if enemy.kind == EnemyKind::GoldSnowtank {
+                        let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
+                        let (sprite_b, anchor_b, anim_b) = enemy_bullet_sprite(
+                            &catalog,
+                            &asset_server,
+                            EnemyKind::Jock,
+                            enemy_def(EnemyKind::Jock),
+                        );
+                        let mut ec = commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            Team::Enemy,
+                            Projectile {
+                                damage: 5,
+                                life: Timer::from_seconds(3.0, TimerMode::Once),
+                                radius: 5.0,
+                                knockback: 150.0,
+                                explosive: true,
+                                source: Some(DamageSource::enemy(entity, enemy.kind)),
+                            },
+                            Velocity(gdir * 60.0),
+                            sprite_b,
+                            anchor_b,
+                            Transform::from_translation((pos + gdir * 20.0).extend(15.0))
+                                .with_rotation(Quat::from_rotation_z(brain.gunangle)),
+                        ));
+                        if let Some(a) = anim_b {
+                            ec.insert(a);
+                        }
+                    }
+                }
+            } else if brain.burst_left == 0 {
+                brain.attack.tick(time.delta());
+                if brain.attack.just_finished() {
+                    let los = has_line_of_sight(pos, player_pos, &mask);
+                    let in_range = dist >= min_range && dist <= max_range;
+                    let guardian_ok = if enemy.kind == EnemyKind::Guardian {
+                        los && ((dist > 96.0 && rng.random::<f32>() < 0.67)
+                            || rng.random::<f32>() < 0.33)
+                    } else {
+                        los && in_range && rng.random::<f32>() < aim_chance
+                    };
+                    let explo_ok = if enemy.kind == EnemyKind::ExploGuardian {
+                        los && dist <= 90.0
+                    } else {
+                        guardian_ok
+                    };
+                    if explo_ok {
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        show_enemy_fire(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            entity,
+                            def.sprite,
+                            &mut anim,
+                            &mut *sprite,
+                            &mut anchor,
+                            hurt.is_some(),
+                        );
+                        match enemy.kind {
+                            EnemyKind::LaserCrystal | EnemyKind::InvLaserCrystal => {
+                                play_enemy_cue(
+                                    &mut commands,
+                                    &asset_server,
+                                    "sndLaserCrystalCharge",
+                                );
+                            }
+                            EnemyKind::LightningCrystal => {
+                                play_enemy_cue(
+                                    &mut commands,
+                                    &asset_server,
+                                    "sndLightningCrystalCharge",
+                                );
+                            }
+                            EnemyKind::SnowTank => {
+                                play_enemy_cue(&mut commands, &asset_server, "sndSnowTankAim");
+                            }
+                            EnemyKind::GoldSnowtank => {
+                                play_enemy_cue(&mut commands, &asset_server, "sndGoldTankAim");
+                            }
+                            EnemyKind::ExploGuardian => {
+                                play_enemy_cue(
+                                    &mut commands,
+                                    &asset_server,
+                                    "sndExploGuardianCharge",
+                                );
+                            }
+                            _ => {}
+                        }
+                        charge_state.insert(
+                            entity,
+                            Timer::from_seconds(charge_frames / 30.0, TimerMode::Once),
+                        );
+                        brain.attack = Timer::from_seconds(
+                            def.attack_cooldown + charge_frames / 30.0,
+                            TimerMode::Once,
+                        );
+                    } else {
+                        let cd_secs = match enemy.kind {
+                            EnemyKind::SnowTank => (40.0 + rng.random_range(0.0..30.0)) / 30.0,
+                            EnemyKind::GoldSnowtank => (15.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            EnemyKind::Guardian => (10.0 + rng.random_range(0.0..40.0)) / 30.0,
+                            EnemyKind::ExploGuardian => (6.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            EnemyKind::LaserCrystal | EnemyKind::InvLaserCrystal => {
+                                (30.0 + rng.random_range(0.0..10.0)) / 30.0
+                            }
+                            _ => def.attack_cooldown,
+                        };
+                        brain.attack = Timer::from_seconds(cd_secs, TimerMode::Once);
+                        if matches!(enemy.kind, EnemyKind::SnowTank | EnemyKind::GoldSnowtank) {
+                            let base =
+                                dir.y.atan2(dir.x) + std::f32::consts::FRAC_PI_2 * brain.strafe_dir;
+                            let wdir = Vec2::new(base.cos(), base.sin());
+                            vel.0 = wdir * (0.6 * 30.0);
+                            brain.walk = 20.0 + rng.random_range(0.0..10.0);
+                        }
+                    }
+                }
+            } else if brain.burst_left > 0 {
+                brain.burst_timer.tick(time.delta());
+                if brain.burst_timer.just_finished() {
+                    if matches!(enemy.kind, EnemyKind::SnowTank | EnemyKind::GoldSnowtank) {
+                        let wave = brain.strafe_dir;
+                        let amp = if enemy.kind == EnemyKind::SnowTank {
+                            20.0_f32.to_radians()
+                        } else {
+                            15.0_f32.to_radians()
+                        };
+                        for i in [-1.0_f32, 1.0] {
+                            let ang = brain.gunangle + (wave.sin() * amp) * i;
+                            let sdir = Vec2::new(ang.cos(), ang.sin());
+                            let (sprite_b, anchor_b, anim_b) =
+                                enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                            let mut ec = commands.spawn((
+                                GameCleanup,
+                                LevelCleanup,
+                                Team::Enemy,
+                                Projectile {
+                                    damage: def.projectile_damage,
+                                    life: Timer::from_seconds(
+                                        def.projectile_lifetime,
+                                        TimerMode::Once,
+                                    ),
+                                    radius: def.projectile_radius,
+                                    knockback: 150.0,
+                                    explosive: false,
+                                    source: Some(DamageSource::enemy(entity, enemy.kind)),
+                                },
+                                Velocity(sdir * def.projectile_speed),
+                                sprite_b,
+                                anchor_b,
+                                Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                    .with_rotation(Quat::from_rotation_z(ang)),
+                            ));
+                            if let Some(a) = anim_b {
+                                ec.insert(a);
+                            }
+                        }
+                        brain.strafe_dir = wave + 0.1;
+                        brain.burst_left = brain.burst_left.saturating_sub(1);
+                        brain.burst_timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                        if brain.burst_left == 0 {
+                            brain.attack = Timer::from_seconds(
+                                match enemy.kind {
+                                    EnemyKind::SnowTank => {
+                                        (40.0 + rng.random_range(0.0..30.0)) / 30.0
+                                    }
+                                    _ => (15.0 + rng.random_range(0.0..5.0)) / 30.0,
+                                },
+                                TimerMode::Once,
+                            );
+                        }
+                    } else {
+                        let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
+                        fire_enemy_bullet(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            &mut rng,
+                            entity,
+                            enemy,
+                            def,
+                            pos,
+                            gdir,
+                            euphoria,
+                        );
+                        brain.burst_left = brain.burst_left.saturating_sub(1);
+                        if brain.burst_left == 0 {
+                            brain.attack =
+                                Timer::from_seconds(def.attack_cooldown, TimerMode::Once);
+                        } else {
+                            brain.burst_timer =
+                                Timer::from_seconds(def.burst_interval, TimerMode::Once);
+                        }
+                    }
+                    show_enemy_fire(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        entity,
+                        def.sprite,
+                        &mut anim,
+                        &mut *sprite,
+                        &mut anchor,
+                        hurt.is_some(),
                     );
                 }
             }
@@ -1038,7 +1411,418 @@ pub fn enemy_ai(
             }
         }
 
-        if def.bullets_per_shot > 0 && dist < brain.shoot_range && !dashing {
+        if matches!(enemy.kind, EnemyKind::MeleeBandit) {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if los {
+                    if dist < 64.0 {
+                        let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
+                        vel.0 = gdir * (6.0 * 30.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        play_enemy_cue(&mut commands, &asset_server, "sndAssassinAttack");
+                        spawn_hit_warning(&mut commands, &catalog, &asset_server, pos);
+                        brain.attack = Timer::from_seconds(
+                            (50.0 + rng.random_range(0.0..6.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    } else {
+                        let ang = dir.y.atan2(dir.x) + rng.random_range(-10_f32..10.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (0.4 * 30.0);
+                        brain.walk = 40.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        brain.attack = Timer::from_seconds(
+                            (10.0 + rng.random_range(0.0..5.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                    sprite.flip_x = player_pos.x < pos.x;
+                } else if rng.random::<f32>() < 0.25 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    vel.0 = Vec2::new(ang.cos(), ang.sin()) * (0.4 * 30.0);
+                    brain.walk = 20.0 + rng.random_range(0.0..10.0);
+                    brain.attack = Timer::from_seconds(
+                        (brain.walk + 10.0 + rng.random_range(0.0..30.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                } else {
+                    brain.attack = Timer::from_seconds(
+                        (10.0 + rng.random_range(0.0..5.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
+            }
+        }
+
+        if matches!(enemy.kind, EnemyKind::Gator | EnemyKind::BuffGator) {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if los {
+                    if dist > 48.0 && dist < 128.0 && rng.random::<f32>() < 0.34 {
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        spawn_hit_warning(&mut commands, &catalog, &asset_server, pos);
+                        brain.walk = 10.0;
+                        brain.attack = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    } else if dist <= 48.0 || dist >= 128.0 {
+                        let ang =
+                            (-dir).y.atan2((-dir).x) + rng.random_range(-10_f32..10.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (0.4 * 30.0);
+                        brain.walk = 40.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        brain.attack = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    } else {
+                        let ang = dir.y.atan2(dir.x) + rng.random_range(-90_f32..90.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (0.4 * 30.0);
+                        brain.walk = 10.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        brain.attack = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                    sprite.flip_x = player_pos.x < pos.x;
+                } else {
+                    brain.attack = Timer::from_seconds(
+                        (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
+            }
+            if brain.walk > 0.0 && brain.walk <= 10.0 {
+                brain.walk -= dt * 30.0;
+                if brain.walk <= 0.0 {
+                    let gdir = Vec2::new(brain.gunangle.cos(), brain.gunangle.sin());
+                    vel.0 = gdir * (4.0 * 30.0);
+                    brain.walk = 0.0;
+                }
+            }
+        }
+
+        if matches!(
+            enemy.kind,
+            EnemyKind::IdpdGrunt | EnemyKind::IdpdInspector | EnemyKind::IdpdElite
+        ) && brain.ammo > 0
+        {
+            let los = has_line_of_sight(pos, player_pos, &mask);
+            let should_throw = (!los && dist > 64.0) || (los && rng.random::<f32>() < 0.02);
+            if should_throw {
+                brain.ammo = brain.ammo.saturating_sub(1);
+                let base = dir.y.atan2(dir.x);
+                let ang = base + rng.random_range(-10_f32..10.0).to_radians();
+                let sdir = Vec2::new(ang.cos(), ang.sin());
+                let (sprite_b, anchor_b, anim_b) = {
+                    let path = "images/sprPopoNade.png";
+                    let sp = if catalog.has(path) {
+                        crate::game::content::sprite_exact(&catalog, &asset_server, path)
+                    } else {
+                        crate::game::projectile_art::enemy_projectile_sprite(
+                            &asset_server,
+                            &catalog,
+                            enemy.kind,
+                            None,
+                        )
+                    };
+                    let an = crate::game::content::sprite_anchor(&catalog, path);
+                    let am = catalog
+                        .anim_def(path)
+                        .map(|d| crate::game::anim::SpriteAnim::new(path, d));
+                    (sp, an, am)
+                };
+                let mut ec = commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    Team::Enemy,
+                    Projectile {
+                        damage: 5,
+                        life: Timer::from_seconds(2.0, TimerMode::Once),
+                        radius: 6.0,
+                        knockback: 150.0,
+                        explosive: true,
+                        source: Some(DamageSource::enemy(entity, enemy.kind)),
+                    },
+                    Velocity(sdir * 300.0),
+                    sprite_b,
+                    anchor_b,
+                    Transform::from_translation((pos + sdir * 16.0).extend(15.0))
+                        .with_rotation(Quat::from_rotation_z(ang)),
+                ));
+                if let Some(a) = anim_b {
+                    ec.insert(a);
+                }
+            }
+        }
+
+        if matches!(
+            enemy.kind,
+            EnemyKind::Mimic | EnemyKind::SuperMimic | EnemyKind::WepMimic
+        ) {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let tell: &'static str = match enemy.kind {
+                    EnemyKind::SuperMimic => "images/sprSuperMimicTell.png",
+                    EnemyKind::WepMimic => "images/sprWepMimicTell.png",
+                    _ => "images/sprMimicTell.png",
+                };
+                if catalog.has(tell) {
+                    if let Some(def) = catalog.anim_def(tell) {
+                        if let (Some(anim_mut), Some(anchor_mut)) = (anim.as_mut(), anchor.as_mut())
+                        {
+                            anim_mut.set_path(tell, def, false);
+                            sprite.image = asset_server.load(tell.to_string());
+                            sprite.rect = Some(anim_mut.rect());
+                            **anchor_mut = crate::game::content::sprite_anchor(&catalog, tell);
+                        }
+                    }
+                }
+                if enemy.kind == EnemyKind::SuperMimic || enemy.kind == EnemyKind::WepMimic {
+                    play_enemy_cue(&mut commands, &asset_server, "sndHPMimicTaunt");
+                } else {
+                    play_enemy_cue(&mut commands, &asset_server, "sndMimicSlurp");
+                }
+                let cd_secs = if enemy.kind == EnemyKind::SuperMimic {
+                    (150.0 + rng.random_range(0.0..180.0)) / 30.0
+                } else {
+                    (90.0 + rng.random_range(0.0..150.0)) / 30.0
+                };
+                brain.attack = Timer::from_seconds(cd_secs, TimerMode::Once);
+            }
+            if dist < 200.0 {
+                let chase = dir * 60.0;
+                vel.0 = vel.0.lerp(chase, 0.1);
+            }
+        }
+
+        if matches!(enemy.kind, EnemyKind::IdpdShield) {
+            brain.melee.tick(time.delta());
+            if brain.melee.just_finished() {
+                let shield_path = if catalog.has("images/sprShieldB.png") {
+                    "images/sprShieldB.png"
+                } else if catalog.has("images/sprShielderShieldAppear.png") {
+                    "images/sprShielderShieldAppear.png"
+                } else {
+                    ""
+                };
+                if !shield_path.is_empty() {
+                    let sp =
+                        crate::game::content::sprite_exact(&catalog, &asset_server, shield_path);
+                    let an = crate::game::content::sprite_anchor(&catalog, shield_path);
+                    let base = brain.gunangle;
+                    let off = Vec2::new(base.cos(), base.sin()) * 16.0;
+                    let mut ec = commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        ShieldFollower { owner: entity },
+                        sp,
+                        an,
+                        Transform::from_translation((pos + off).extend(12.0))
+                            .with_rotation(Quat::from_rotation_z(base)),
+                    ));
+                    if let Some(def) = catalog.anim_def(shield_path) {
+                        ec.insert(crate::game::anim::SpriteAnim::new(shield_path, def));
+                    }
+                }
+                brain.melee = Timer::from_seconds(85.0 / 30.0, TimerMode::Once);
+            }
+        }
+
+        if enemy.kind == EnemyKind::FrogQueen {
+            if brain.burst_left > 0 {
+                brain.burst_timer.tick(time.delta());
+                if brain.burst_timer.just_finished() {
+                    if (positions.len() as u32) < 30 {
+                        commands.spawn(PendingEnemySpawn {
+                            kind: EnemyKind::FrogEgg,
+                            pos,
+                            difficulty: 1.0,
+                        });
+                    }
+                    brain.burst_left = brain.burst_left.saturating_sub(1);
+                    if brain.burst_left > 0 {
+                        brain.burst_timer = Timer::from_seconds(10.0 / 30.0, TimerMode::Once);
+                    } else {
+                        let base =
+                            dir.y.atan2(dir.x) + rng.random_range(-15_f32..15.0).to_radians();
+                        let sdir = Vec2::new(base.cos(), base.sin());
+                        let (sprite_b, anchor_b, anim_b) =
+                            enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                        let mut ec = commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            Team::Enemy,
+                            Projectile {
+                                damage: 5,
+                                life: Timer::from_seconds(4.0, TimerMode::Once),
+                                radius: 6.0,
+                                knockback: 150.0,
+                                explosive: false,
+                                source: Some(DamageSource::enemy(entity, enemy.kind)),
+                            },
+                            Velocity(sdir * 120.0),
+                            sprite_b,
+                            anchor_b,
+                            Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                .with_rotation(Quat::from_rotation_z(base)),
+                        ));
+                        if let Some(a) = anim_b {
+                            ec.insert(a);
+                        }
+                        show_enemy_fire(
+                            &mut commands,
+                            &catalog,
+                            &asset_server,
+                            entity,
+                            def.sprite,
+                            &mut anim,
+                            &mut *sprite,
+                            &mut anchor,
+                            hurt.is_some(),
+                        );
+                        brain.attack = Timer::from_seconds(
+                            (30.0 + rng.random_range(0.0..20.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                }
+            } else {
+                brain.attack.tick(time.delta());
+                if brain.attack.just_finished() {
+                    let los = has_line_of_sight(pos, player_pos, &mask);
+                    if los && rng.random::<f32>() < 0.25 {
+                        brain.burst_left = (2 + run.loop_count).min(6) as usize;
+                        brain.burst_timer = Timer::from_seconds(10.0 / 30.0, TimerMode::Once);
+                    } else {
+                        brain.walk = 50.0;
+                        brain.attack = Timer::from_seconds(
+                            (30.0 + rng.random_range(0.0..20.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                }
+            }
+        }
+        if enemy.kind == EnemyKind::Jock {
+            brain.attack.tick(time.delta());
+            if brain.attack.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if los {
+                    if dist > 96.0 {
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        let chance = 8 - brain.ammo as i32;
+                        if brain.ammo > 0 && rng.random_range(0..chance.max(1)) == 0 {
+                            brain.ammo = brain.ammo.saturating_sub(1);
+                            let base = brain.gunangle;
+                            let ang = base + rng.random_range(-10_f32..10.0).to_radians();
+                            let sdir = Vec2::new(ang.cos(), ang.sin());
+                            let (sprite_b, anchor_b, anim_b) =
+                                enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                            let mut ec = commands.spawn((
+                                GameCleanup,
+                                LevelCleanup,
+                                Team::Enemy,
+                                Projectile {
+                                    damage: def.projectile_damage,
+                                    life: Timer::from_seconds(
+                                        def.projectile_lifetime,
+                                        TimerMode::Once,
+                                    ),
+                                    radius: def.projectile_radius,
+                                    knockback: 150.0,
+                                    explosive: true,
+                                    source: Some(DamageSource::enemy(entity, enemy.kind)),
+                                },
+                                Velocity(sdir * 60.0),
+                                Homing {
+                                    turn_rate: 3.0,
+                                    acquire_range: 600.0,
+                                },
+                                sprite_b,
+                                anchor_b,
+                                Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                    .with_rotation(Quat::from_rotation_z(ang)),
+                            ));
+                            if let Some(a) = anim_b {
+                                ec.insert(a);
+                            }
+                            show_enemy_fire(
+                                &mut commands,
+                                &catalog,
+                                &asset_server,
+                                entity,
+                                def.sprite,
+                                &mut anim,
+                                &mut *sprite,
+                                &mut anchor,
+                                hurt.is_some(),
+                            );
+                            brain.attack = Timer::from_seconds(8.0 / 30.0, TimerMode::Once);
+                        } else if rng.random::<f32>() < 0.67 {
+                            let ang =
+                                dir.y.atan2(dir.x) + rng.random_range(-40_f32..40.0).to_radians();
+                            let wdir = Vec2::new(ang.cos(), ang.sin());
+                            vel.0 = wdir * (0.4 * 30.0);
+                            brain.walk = 10.0 + rng.random_range(0.0..10.0);
+                            brain.gunangle = dir.y.atan2(dir.x);
+                            brain.attack = Timer::from_seconds(
+                                (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                                TimerMode::Once,
+                            );
+                        } else {
+                            brain.attack = Timer::from_seconds(
+                                (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                                TimerMode::Once,
+                            );
+                        }
+                    } else {
+                        let ang = dir.y.atan2(dir.x) + rng.random_range(-5_f32..5.0).to_radians();
+                        let wdir = Vec2::new(ang.cos(), ang.sin());
+                        vel.0 = wdir * (0.4 * 30.0);
+                        brain.walk = 40.0 + rng.random_range(0.0..10.0);
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        brain.attack = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                    sprite.flip_x = player_pos.x < pos.x;
+                } else if rng.random::<f32>() < 0.25 {
+                    let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                    vel.0 = Vec2::new(ang.cos(), ang.sin()) * (0.4 * 30.0);
+                    brain.walk = 20.0 + rng.random_range(0.0..10.0);
+                    brain.attack = Timer::from_seconds(
+                        (brain.walk + 10.0 + rng.random_range(0.0..30.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                } else {
+                    brain.attack = Timer::from_seconds(
+                        (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
+            }
+        }
+
+        let uses_charge = matches!(
+            enemy.kind,
+            EnemyKind::LaserCrystal
+                | EnemyKind::LightningCrystal
+                | EnemyKind::InvLaserCrystal
+                | EnemyKind::SnowTank
+                | EnemyKind::GoldSnowtank
+                | EnemyKind::Guardian
+                | EnemyKind::ExploGuardian
+                | EnemyKind::Jock
+        );
+        if def.bullets_per_shot > 0 && dist < brain.shoot_range && !dashing && !uses_charge {
             if def.burst {
                 if brain.burst_left > 0 {
                     brain.burst_timer.tick(time.delta());
@@ -1245,10 +2029,7 @@ fn fire_enemy_bullet(
 }
 
 fn explosive_kind(kind: EnemyKind) -> bool {
-    matches!(
-        kind,
-        EnemyKind::SnowTank | EnemyKind::GoldSnowtank | EnemyKind::ExploGuardian | EnemyKind::Jock
-    )
+    matches!(kind, EnemyKind::Jock)
 }
 
 fn fire_enemy_shot(
@@ -1272,6 +2053,11 @@ fn fire_enemy_shot(
         };
         let angle = base + offset + rng.random_range(-0.06..0.06);
         let shot_dir = Vec2::new(angle.cos(), angle.sin());
+        let speed = if enemy.kind == EnemyKind::SuperFireBaller {
+            [90.0, 120.0, 150.0][(i as usize).min(2)]
+        } else {
+            def.projectile_speed
+        };
         let (sprite, anchor, anim) = enemy_bullet_sprite(catalog, asset_server, enemy.kind, def);
         let mut ec = commands.spawn((
             GameCleanup,
@@ -1285,7 +2071,7 @@ fn fire_enemy_shot(
                 explosive: explosive_kind(enemy.kind),
                 source: Some(DamageSource::enemy(owner, enemy.kind)),
             },
-            Velocity(shot_dir * def.projectile_speed),
+            Velocity(shot_dir * speed),
             sprite,
             anchor,
             Transform::from_translation((pos + shot_dir * 20.0).extend(15.0))
@@ -1514,6 +2300,73 @@ pub fn tick_corpses(
         if let (Some(mut v), Some(mut t)) = (vel, tf) {
             crate::game::components::apply_gml_friction(&mut v.0, 0.4, dt);
             t.translation += v.0.extend(0.0) * dt;
+        }
+    }
+}
+
+/// GML HitWarning: sprAssassinNotice at (x, y-16), destroyed on anim end.
+/// Spawned by MeleeBandit/Gator/BuffGator/EliteInspector/YVBoss telegraphs.
+pub fn spawn_hit_warning(
+    commands: &mut Commands,
+    catalog: &AssetCatalog,
+    asset_server: &AssetServer,
+    pos: Vec2,
+) {
+    let path = "images/sprAssassinNotice.png";
+    if !catalog.has(path) {
+        return;
+    }
+    let sprite = crate::game::content::sprite_exact(catalog, asset_server, path);
+    let anchor = crate::game::content::sprite_anchor(catalog, path);
+    let mut e = commands.spawn((
+        GameCleanup,
+        LevelCleanup,
+        HitWarning {
+            timer: Timer::from_seconds(0.5, TimerMode::Once),
+        },
+        sprite,
+        anchor,
+        Transform::from_translation((pos + Vec2::new(0.0, -16.0)).extend(18.0)),
+    ));
+    if let Some(def) = catalog.anim_def(path) {
+        e.insert(crate::game::anim::SpriteAnim::oneshot(path, def));
+    }
+}
+
+pub fn tick_hit_warnings(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    mut q: Query<(
+        Entity,
+        &mut HitWarning,
+        Option<&mut crate::game::anim::SpriteAnim>,
+    )>,
+) {
+    for (e, mut w, anim) in &mut q {
+        w.timer.tick(time.delta());
+        let anim_done = anim.as_ref().is_some_and(|a| a.finished);
+        if w.timer.just_finished() || anim_done {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
+/// GML PopoShield follower: spawns at owner + gunangle*16, follows each tick,
+/// despawns when owner gone.
+pub fn tick_shield_followers(
+    mut commands: Commands,
+    owners: Query<(Entity, &Transform, &EnemyBrain), With<Enemy>>,
+    mut shields: Query<(Entity, &ShieldFollower, &mut Transform), Without<Enemy>>,
+) {
+    for (e, sh, mut tf) in shields.iter_mut() {
+        if let Ok((_, owner_tf, brain)) = owners.get(sh.owner) {
+            let base = brain.gunangle;
+            let off = Vec2::new(base.cos(), base.sin()) * 16.0;
+            let p = owner_tf.translation.truncate() + off;
+            tf.translation = p.extend(12.0);
+            tf.rotation = Quat::from_rotation_z(base);
+        } else {
+            commands.entity(e).despawn();
         }
     }
 }

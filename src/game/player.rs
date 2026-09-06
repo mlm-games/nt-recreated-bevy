@@ -17,6 +17,13 @@ use game_utils_bevy::camera_follow::CameraFollow;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
 
 #[derive(bevy::ecs::system::SystemParam)]
+pub struct RumbleCtx<'w, 's> {
+    pub gamepads: Query<'w, 's, (Entity, &'static Gamepad)>,
+    pub rumble: MessageWriter<'w, GamepadRumbleRequest>,
+    pub save: Res<'w, crate::save::SaveData>,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
 pub struct MeleeTargets<'w, 's> {
     enemies: Query<
         'w,
@@ -304,32 +311,12 @@ pub fn player_ability(
     if race_state.race == RaceId::Steroids {
         return;
     }
-    if !fire || !player.ability_cooldown.is_finished() {
+    if !fire {
         return;
     }
 
     let pos = tf.translation.truncate();
     let ability = player.ability;
-
-    let cd_frames: f32 = match ability {
-        AbilityKind::Flip => 105.0,
-        AbilityKind::Shield => 150.0,
-        AbilityKind::Telekinesis => 135.0,
-        AbilityKind::Detonate => 165.0,
-        AbilityKind::Snare => 120.0,
-        AbilityKind::PopPop => 90.0,
-        AbilityKind::GetLoaded => 210.0,
-        AbilityKind::EatWeapon => 30.0,
-        AbilityKind::Throw => 120.0,
-        AbilityKind::SpawnAlly => 240.0,
-        AbilityKind::HorrorBeam => 150.0,
-        AbilityKind::PortalStrike => 180.0,
-        AbilityKind::RocketBarrage => 210.0,
-        AbilityKind::BloodGamble => 120.0,
-        AbilityKind::ToxicPuke => 150.0,
-        AbilityKind::CuzSwap => 12.0,
-    };
-    let cd = cd_frames / 30.0;
 
     let ability_mult = if player.throne_butt {
         player.ultra_ability_mult * 1.35
@@ -350,7 +337,6 @@ pub fn player_ability(
             });
             health.invuln = Timer::from_seconds(15.0 / 30.0, TimerMode::Once);
             vel.0 = dir * 900.0;
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             ScreenEffects::add_trauma(&mut trauma, 0.12);
             GameFeel::slow_motion(&mut slow_mo, 0.55, 0.2);
             VfxSpawner::spawn_burst(
@@ -370,7 +356,6 @@ pub fn player_ability(
             } else {
                 commands.entity(player_e).insert(Shield { timer });
             }
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             ScreenEffects::add_trauma(&mut trauma, 0.08);
             VfxSpawner::spawn_burst(
                 &mut commands,
@@ -388,7 +373,6 @@ pub fn player_ability(
             } else {
                 commands.entity(player_e).insert(Telekinesis { timer });
             }
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             VfxSpawner::spawn_burst(
                 &mut commands,
                 pos,
@@ -403,7 +387,6 @@ pub fn player_ability(
                 return;
             }
             health.hp -= 1;
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let radius = 150.0 * ability_mult.clamp(1.0, 2.0);
             let damage = (3.0 * ability_mult).round() as i32;
             for (_, etf, mut ehealth) in &mut enemies {
@@ -425,7 +408,6 @@ pub fn player_ability(
             audio.play_boom(&mut commands);
         }
         AbilityKind::Snare => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             commands.spawn((
                 LevelCleanup,
                 SnareZone {
@@ -443,7 +425,6 @@ pub fn player_ability(
             audio.play_pickup(&mut commands);
         }
         AbilityKind::PopPop => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let charges = if player.throne_butt
                 || matches!(player.ultra, Some(UltraMutationId::VenuzBack2Bizniz))
             {
@@ -462,7 +443,6 @@ pub fn player_ability(
             audio.play_bolt(&mut commands);
         }
         AbilityKind::GetLoaded => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             for slot in 0..inv.weapon_slots {
                 let w = inv.weapons[slot];
                 if w == WeaponId::NONE {
@@ -499,7 +479,6 @@ pub fn player_ability(
             if w == WeaponId::NONE {
                 return;
             }
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             inv.weapons[slot] = WeaponId::NONE;
             if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
                 inv.current = next;
@@ -530,29 +509,13 @@ pub fn player_ability(
             audio.play_pickup(&mut commands);
         }
         AbilityKind::Throw => {
-            let dir = if input.move_axis != Vec2::ZERO {
-                input.move_axis.normalize()
-            } else {
-                aim.0
-            };
-
+            let dir = aim.0.normalize_or_zero();
             let slot = inv.current;
             let held = inv.weapons[slot];
 
             if held == WeaponId::NONE {
-                player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
-                commands.entity(player_e).insert(Dash {
-                    timer: Timer::from_seconds(0.14, TimerMode::Once),
-                    dir,
-                });
-                health.hp = (health.hp + 1).min(health.max);
-                health.invuln = Timer::from_seconds(0.35, TimerMode::Once);
-                vel.0 = dir * 800.0;
-                audio.play_bolt(&mut commands);
                 return;
             }
-
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
 
             inv.weapons[slot] = WeaponId::NONE;
             if let Some(next) = (0..inv.weapon_slots).find(|&i| inv.weapons[i] != WeaponId::NONE) {
@@ -560,7 +523,7 @@ pub fn player_ability(
             }
 
             let thrown_def = weapon_runtime_def(held);
-            let damage = (thrown_def.damage.max(6)) * 2;
+            let damage = 22 + 2 * player.level.max(1) as i32;
 
             spawn_player_projectile_with_source(
                 &mut commands,
@@ -568,7 +531,7 @@ pub fn player_ability(
                 Some(&asset_server),
                 pos + dir * 18.0,
                 dir,
-                520.0,
+                480.0,
                 damage,
                 1.2,
                 8.0,
@@ -593,10 +556,17 @@ pub fn player_ability(
             audio.play_melee(&mut commands);
         }
         AbilityKind::SpawnAlly => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let has_ally = false; // TODO: query live allies for cost 2 gate.
+            let cost = if has_ally || matches!(player.ultra, Some(UltraMutationId::RebelRiot)) {
+                2
+            } else {
+                1
+            };
+            if health.hp <= cost {
+                return;
+            }
+            health.hp -= cost;
             let ally_count = if matches!(player.ultra, Some(UltraMutationId::RebelRiot)) {
-                3
-            } else if player.throne_butt {
                 2
             } else {
                 1
@@ -606,22 +576,24 @@ pub fn player_ability(
                     * ((i as f32) - (ally_count as f32 - 1.0) * 0.5)
                     * 22.0;
                 let spawn_at = pos + aim.0 * 28.0 + side;
+                let ally_hp = 12;
                 commands.spawn((
                     LevelCleanup,
                     Ally {
-                        life: Timer::from_seconds(
-                            12.0 * ability_mult.clamp(1.0, 2.0),
-                            TimerMode::Once,
-                        ),
+                        life: Timer::from_seconds(12.0, TimerMode::Once),
                         shoot: Timer::from_seconds(
-                            (0.35 / ability_mult).clamp(0.15, 0.35),
+                            if player.throne_butt {
+                                5.0 / 30.0
+                            } else {
+                                8.0 / 30.0
+                            },
                             TimerMode::Repeating,
                         ),
                     },
                     Team::Player,
                     Health {
-                        hp: 8,
-                        max: 8,
+                        hp: ally_hp,
+                        max: ally_hp,
                         invuln: Timer::from_seconds(0.5, TimerMode::Once),
                     },
                     Hitbox { radius: 10.0 },
@@ -637,7 +609,6 @@ pub fn player_ability(
             audio.play_portal(&mut commands);
         }
         AbilityKind::HorrorBeam => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let dir = aim.0.normalize_or_zero();
             let beam_len = 320.0 * ability_mult.clamp(1.0, 1.8);
             let beam_damage = (4.0 * ability_mult).round() as i32;
@@ -674,17 +645,17 @@ pub fn player_ability(
             audio.play_bolt(&mut commands);
         }
         AbilityKind::PortalStrike => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            if player.rogue_ammo == 0 {
+                return;
+            }
+            player.rogue_ammo = player.rogue_ammo.saturating_sub(1);
             let target = pos + aim.0.normalize_or_zero() * 180.0;
             commands.spawn((
                 LevelCleanup,
                 PortalStrike {
-                    timer: Timer::from_seconds(
-                        (0.55 / ability_mult).clamp(0.2, 0.55),
-                        TimerMode::Once,
-                    ),
-                    radius: 90.0 * ability_mult.clamp(1.0, 2.0),
-                    damage: (8.0 * ability_mult).round() as i32,
+                    timer: Timer::from_seconds(0.55, TimerMode::Once),
+                    radius: 90.0,
+                    damage: 8,
                 },
                 Transform::from_translation(target.extend(8.0)),
                 Sprite {
@@ -696,7 +667,11 @@ pub fn player_ability(
             audio.play_portal(&mut commands);
         }
         AbilityKind::RocketBarrage => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
+            let slot = inv.ammo_mut(AmmoKind::Explosives);
+            if *slot < 3 {
+                return;
+            }
+            *slot -= 3;
             let base = aim.0.normalize_or_zero();
             let rockets = if matches!(player.ultra, Some(UltraMutationId::BigDogHeavyArtillery)) {
                 -3..=3
@@ -749,7 +724,6 @@ pub fn player_ability(
             if health.hp <= 1 {
                 return;
             }
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             health.hp -= 1;
             let roll = [
                 WeaponId::REVOLVER,
@@ -774,7 +748,6 @@ pub fn player_ability(
             audio.play_pickup(&mut commands);
         }
         AbilityKind::ToxicPuke => {
-            player.ability_cooldown = Timer::from_seconds(cd, TimerMode::Once);
             let spot = pos + aim.0.normalize_or_zero() * 48.0;
             commands.spawn((
                 LevelCleanup,
@@ -796,23 +769,38 @@ pub fn player_ability(
             audio.play_boom(&mut commands);
         }
         AbilityKind::CuzSwap => {
-            let swap_cd = if matches!(player.ultra, Some(UltraMutationId::CuzQuickSwap)) {
-                0.15
-            } else if player.throne_butt {
-                0.25
-            } else {
-                cd
-            };
-            player.ability_cooldown = Timer::from_seconds(swap_cd, TimerMode::Once);
-            let n = inv.weapon_slots;
-            for step in 1..=n {
-                let slot = (inv.current + step) % n;
-                if inv.weapons[slot] != WeaponId::NONE {
-                    inv.current = slot;
-                    break;
-                }
+            if player.cuz_ammo == 0 {
+                return;
             }
-            audio.play_pickup(&mut commands);
+            player.cuz_ammo = player.cuz_ammo.saturating_sub(1);
+            let tears = 20;
+            for i in 0..tears {
+                let ang = (i as f32) * std::f32::consts::TAU / tears as f32;
+                let dir = Vec2::new(ang.cos(), ang.sin());
+                spawn_player_projectile_with_source(
+                    &mut commands,
+                    Some(&catalog),
+                    Some(&asset_server),
+                    pos + dir * 16.0,
+                    dir,
+                    180.0,
+                    3,
+                    1.5,
+                    5.0,
+                    120.0,
+                    false,
+                    Color::srgb(0.6, 0.9, 1.0),
+                    Vec2::new(8.0, 8.0),
+                    1,
+                    0,
+                    None,
+                    None,
+                    ProjectileArchetype::default(),
+                    Some(DamageSource::player_weapon(player_e, WeaponId::NONE)),
+                    None,
+                );
+            }
+            audio.play_bolt(&mut commands);
         }
     }
 }
@@ -827,6 +815,7 @@ pub fn player_fire(
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
     mut toast: ResMut<Toast>,
+    run: Res<Run>,
     mut player_q: Query<
         (
             Entity,
@@ -843,8 +832,7 @@ pub fn player_fire(
     mut vis_q: Query<&mut WeaponVisual>,
     mut pop_q: Query<&mut PopPopCharges>,
     mut targets: MeleeTargets,
-    gamepads: Query<(Entity, &Gamepad)>,
-    mut rumble: MessageWriter<GamepadRumbleRequest>,
+    mut rumble_ctx: RumbleCtx,
 ) {
     let Ok((player_ent, tf, aim, mut player, mut health, race_state, sucking)) =
         player_q.single_mut()
@@ -859,6 +847,7 @@ pub fn player_fire(
     };
 
     let is_steroids = race_state.race == RaceId::Steroids;
+    let shake_scale: f32 = rumble_ctx.save.settings.screenshake.clamp(0.0, 2.0);
 
     cooldown.timer.tick(time.delta());
     cooldown.burst_timer.tick(time.delta());
@@ -889,17 +878,21 @@ pub fn player_fire(
             &mut trauma,
             &mut hitstop,
             &audio,
-            &mut rumble,
-            &gamepads,
+            &mut rumble_ctx.rumble,
+            &rumble_ctx.gamepads,
             &catalog,
             &asset_server,
+            &run,
+            shake_scale,
             &mut pop_q,
+            &mut vis_q,
             player_ent,
             tf,
             aim,
             &*player,
             primary_id,
             &primary_def,
+            0,
         );
         cooldown.burst_left -= 1;
         cooldown.burst_timer = Timer::from_seconds(primary_def.burst_interval, TimerMode::Once);
@@ -914,17 +907,21 @@ pub fn player_fire(
             &mut trauma,
             &mut hitstop,
             &audio,
-            &mut rumble,
-            &gamepads,
+            &mut rumble_ctx.rumble,
+            &rumble_ctx.gamepads,
             &catalog,
             &asset_server,
+            &run,
+            shake_scale,
             &mut pop_q,
+            &mut vis_q,
             player_ent,
             tf,
             aim,
             &*player,
             secondary_id,
             &secondary_def,
+            1,
         );
         cooldown.burst_left_b -= 1;
         cooldown.burst_timer_b = Timer::from_seconds(secondary_def.burst_interval, TimerMode::Once);
@@ -944,10 +941,12 @@ pub fn player_fire(
             &mut trauma,
             &mut hitstop,
             &audio,
-            &mut rumble,
-            &gamepads,
+            &mut rumble_ctx.rumble,
+            &rumble_ctx.gamepads,
             &catalog,
             &asset_server,
+            &run,
+            shake_scale,
             &mut toast,
             &mut pop_q,
             &mut targets,
@@ -973,10 +972,12 @@ pub fn player_fire(
             &mut trauma,
             &mut hitstop,
             &audio,
-            &mut rumble,
-            &gamepads,
+            &mut rumble_ctx.rumble,
+            &rumble_ctx.gamepads,
             &catalog,
             &asset_server,
+            &run,
+            shake_scale,
             &mut toast,
             &mut pop_q,
             &mut targets,
@@ -1008,14 +1009,23 @@ fn fire_burst_volley(
     gamepads: &Query<(Entity, &Gamepad)>,
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
+    run: &Run,
+    shake_scale: f32,
     pop_q: &mut Query<&mut PopPopCharges>,
+    vis_q: &mut Query<&mut WeaponVisual>,
     player_ent: Entity,
     tf: &Transform,
     aim: &AimDir,
     player: &Player,
     weapon_id: WeaponId,
     def: &WeaponDef,
+    visual_slot: u8,
 ) {
+    for mut wv in vis_q.iter_mut() {
+        if wv.owner == player_ent && wv.slot == visual_slot {
+            wv.wkick = def.recoil;
+        }
+    }
     spawn_pellets(
         commands,
         trauma,
@@ -1025,6 +1035,8 @@ fn fire_burst_volley(
         gamepads,
         catalog,
         asset_server,
+        run,
+        shake_scale,
         player_ent,
         tf,
         aim,
@@ -1044,6 +1056,8 @@ fn fire_burst_volley(
                 gamepads,
                 catalog,
                 asset_server,
+                run,
+                shake_scale,
                 player_ent,
                 tf,
                 aim,
@@ -1068,6 +1082,8 @@ fn fire_one_gun(
     gamepads: &Query<(Entity, &Gamepad)>,
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
+    run: &Run,
+    shake_scale: f32,
     toast: &mut Toast,
     pop_q: &mut Query<&mut PopPopCharges>,
     targets: &mut MeleeTargets,
@@ -1141,6 +1157,19 @@ fn fire_one_gun(
         &mut cooldown.timer_b
     };
     *timer = Timer::from_seconds(cd.max(0.03), TimerMode::Once);
+    match def.ammo {
+        AmmoKind::Shells => audio.play_shot_reload(commands),
+        AmmoKind::Bolts => audio.play_cross_reload(commands),
+        AmmoKind::Explosives => audio.play_nade_reload(commands),
+        AmmoKind::Energy => {
+            if def.name.contains("LIGHTNING") {
+                audio.play_lightning_reload(commands);
+            } else {
+                audio.play_plasma_reload(commands);
+            }
+        }
+        _ => {}
+    }
 
     if let Some(melee) = def.melee {
         melee_attack(
@@ -1162,6 +1191,9 @@ fn fire_one_gun(
             targets,
             catalog,
             asset_server,
+            shake_scale,
+            vis_q,
+            visual_slot,
         );
         return;
     }
@@ -1175,6 +1207,8 @@ fn fire_one_gun(
         gamepads,
         catalog,
         asset_server,
+        run,
+        shake_scale,
         player_ent,
         tf,
         aim,
@@ -1185,7 +1219,7 @@ fn fire_one_gun(
     vel.0 -= aim.0.normalize_or_zero() * def.recoil * 18.0;
     for mut wv in vis_q.iter_mut() {
         if wv.owner == player_ent && wv.slot == visual_slot {
-            wv.wkick = -def.recoil.max(2.0) * 1.5;
+            wv.wkick = def.recoil;
         }
     }
     if player.recycle_gland
@@ -1209,6 +1243,8 @@ fn fire_one_gun(
                 gamepads,
                 catalog,
                 asset_server,
+                run,
+                shake_scale,
                 player_ent,
                 tf,
                 aim,
@@ -1270,6 +1306,8 @@ fn spawn_pellets(
     gamepads: &Query<(Entity, &Gamepad)>,
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
+    run: &Run,
+    shake_scale: f32,
     player_ent: Entity,
     tf: &Transform,
     aim: &AimDir,
@@ -1281,10 +1319,11 @@ fn spawn_pellets(
     if sleep > 0.0 {
         hitstop.trigger((sleep * 8.0).clamp(0.15, 0.85), sleep);
     }
-    ScreenEffects::add_trauma(trauma, def.shake);
+    ScreenEffects::add_trauma(trauma, def.shake * shake_scale);
     GameFeel::rumble_controller(rumble, gamepads, 0.08, def.shake, 0.07);
 
     let kind: WeaponKind = id.into();
+    let underwater = matches!(run.area, crate::game::areas::AreaId::Oasis);
 
     let legacy_fallback = matches!(
         kind,
@@ -1296,23 +1335,32 @@ fn spawn_pellets(
             | WeaponKind::Crossbow
             | WeaponKind::GrenadeLauncher
     );
-    if legacy_fallback {
-        match kind {
-            WeaponKind::Revolver => {
-                audio.play_shoot(commands);
-            }
-            WeaponKind::Machinegun | WeaponKind::Smg | WeaponKind::AssaultRifle => {
-                audio.play_machine(commands);
-            }
-            WeaponKind::Shotgun => audio.play_shotgun(commands),
-            WeaponKind::Crossbow => audio.play_bolt(commands),
-            WeaponKind::GrenadeLauncher => audio.play_explode(commands),
-            _ => {
-                audio.play_weapon_fire(commands, def.name);
+    if underwater {
+        audio.play_weapon_fire_gml(commands, def.name, true);
+    } else if legacy_fallback {
+        let is_gold = def.name.contains("GOLDEN")
+            || def.name.contains("GOLD ")
+            || def.name.starts_with("GOLD");
+        if is_gold {
+            audio.play_weapon_fire_gml(commands, def.name, false);
+        } else {
+            match kind {
+                WeaponKind::Revolver => {
+                    audio.play_shoot(commands);
+                }
+                WeaponKind::Machinegun | WeaponKind::Smg | WeaponKind::AssaultRifle => {
+                    audio.play_machine(commands);
+                }
+                WeaponKind::Shotgun => audio.play_shotgun(commands),
+                WeaponKind::Crossbow => audio.play_bolt(commands),
+                WeaponKind::GrenadeLauncher => audio.play_explode(commands),
+                _ => {
+                    audio.play_weapon_fire_gml(commands, def.name, false);
+                }
             }
         }
     } else {
-        audio.play_weapon_fire(commands, def.name);
+        audio.play_weapon_fire_gml(commands, def.name, false);
     }
 
     let muzzle = tf.translation.truncate() + aim.0 * 24.0;
@@ -1469,12 +1517,20 @@ fn melee_attack(
     targets: &mut MeleeTargets,
     catalog: &AssetCatalog,
     asset_server: &AssetServer,
+    shake_scale: f32,
+    vis_q: &mut Query<&mut WeaponVisual>,
+    visual_slot: u8,
 ) {
     let melee_def = melee;
 
     let range = melee_def.range * player.melee_range_mult;
-    ScreenEffects::add_trauma(trauma, def.shake.max(0.12));
+    ScreenEffects::add_trauma(trauma, def.shake.max(0.12) * shake_scale);
     audio.play_melee(commands);
+    for mut wv in vis_q.iter_mut() {
+        if wv.owner == player_ent && wv.slot == visual_slot {
+            wv.wkick = -def.recoil.abs();
+        }
+    }
 
     vel.0 += aim.0.normalize_or_zero() * 180.0;
 
@@ -2401,9 +2457,11 @@ pub fn tick_weapon_visuals(
             inv.current
         };
         let id = inv.weapons[slot_idx];
-        wv.wkick *= 0.6_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
-        if wv.wkick.abs() < 0.15 {
-            wv.wkick = 0.0;
+        let step = dt * crate::app::NT_SIM_HZ as f32;
+        if wv.wkick > 0.0 {
+            wv.wkick = (wv.wkick - step).max(0.0);
+        } else if wv.wkick < 0.0 {
+            wv.wkick = (wv.wkick + step).min(0.0);
         }
         if wv.wep_id != id {
             wv.wep_id = id;
@@ -2469,6 +2527,8 @@ mod fire_schedule_tests {
         app.insert_resource(Trauma::default());
         app.insert_resource(HitStop::default());
         app.insert_resource(Toast::default());
+        app.insert_resource(Run::default());
+        app.insert_resource(crate::save::SaveData::default());
         app.insert_resource(AssetCatalog::default());
         app.init_resource::<CurrentFrame>();
         let asset_server = app.world().resource::<AssetServer>().clone();

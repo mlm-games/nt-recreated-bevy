@@ -19,7 +19,6 @@ pub const NT_CAM_SCALE: f32 = 0.45;
 // Friction is subtractive per tick.
 #[inline]
 pub fn apply_gml_friction(vel: &mut Vec2, friction_f: f32, dt: f32) {
-
     let frames = dt * crate::app::NT_SIM_HZ as f32;
     let sp = vel.length();
     if sp > 0.0 {
@@ -55,7 +54,6 @@ pub struct FloorMask {
 }
 
 impl FloorMask {
-
     pub fn world_to_cell(&self, p: Vec2) -> (i32, i32) {
         ((p.x / TILE).floor() as i32, (p.y / TILE).floor() as i32)
     }
@@ -316,6 +314,10 @@ pub struct Player {
     pub shield_on_hit: bool,
     pub ability: AbilityKind,
     pub ability_cooldown: Timer,
+    pub rogue_ammo: u8,
+    pub rogue_ammo_max: u8,
+    pub cuz_ammo: u8,
+    pub cuz_ammo_max: u8,
     pub headless_ready: bool,
     pub free_ammo: bool,
     pub crown: CrownKind,
@@ -378,6 +380,10 @@ impl Default for Player {
             shield_on_hit: false,
             ability: AbilityKind::Flip,
             ability_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
+            rogue_ammo: 1,
+            rogue_ammo_max: 3,
+            cuz_ammo: 1,
+            cuz_ammo_max: 3,
             headless_ready: false,
             free_ammo: false,
             crown: CrownKind::None,
@@ -400,7 +406,6 @@ impl Default for Player {
 }
 
 impl Player {
-
     pub fn ammo_cap(&self, kind: AmmoKind) -> i32 {
         ammo_cap_with(self.back_muscle, kind)
     }
@@ -821,7 +826,6 @@ pub enum RaidWave {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CampfirePhase {
-
     Sitting,
 
     WaitingForIdpd,
@@ -1233,6 +1237,21 @@ pub struct Shield {
     pub timer: Timer,
 }
 
+/// GML HitWarning (sprAssassinNotice): melee lunge telegraph spawned at
+/// (x, y-16), destroyed on anim end (Other_7). Used by MeleeBandit, Gator,
+/// BuffGator, EliteInspector, YVBoss.
+#[derive(Component)]
+pub struct HitWarning {
+    pub timer: Timer,
+}
+
+/// GML PopoShield/EliteShield: frontal shield follower spawned by Shielder.
+/// Follows owner at gunangle offset, blocks incoming fire positionally.
+#[derive(Component)]
+pub struct ShieldFollower {
+    pub owner: Entity,
+}
+
 #[derive(Component)]
 pub struct Telekinesis {
     pub timer: Timer,
@@ -1330,7 +1349,6 @@ pub struct BigGenerator {
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ThroneStatueProp {
-
     pub guardian_count: u8,
 }
 

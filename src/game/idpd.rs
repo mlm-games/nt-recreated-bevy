@@ -151,6 +151,7 @@ pub fn tick_idpd_raids(
         raid.warning = Timer::from_seconds(1.25, TimerMode::Once);
         toast.show("IDPD INCOMING");
         commands.spawn((GameCleanup, QueuedReactiveCue(ReactiveCue::IdpdIncoming)));
+        audio.play_van_warning(&mut commands);
         ScreenEffects::add_trauma(&mut trauma, 0.12);
         return;
     }

@@ -10,7 +10,6 @@ pub fn player_projectile_path(id: WeaponId) -> &'static str {
     }
 
     match id.0 {
-
         1 => "images/sprBullet1.png",
 
         2 => "images/sprBullet1.png",
@@ -267,7 +266,6 @@ pub fn player_projectile_path(id: WeaponId) -> &'static str {
 
         128 => "images/sprSlash.png",
         _ => {
-
             let meta = weapon_meta(id);
             match meta.wep_type {
                 AmmoType::Shells => "images/sprBullet2.png",
@@ -285,18 +283,16 @@ pub fn enemy_projectile_path(kind: EnemyKind) -> &'static str {
     match kind {
         EnemyKind::Scorpion | EnemyKind::GoldScorpion => "images/sprScorpionBullet.png",
         EnemyKind::Jock => "images/sprJockRocket.png",
-        EnemyKind::SnowTank => "images/sprRocket.png",
-        EnemyKind::GoldSnowtank => "images/sprGoldTankRocket.png",
+        EnemyKind::SnowTank | EnemyKind::GoldSnowtank => "images/sprEnemyBullet4.png",
         EnemyKind::Guardian => "images/sprGuardianBullet.png",
         EnemyKind::ExploGuardian => "images/sprHorrorBullet.png",
         EnemyKind::DogGuardian => "images/sprHeavyBullet.png",
-        EnemyKind::Crystal
-        | EnemyKind::LaserCrystal
-        | EnemyKind::InvLaserCrystal
-        | EnemyKind::LightningCrystal => "images/sprGuardianBullet.png",
+        EnemyKind::LaserCrystal | EnemyKind::InvLaserCrystal => "images/sprEnemyLaser.png",
+        EnemyKind::LightningCrystal => "images/sprEnemyLightning.png",
+        EnemyKind::Crystal => "images/sprEnemyBullet1.png",
         EnemyKind::FireBaller | EnemyKind::SuperFireBaller => "images/sprFlameBall.png",
         EnemyKind::Turtle => "images/sprGuardianBullet.png",
-        EnemyKind::Sniper => "images/sprBullet1.png",
+        EnemyKind::Sniper => "images/sprEnemyBullet4.png",
         EnemyKind::Bandit
         | EnemyKind::JungleBandit
         | EnemyKind::SnowBandit
@@ -311,10 +307,10 @@ pub fn enemy_projectile_path(kind: EnemyKind) -> &'static str {
         EnemyKind::Freak | EnemyKind::RhinoFreak | EnemyKind::ExploFreak | EnemyKind::PopoFreak => {
             "images/sprEnemyBullet1.png"
         }
-        EnemyKind::IdpdGrunt
-        | EnemyKind::IdpdShield
-        | EnemyKind::IdpdElite
-        | EnemyKind::IdpdInspector => "images/sprIDPDBullet.png",
+        EnemyKind::IdpdGrunt | EnemyKind::IdpdShield | EnemyKind::IdpdElite => {
+            "images/sprIDPDBullet.png"
+        }
+        EnemyKind::IdpdInspector => "images/sprPopoSlug.png",
         EnemyKind::Maggot | EnemyKind::BigMaggot | EnemyKind::MaggotSpawn => {
             "images/sprMaggotBullet.png"
         }

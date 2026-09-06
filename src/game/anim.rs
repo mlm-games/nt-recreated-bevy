@@ -515,6 +515,9 @@ pub fn derive_hurt_path(idle: &'static str) -> &'static str {
         "images/sprMutant14Idle.png" => "images/sprMutant14Hurt.png",
         "images/sprMutant15Idle.png" => "images/sprMutant15Hurt.png",
         "images/sprMutant16Idle.png" => "images/sprMutant16Hurt.png",
+        "images/sprMimicIdle.png" => "images/sprMimicHurt.png",
+        "images/sprSuperMimicIdle.png" => "images/sprSuperMimicHurt.png",
+        "images/sprWepMimicIdle.png" => "images/sprWepMimicHurt.png",
         "images/sprBarrel.png" => "images/sprBarrelHurt.png",
         "images/sprToxicBarrel.png" => "images/sprToxicBarrelHurt.png",
         "images/sprGoldBarrel.png" => "images/sprGoldBarrelHurt.png",
@@ -742,6 +745,9 @@ pub fn derive_dead_path(idle: &'static str) -> &'static str {
         "images/sprNecromancerIdle.png" => "images/sprNecromancerDead.png",
         "images/sprExploderIdle.png" => "images/sprExploderDead.png",
         "images/sprLaserCrystalIdle.png" => "images/sprLaserCrystalDead.png",
+        "images/sprMimicIdle.png" => "images/sprMimicDead.png",
+        "images/sprSuperMimicIdle.png" => "images/sprSuperMimicDead.png",
+        "images/sprWepMimicIdle.png" => "images/sprWepMimicDead.png",
         _ => idle,
     }
 }
@@ -842,6 +848,9 @@ pub fn derive_fire_path(idle: &'static str) -> Option<&'static str> {
         "images/sprTurretIdle.png" => Some("images/sprTurretFire.png"),
         "images/sprTurtleIdle.png" => Some("images/sprTurtleFire.png"),
         "images/sprWolfIdle.png" => Some("images/sprWolfFire.png"),
+        "images/sprMimicIdle.png" => Some("images/sprMimicFire.png"),
+        "images/sprSuperMimicIdle.png" => Some("images/sprSuperMimicFire.png"),
+        "images/sprWepMimicIdle.png" => Some("images/sprWepMimicFire.png"),
         _ => None,
     }
 }
@@ -890,6 +899,9 @@ pub fn derive_walk_path(idle: &'static str) -> Option<&'static str> {
         "images/sprInvSpiderIdle.png" => Some("images/sprInvSpiderWalk.png"),
         "images/sprPopoFreakIdle.png" => Some("images/sprPopoFreakWalk.png"),
         "images/sprFrogQueenIdle.png" => Some("images/sprFrogQueenWalk.png"),
+        "images/sprMimicIdle.png" => Some("images/sprMimicFire.png"),
+        "images/sprSuperMimicIdle.png" => Some("images/sprSuperMimicFire.png"),
+        "images/sprWepMimicIdle.png" => Some("images/sprWepMimicFire.png"),
 
         _ => None,
     }
