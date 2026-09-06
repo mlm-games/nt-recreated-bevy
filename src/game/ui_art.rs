@@ -63,11 +63,11 @@ struct MutationArtRefs {
 
 #[derive(Resource)]
 pub struct HudArtRefs {
-
     pub hp_bar: Entity,
 
     pub hp_bg: Entity,
     pub hp_fg: Entity,
+    pub hp_lag: f32,
 
     pub exp_bar: Entity,
     pub exp_level: Entity,
@@ -123,6 +123,9 @@ pub(crate) struct GuiMap {
 pub(crate) fn gui_map(win_w: f32, win_h: f32, cam_scale: f32) -> GuiMap {
     let hw = win_w * cam_scale * 0.5;
     let hh = win_h * cam_scale * 0.5;
+    // Fill scale (fractional): the 320x240 HUD must cover the camera viewport the
+    // same way menus do (nt_view fill scale). Integer-flooring s shrinks every
+    // sprite-based HUD element relative to text, which keeps its own size.
     let s = ((hw * 2.0) / GUI_W).min((hh * 2.0) / GUI_H);
     GuiMap {
         s,
@@ -135,6 +138,8 @@ pub(crate) fn gui_map(win_w: f32, win_h: f32, cam_scale: f32) -> GuiMap {
 
 impl GuiMap {
     pub(crate) fn to_world(&self, x: f32, y: f32) -> Vec2 {
+        let x = x.round();
+        let y = y.round();
         Vec2::new(
             -self.hw + self.ox + x * self.s,
             self.hh - self.oy - y * self.s,
@@ -158,7 +163,6 @@ pub fn slot_ystart() -> f32 {
 }
 
 fn slot_step(count: usize) -> f32 {
-
     20.0f32.min(((GUI_W - 40.0) / (count as f32).max(1.0)).floor())
 }
 
@@ -204,7 +208,6 @@ fn race_skin_subimage(race: usize, skin: u8) -> i32 {
 }
 
 fn loadout_available(race: usize) -> bool {
-
     !matches!(race, 13 | 14 | 15)
 }
 
@@ -504,7 +507,6 @@ fn pick_i32(items: &[i32]) -> i32 {
 }
 
 fn campfire_floor_frame(catalog: &AssetCatalog) -> usize {
-
     let raw = if rand::random::<f32>() * 500.0 < 1.0 {
         3
     } else {
@@ -518,7 +520,6 @@ fn floor0_frame(catalog: &AssetCatalog) -> usize {
 }
 
 fn title_world_to_gui(wx: f32, wy: f32) -> (f32, f32) {
-
     (GUI_W * 0.5 + wx - 64.0, GUI_H * 0.5 + wy - 64.0)
 }
 
@@ -531,7 +532,6 @@ fn title_wall_xy(wx: i32, wy: i32) -> (f32, f32) {
 }
 
 fn add_title_floor_cell(floors: &mut HashSet<(i32, i32)>, wx: i32, wy: i32) {
-
     floors.insert((wx.div_euclid(32), wy.div_euclid(32)));
 }
 
@@ -546,7 +546,6 @@ fn floor_maker_step_delta(direction: i32) -> (i32, i32) {
 }
 
 fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
-
     let mut floors: HashSet<(i32, i32)> = HashSet::new();
 
     let mut dix = 32_i32;
@@ -554,7 +553,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
 
     for _row in 0..3 {
         for _col in 0..4 {
-
             let mody = pick_i32(&[32, 0, -32]);
             let cx = dix + mody;
             let cy = diy + mody;
@@ -598,7 +596,6 @@ fn menu_gen_floor_cells() -> HashSet<(i32, i32)> {
         let mut next: Vec<Maker> = Vec::with_capacity(makers.len() + 2);
 
         for mut maker in makers.drain(..) {
-
             if floors.len() > 50 {
                 add_title_floor_cell(&mut floors, maker.x, maker.y);
                 continue;
@@ -819,7 +816,7 @@ fn splash_text_line(
     gui_y: f32,
     color: Color,
 ) -> Entity {
-    let font_size = (7.0 * map.s).clamp(8.0, 96.0);
+    let font_size = (7.0 * map.s).round().clamp(8.0, 96.0);
     let c = map.to_world(gui_x, gui_y);
     commands
         .spawn((
@@ -848,7 +845,6 @@ fn build_boot_cards(
     font: &Handle<Font>,
     boot: &mut BootState,
 ) {
-
     play_cue(commands, catalog, asset_server, "sndVlambeer", 0.7);
     let (spr, tf) = gm_sprite(
         catalog,
@@ -1147,7 +1143,6 @@ fn boot_intro(
             let (base_x, base_y) = if let Some(logo) = boot.logo
                 && let Ok(tf) = transforms.get(logo)
             {
-
                 if let Some((_, map)) = view_setup(&windows, &cam_q) {
                     let g = map.to_gui(tf.translation.truncate());
                     (g.x, g.y)
@@ -1175,7 +1170,6 @@ fn boot_intro(
 
         if pressed {
             if boot.guns == 0 {
-
                 boot.t = boot.t.max(1.0 - 10.0 / 30.0);
             } else {
                 transition.begin_to_state(AppState::MainMenu);
@@ -1191,7 +1185,6 @@ fn boot_intro(
         boot.rendered_mode = -1;
 
         if boot.mode == 4 {
-
             commands.insert_resource(crate::game::vortex::SpiralCtl::warmed_up());
             play_loop(
                 &mut commands,
@@ -1261,7 +1254,6 @@ fn boot_intro(
         && let Some(icon) = boot.icon
         && let Ok(mut spr) = sprites.get_mut(icon)
     {
-
         let m = meta_of(&catalog, "images/sprSaving.png");
         let (fw, fh) = (m[1].max(1.0), m[2].max(1.0));
         let n = sprite_frame_count(&catalog, "images/sprSaving.png").max(1);
@@ -1276,7 +1268,6 @@ fn boot_intro(
         && boot.vlambeer.len() > 1
         && let Some((_, map)) = view_setup(&windows, &cam_q)
     {
-
         let m = meta_of(&catalog, "images/sprVlambeer.png");
         let fw = m[1].max(1.0);
         let fh = m[2].max(1.0);
@@ -1343,7 +1334,6 @@ impl Plugin for UiArtPlugin {
                 (
                     reset_camera_view,
                     set_title_camera_clear,
-
                     crate::game::vortex::teardown_vortex,
                     spawn_char_select,
                 )
@@ -1412,7 +1402,6 @@ fn despawn_title_art(
 
 #[derive(Resource, Default)]
 struct CharSelectArt {
-
     pods: Vec<(Entity, usize, f32)>,
 
     go_button: Option<(Entity, f32, f32)>,
@@ -1495,7 +1484,6 @@ fn spawn_char_select_world(
     selected: &crate::game::SelectedCharacter,
     cam_tf_q: &mut Query<(&mut Transform, Option<&mut CameraBase>), With<Camera2d>>,
 ) {
-
     {
         let s = map.s;
         art.world_s = s;
@@ -1620,7 +1608,6 @@ fn spawn_char_select_world(
                     );
                 }
                 if catalog.has("images/sprWall0Top.png") {
-
                     spawn_world_sprite(
                         commands,
                         catalog,
@@ -3216,6 +3203,7 @@ fn spawn_hud_art(
         hp_bar,
         hp_bg,
         hp_fg,
+        hp_lag: -1.0,
         exp_bar,
         exp_level,
         ammo_bg,
@@ -3236,7 +3224,6 @@ fn gm_loadout_weapon(
     tint: Color,
     z: f32,
 ) -> (Sprite, Transform) {
-
     let data = crate::game::content::weapon_meta(id);
     if let Some(lout) = data.wep_lout {
         let lout_path = format!("images/{lout}.png");
@@ -3257,7 +3244,6 @@ fn gm_loadout_weapon(
     let path: &'static str = if catalog.has(&sprt_path) {
         Box::leak(sprt_path.into_boxed_str())
     } else {
-
         crate::game::content::weapon_hud_sprite(id.0).unwrap_or("images/sprRevolver.png")
     };
     let m = meta_of(catalog, path);
@@ -3317,6 +3303,7 @@ fn sync_hud_art(
     mut transforms: Query<&mut Transform, With<HudArt>>,
     mut visibilities: Query<&mut Visibility, With<HudArt>>,
     floor_trans: Option<Res<FloorTransition>>,
+    time: Res<Time>,
 ) {
     let Some(refs) = refs.as_mut() else {
         return;
@@ -3344,19 +3331,25 @@ fn sync_hud_art(
     };
     let map = gui_map(window.width(), window.height(), scale);
 
-    let lst = health.hp.max(0) as f32;
     let cur = health.hp.max(0) as f32;
     let max = health.max.max(1) as f32;
+    if refs.hp_lag < 0.0 {
+        refs.hp_lag = cur;
+    }
+    if refs.hp_lag < cur {
+        refs.hp_lag = cur;
+    } else if refs.hp_lag > cur {
+        refs.hp_lag = (refs.hp_lag - max * 0.02 - 0.25).max(cur);
+    }
+    let lst = refs.hp_lag;
     let bg_w = (84.0 * (lst / max)).clamp(0.0, 84.0);
     let fg_w = (84.0 * (cur / max)).clamp(0.0, 84.0);
 
     for (entity, w) in [(refs.hp_bg, bg_w), (refs.hp_fg, fg_w)] {
         if let Ok(mut spr) = sprites.get_mut(entity) {
-
             spr.custom_size = Some(Vec2::new(w.max(0.001) * map.s, 8.0 * map.s));
         }
         if let Ok(mut tf) = transforms.get_mut(entity) {
-
             let center = map.to_world(22.0 + w * 0.5, 7.0 + 4.0);
             tf.translation.x = center.x;
             tf.translation.y = center.y;
@@ -3392,8 +3385,12 @@ fn sync_hud_art(
     }
 
     if let Ok(mut vis) = visibilities.get_mut(refs.exp_level) {
-        *vis = if player.rads >= player.next_level_rads && player.next_level_rads > 0 {
+        let ready = player.rads >= player.next_level_rads && player.next_level_rads > 0;
+        let blink = (time.elapsed_secs() * 4.0).fract() < 0.5;
+        *vis = if ready && blink {
             Visibility::Visible
+        } else if ready {
+            Visibility::Hidden
         } else {
             Visibility::Hidden
         };
@@ -3418,8 +3415,7 @@ fn sync_hud_art(
     };
     for t in 0..5usize {
         let kind = ammo_kind(t + 1);
-        let fill = (inv.ammo[t + 1] as f32 / crate::game::content::ammo_max(kind).max(1) as f32)
-            .clamp(0.0, 1.0);
+        let fill = (inv.ammo[t + 1] as f32 / player.ammo_cap(kind).max(1) as f32).clamp(0.0, 1.0);
         let bg_frame = if t + 1 == t1 {
             2
         } else if t + 1 == t2 {
@@ -3678,7 +3674,6 @@ fn sync_gencont_art(
     mut ui: ResMut<GenContUi>,
     q: Query<Entity, With<GenContArt>>,
 ) {
-
     for e in &q {
         commands.entity(e).try_despawn();
     }
@@ -3746,7 +3741,6 @@ mod campfire_ui_tests {
 
     #[test]
     fn crown_id_mapping_roundtrips() {
-
         assert_eq!(crate::game::content::crown_gml_to_port(0), 0);
         for gml in 1u8..14 {
             let port = crate::game::content::crown_gml_to_port(gml);
@@ -3758,7 +3752,6 @@ mod campfire_ui_tests {
 
     #[test]
     fn skin_slots_match_scrMenuDrawLoadout() {
-
         let three = skin_slot_positions(3);
         assert!(three.iter().all(|(_, x, _)| (*x - 184.0).abs() < 1e-3));
         for (i, want_y) in [76.0_f32, 104.0, 132.0].iter().enumerate() {

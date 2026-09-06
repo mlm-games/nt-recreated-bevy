@@ -813,6 +813,20 @@ pub struct DeploysSentry {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct CustomExplosion {
     pub radius: f32,
+    /// GML multi-spawn pattern: `count` Explosion instances at `spread` px offsets
+    /// (e.g. Nuke 8x @12px, Sticky-stuck 3x @16px). Single-circle when count <= 1.
+    pub count: u8,
+    pub spread: f32,
+}
+
+impl Default for CustomExplosion {
+    fn default() -> Self {
+        Self {
+            radius: 32.0,
+            count: 1,
+            spread: 0.0,
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, Debug)]

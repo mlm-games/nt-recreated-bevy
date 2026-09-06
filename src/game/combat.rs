@@ -608,7 +608,7 @@ pub fn tick_slash_projectiles(
                         ppos + off,
                         pproj.damage,
                         pproj.source,
-                        130.0,
+                        32.0,
                         *pteam,
                         true,
                     );
@@ -617,7 +617,7 @@ pub fn tick_slash_projectiles(
                         ppos - off,
                         pproj.damage,
                         pproj.source,
-                        130.0,
+                        32.0,
                         *pteam,
                         true,
                     );
@@ -1065,7 +1065,7 @@ pub fn move_projectiles(
                             center + off,
                             p.damage,
                             p.source,
-                            custom_explosion.map(|c| c.radius).unwrap_or(130.0),
+                            custom_explosion.map(|c| c.radius).unwrap_or(32.0),
                             *team,
                             true,
                         );
@@ -1776,8 +1776,27 @@ fn on_projectile_removed(
     }
 
     if explosive {
-        let radius = custom_explosion.map(|c| c.radius).unwrap_or(130.0);
-        spawn_explosion_with_source_radius(commands, pos, damage, source, radius, team, true);
+        let (radius, count, spread) = custom_explosion
+            .map(|c| (c.radius, c.count.max(1), c.spread))
+            .unwrap_or((32.0, 1, 0.0));
+        if count <= 1 {
+            spawn_explosion_with_source_radius(commands, pos, damage, source, radius, team, true);
+        } else {
+            let ang0 = rand::rng().random_range(0.0..std::f32::consts::TAU);
+            for k in 0..count {
+                let ang = ang0 + k as f32 * std::f32::consts::TAU / count as f32;
+                let off = Vec2::new(ang.cos(), ang.sin()) * spread;
+                spawn_explosion_with_source_radius(
+                    commands,
+                    pos + off,
+                    damage,
+                    source,
+                    radius,
+                    team,
+                    true,
+                );
+            }
+        }
         if source.is_some_and(|s| s.enemy_kind == Some(EnemyKind::Jock)) {
             let off = if base_dir.length_squared() > 0.0 {
                 base_dir.normalize_or_zero() * 24.0
@@ -3215,6 +3234,20 @@ pub fn resolve_deaths(
                 &phealth,
                 run.loop_count,
             );
+            if matches!(enemy.kind, EnemyKind::DogGuardian | EnemyKind::WepMimic) {
+                maybe_spawn_drop(
+                    &mut commands,
+                    &catalog,
+                    &asset_server,
+                    pos,
+                    enemy.drop_chance,
+                    enemy.weapon_chance,
+                    &player,
+                    &pinv,
+                    &phealth,
+                    run.loop_count,
+                );
+            }
         }
     }
 

@@ -74,17 +74,29 @@ fn archetyped(name: &str) -> ProjectileArchetype {
 
         "STICKY LAUNCHER" => ProjectileArchetype {
             sticky: Some(Sticky::default()),
-            custom_explosion: Some(CustomExplosion { radius: 170.0 }),
+            custom_explosion: Some(CustomExplosion {
+                radius: 32.0,
+                count: 3,
+                spread: 16.0,
+            }),
             ..default()
         },
 
         "GRENADE LAUNCHER" | "GOLDEN GRENADE LAUNCHER" => ProjectileArchetype {
-            custom_explosion: Some(CustomExplosion { radius: 80.0 }),
+            custom_explosion: Some(CustomExplosion {
+                radius: 32.0,
+                count: 1,
+                spread: 0.0,
+            }),
             ..default()
         },
 
         "NUKE LAUNCHER" => ProjectileArchetype {
-            custom_explosion: Some(CustomExplosion { radius: 340.0 }),
+            custom_explosion: Some(CustomExplosion {
+                radius: 32.0,
+                count: 8,
+                spread: 12.0,
+            }),
             ..default()
         },
 
@@ -266,7 +278,6 @@ fn archetyped(name: &str) -> ProjectileArchetype {
         },
 
         _ => {
-
             if name.contains("DISC") || name.contains("BOUNCER") {
                 ProjectileArchetype {
                     hits_all_teams: true,
@@ -335,7 +346,10 @@ mod tests {
     #[test]
     fn nuke_has_custom_radius() {
         let a = projectile_archetype(id_by_name("NUKE LAUNCHER"));
-        assert_eq!(a.custom_explosion.unwrap().radius, 340.0);
+        let c = a.custom_explosion.unwrap();
+        assert_eq!(c.radius, 32.0);
+        assert_eq!(c.count, 8);
+        assert_eq!(c.spread, 12.0);
     }
 
     #[test]
@@ -396,7 +410,6 @@ mod tests {
 
     #[test]
     fn golden_variants_inherit_base_archetype() {
-
         let normal = projectile_archetype(id_by_name("NUKE LAUNCHER"));
         let golden = projectile_archetype(id_by_name("GOLDEN NUKE LAUNCHER"));
         assert_eq!(
@@ -478,11 +491,13 @@ mod tests {
             assert_eq!(a.plasma_burst.is_some(), wants_plasma, "{}", meta.wep_name);
 
             if wants_nuke {
-                assert!(
-                    a.custom_explosion.unwrap().radius >= 180.0,
-                    "{} nuke radius too small",
+                let c = a.custom_explosion.unwrap();
+                assert_eq!(
+                    c.radius, 32.0,
+                    "{} nuke radius must be mask-based",
                     meta.wep_name
                 );
+                assert_eq!(c.count, 8, "{} nuke must multi-spawn", meta.wep_name);
             }
         }
     }

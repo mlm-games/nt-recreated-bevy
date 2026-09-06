@@ -21,6 +21,7 @@ pub struct LevelPlan {
 
     pub small_walls: Vec<(i16, i16)>,
     pub bones: Vec<(Vec2, bool)>,
+    pub bone_sprite: &'static str,
     pub details: Vec<Vec2>,
     pub props: Vec<(PropKind, Vec2)>,
     pub chests: Vec<ChestSpawn>,
@@ -34,7 +35,6 @@ pub struct LevelPlan {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PropKind {
-
     Cactus,
     BigSkull,
     GroundDecal,
@@ -138,7 +138,6 @@ fn is_boss_subarea_run(run: &Run) -> bool {
 }
 
 pub fn generation_goal(floor: u32) -> usize {
-
     let _ = floor;
     110
 }
@@ -152,8 +151,11 @@ fn generation_goal_for_run(run: &Run) -> usize {
             AreaId::City => 130,
             AreaId::Oasis => 130,
             AreaId::HQ => {
-
-                if run.floor_in_area >= 3 { 48 } else { 110 }
+                if run.floor_in_area >= 3 {
+                    48
+                } else {
+                    110
+                }
             }
             AreaId::CursedCaves => 100,
             AreaId::Jungle => 110,
@@ -192,7 +194,6 @@ pub fn is_screen_end_wall(
 
 #[derive(Clone, Copy)]
 struct Maker {
-
     x: i32,
     y: i32,
 
@@ -267,6 +268,7 @@ pub fn generate_level(run: &Run) -> LevelPlan {
         wall_cells: std::collections::HashSet::new(),
         small_walls: Vec::new(),
         bones: Vec::new(),
+        bone_sprite: "images/sprBones.png",
         details: Vec::new(),
         props: Vec::new(),
         chests: Vec::new(),
@@ -322,7 +324,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 3 => {
-
                     let is_max = run.floor_in_area >= 3;
                     if rng.random::<f32>() * 8.0 < 1.0 || is_max {
                         let (xoff, yoff) = if is_max {
@@ -347,7 +348,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 5 => {
-
                     if rng.random::<f32>() * 11.0 < 1.0 {
                         if rng.random::<f32>() * 2.0 < 1.0 {
                             for p in [
@@ -390,7 +390,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 7 => {
-
                     if rng.random::<f32>() * 16.0 < 1.0 {
                         for dy2 in -1..=2 {
                             for dx2 in -1..=2 {
@@ -404,7 +403,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 100 => {
-
                     if rng.random::<f32>() * 8.0 < 1.0 {
                         if rng.random_range(0..3) == 1 {
                             for o in [-2, -1, 0, 1, 2] {
@@ -420,7 +418,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 103 | 107 => {
-
                     if !plan.floor_cells.is_empty() && plan.floor_cells.len() % 12 == 0 {
                         let (dx2, dy2) = m.step_delta();
                         m.x += dx2;
@@ -444,7 +441,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 106 => {
-
                     if !plan.floor_cells.is_empty() && plan.floor_cells.len() % 8 == 0 {
                         let (dx2, dy2) = m.step_delta();
                         m.x += dx2 * 2;
@@ -511,7 +507,6 @@ pub fn generate_level(run: &Run) -> LevelPlan {
                     }
                 }
                 104 => {
-
                     if plan.floor_cells.len() < 4 {
                         for p in [
                             (mx - 1, my),
@@ -690,6 +685,7 @@ fn generate_palace_last(run: &Run) -> LevelPlan {
         wall_cells: std::collections::HashSet::new(),
         small_walls: Vec::new(),
         bones: Vec::new(),
+        bone_sprite: "images/sprBones.png",
         details: Vec::new(),
         props: Vec::new(),
         chests: Vec::new(),
@@ -725,6 +721,7 @@ fn generate_campfire(run: &Run) -> LevelPlan {
         wall_cells: std::collections::HashSet::new(),
         small_walls: Vec::new(),
         bones: Vec::new(),
+        bone_sprite: "images/sprBones.png",
         details: Vec::new(),
         props: Vec::new(),
         chests: Vec::new(),
@@ -775,6 +772,7 @@ fn generate_hq_last(run: &Run) -> LevelPlan {
         wall_cells: std::collections::HashSet::new(),
         small_walls: Vec::new(),
         bones: Vec::new(),
+        bone_sprite: "images/sprBones.png",
         details: Vec::new(),
         props: Vec::new(),
         chests: Vec::new(),
@@ -833,7 +831,6 @@ fn wall_center(wx: i32, wy: i32) -> Vec2 {
 }
 
 fn wall_top_left(wx: i32, wy: i32) -> Vec2 {
-
     Vec2::new(wx as f32 * WALL_PX, (wy as f32 + 1.0) * WALL_PX)
 }
 
@@ -842,7 +839,6 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
     let floor_set: std::collections::HashSet<(i32, i32)> = floors.iter().copied().collect();
 
     for &(cx, cy) in floors {
-
         let probes = [
             (-1, -1),
             (0, -1),
@@ -871,7 +867,6 @@ fn build_walls(run: &Run, floors: &[(i32, i32)], plan: &mut LevelPlan) {
 }
 
 fn side_solid(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: i32, dx: i32) -> bool {
-
     let wx = cx * 2 + if dx < 0 { -1 } else { 2 };
     walls.contains(&(wx, cy * 2)) && walls.contains(&(wx, cy * 2 + 1))
 }
@@ -918,6 +913,25 @@ fn populate(
         }
     }
 
+    let (bone_sprite, bone_chance, bone_lower_only) = match run.area {
+        crate::game::areas::AreaId::Desert => ("images/sprBones.png", 1.0, false),
+        crate::game::areas::AreaId::Campfire => ("images/sprNightBones.png", 1.0, false),
+        crate::game::areas::AreaId::Scrapyards => ("images/sprScrapDecal.png", 1.0 / 7.0, false),
+        crate::game::areas::AreaId::City | crate::game::areas::AreaId::FrozenCity => {
+            ("images/sprIceDecal.png", 1.0 / 7.0, false)
+        }
+        crate::game::areas::AreaId::CrystalCaves => ("images/sprCaveDecal.png", 1.0 / 9.0, false),
+        crate::game::areas::AreaId::CursedCaves => ("images/sprInvCaveDecal.png", 1.0 / 9.0, false),
+        crate::game::areas::AreaId::Oasis => ("images/sprCoral.png", 1.0 / 9.0, false),
+        crate::game::areas::AreaId::Sewers => ("images/sprSewerDecal.png", 1.0 / 10.0, true),
+        crate::game::areas::AreaId::PizzaSewers => {
+            ("images/sprPizzaSewerDecal.png", 1.0 / 10.0, true)
+        }
+        crate::game::areas::AreaId::Jungle => ("images/sprJungleDecal.png", 1.0 / 10.0, true),
+        _ => ("images/sprBones.png", 0.0, false),
+    };
+    plan.bone_sprite = bone_sprite;
+
     for &(cx, cy) in floors {
         let (px, py) = cell_center_i(cx, cy);
 
@@ -928,15 +942,29 @@ fn populate(
             ));
         }
 
-        if area == 1
+        if bone_chance > 0.0
             && side_solid(walls, cx, cy, -1)
             && side_solid(walls, cx, cy, 1)
             && !walls_cover_tile_with_smalls(plan, cx, cy)
         {
-            plan.bones.push((Vec2::new(px - 16.0, py - 16.0), false));
-            plan.bones.push((Vec2::new(px - 16.0, py), false));
-            plan.bones.push((Vec2::new(px + 16.0, py - 16.0), true));
-            plan.bones.push((Vec2::new(px + 16.0, py), true));
+            if bone_lower_only {
+                if rng.random::<f32>() < bone_chance {
+                    plan.bones.push((Vec2::new(px - 16.0, py), false));
+                    plan.bones.push((Vec2::new(px + 16.0, py), true));
+                }
+            } else {
+                let spots = [
+                    (Vec2::new(px - 16.0, py - 16.0), false),
+                    (Vec2::new(px - 16.0, py), false),
+                    (Vec2::new(px + 16.0, py - 16.0), true),
+                    (Vec2::new(px + 16.0, py), true),
+                ];
+                for (pos, flip) in spots {
+                    if bone_chance >= 1.0 || rng.random::<f32>() < bone_chance {
+                        plan.bones.push((pos, flip));
+                    }
+                }
+            }
         }
     }
 
@@ -990,7 +1018,6 @@ fn populate(
                 }
                 crate::game::areas::AreaId::CursedCaves => PropKind::GroundDecal,
                 crate::game::areas::AreaId::City => {
-
                     let r = rng.random_range(0..10);
                     match r {
                         0..=3 => PropKind::MoneyPile,
@@ -1013,7 +1040,6 @@ fn populate(
             }
         } else {
             match area {
-
                 1 => {
                     if rng.random::<f32>() * 60.0 < 1.0 {
                         PropKind::BigSkull
@@ -1216,7 +1242,6 @@ fn populate(
             use crate::game::areas::AreaId;
             let mut secret_kinds: Vec<EnemyKind> = match run.area {
                 AreaId::Oasis => {
-
                     if rng.random::<f32>() * 4.0 < 1.0 {
                         vec![EnemyKind::Crab]
                     } else if rng.random::<f32>() * 3.0 < 1.0 {
@@ -1231,7 +1256,6 @@ fn populate(
                 }
                 AreaId::PizzaSewers => vec![EnemyKind::Turtle],
                 AreaId::Jungle => {
-
                     if rng.random::<f32>() * 8.0 < 1.0 {
                         vec![EnemyKind::JungleFly]
                     } else if rng.random::<f32>() * 30.0 < 1.0 {
@@ -1259,7 +1283,6 @@ fn populate(
                     }
                 }
                 AreaId::CursedCaves => {
-
                     if rng.random::<f32>() * 5.0 < 4.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1278,7 +1301,6 @@ fn populate(
                     }
                 }
                 AreaId::City => {
-
                     if rng.random::<f32>() * 5.0 < 1.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1312,19 +1334,19 @@ fn populate(
                     }
                 }
                 AreaId::Vault | AreaId::CrownVault => {
-
                     let k = pick_kind(
                         &mut rng,
                         &[
                             EnemyKind::RobotGuard,
                             EnemyKind::Turret,
                             EnemyKind::IdpdElite,
+                            EnemyKind::CrownGuardian,
+                            EnemyKind::CrownGuardian,
                         ],
                     );
                     vec![k]
                 }
                 AreaId::HQ => {
-
                     if rng.random::<f32>() * 7.0 < 1.0 {
                         let k = pick_kind(
                             &mut rng,
@@ -1366,7 +1388,6 @@ fn populate(
         match area {
             1 => {
                 if rng.random::<f32>() * 7.0 < 1.0 {
-
                     let k = pick_kind(&mut rng, &[EnemyKind::MaggotSpawn, EnemyKind::Scorpion]);
                     enemy_tiles.push((k, center));
                 } else if rng.random::<f32>() * 30.0 < 1.0 {
@@ -1398,7 +1419,6 @@ fn populate(
                 }
             }
             2 => {
-
                 if run.loop_count > 0 && rng.random::<f32>() * 3.0 >= 1.0 {
                     let mut cands = vec![
                         EnemyKind::Ratking,
@@ -1438,10 +1458,8 @@ fn populate(
                 }
             }
             3 => {
-
                 let roll: f32 = rng.random();
                 let mut cands = if roll * 4.0 < 1.0 {
-
                     vec![
                         EnemyKind::MeleeBandit,
                         EnemyKind::Sniper,
@@ -1450,7 +1468,6 @@ fn populate(
                         EnemyKind::Ballguy,
                     ]
                 } else if roll * 10.0 < 1.0 {
-
                     vec![
                         EnemyKind::Raven,
                         EnemyKind::Raven,
@@ -1472,7 +1489,6 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             4 => {
-
                 let mut cands = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::LaserCrystal,
@@ -1499,7 +1515,6 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             5 => {
-
                 let mut frozen = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::RobotGuard,
@@ -1525,7 +1540,6 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             6 => {
-
                 let mut late = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::Ratking,
@@ -1554,7 +1568,6 @@ fn populate(
                 enemy_tiles.push((k, center));
             }
             7 => {
-
                 let mut palace = if run.loop_count > 0 && rng.random_bool(0.5) {
                     vec![
                         EnemyKind::ExploGuardian,
@@ -1627,7 +1640,6 @@ fn populate(
         }
     } else {
         match run.area {
-
             AreaId::PizzaSewers => plan.boss = Some(EnemyKind::FrogQueen),
             AreaId::Sewers if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Mom),
             AreaId::Labs if run.loop_count >= 1 => plan.boss = Some(EnemyKind::Technomancer),
@@ -1657,7 +1669,6 @@ fn populate(
             .any(|c| matches!(c, ChestSpawn::Weapon(_)));
         let has_ammo = plan.chests.iter().any(|c| matches!(c, ChestSpawn::Ammo(_)));
         if !has_weapon || !has_ammo {
-
             let mut best: Option<(f32, usize)> = None;
             for (i, (_, p)) in plan.props.iter().enumerate() {
                 let d2 = p.length_squared();
@@ -1696,7 +1707,6 @@ fn apply_loop_elite_substitutions(
 
     match area {
         AreaId::Desert => {
-
             table.push((EnemyKind::Scorpion, 4 + l * 2));
             table.push((EnemyKind::JungleFly, 3 + l));
             table.push((EnemyKind::MeleeBandit, 3 + l));
@@ -1706,13 +1716,11 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Sewers => {
-
             table.push((EnemyKind::Ratking, 4 + l * 2));
             table.push((EnemyKind::BuffGator, 3 + l));
             table.push((EnemyKind::IdpdShield, 2 + l));
         }
         AreaId::Scrapyards => {
-
             table.push((EnemyKind::Sniper, 4 + l * 2));
             table.push((EnemyKind::MeleeBandit, 3 + l));
             table.push((EnemyKind::Salamander, 2 + l));
@@ -1722,7 +1730,6 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::CrystalCaves => {
-
             table.push((EnemyKind::RhinoFreak, 4 + l * 2));
             table.push((EnemyKind::ExploFreak, 3 + l));
             table.push((EnemyKind::LightningCrystal, 3 + l));
@@ -1731,7 +1738,6 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::FrozenCity => {
-
             table.push((EnemyKind::SnowTank, 4 + l));
             table.push((EnemyKind::DogGuardian, 3 + l));
             table.push((EnemyKind::ExploGuardian, 3 + l));
@@ -1741,7 +1747,6 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Labs => {
-
             table.push((EnemyKind::Ratking, 4 + l));
             table.push((EnemyKind::RhinoFreak, 4 + l * 2));
             table.push((EnemyKind::ExploFreak, 4 + l));
@@ -1750,12 +1755,12 @@ fn apply_loop_elite_substitutions(
             }
         }
         AreaId::Palace => {
-
             table.push((EnemyKind::Sniper, 3 + l));
             table.push((EnemyKind::ExploFreak, 3 + l));
             table.push((EnemyKind::JungleBandit, 3 + l * 2));
             if loop_count >= 1 {
                 table.push((EnemyKind::PopoFreak, 2 + l));
+                table.push((EnemyKind::HostileHorror, 1 + l));
             }
             if loop_count >= 2 {
                 table.push((EnemyKind::IdpdElite, 5 + l));
@@ -1809,6 +1814,7 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
             EnemyKind::Rat,
             EnemyKind::Maggot,
             EnemyKind::Gator,
+            EnemyKind::MeleeFake,
         ],
         3 => vec![
             EnemyKind::Raven,
@@ -1822,6 +1828,7 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
             EnemyKind::Spider,
             EnemyKind::LaserCrystal,
             EnemyKind::LaserCrystal,
+            EnemyKind::RadMaggot,
         ],
         5 => vec![
             EnemyKind::RobotGuard,
@@ -1847,6 +1854,7 @@ fn default_area_enemies(area: i32, loop_count: u32) -> Vec<EnemyKind> {
             EnemyKind::Assassin,
             EnemyKind::Freak,
             EnemyKind::Turret,
+            EnemyKind::SuperFrog,
         ],
     };
     c.extend(loop_elite_candidates(area, loop_count));
@@ -1871,7 +1879,6 @@ fn walls_cover_tile(walls: &std::collections::HashSet<(i32, i32)>, cx: i32, cy: 
 }
 
 fn populate_throne_room(run: &Run, plan: &mut LevelPlan) {
-
     plan.props
         .retain(|(k, _)| !matches!(k, PropKind::Mine | PropKind::FireTrap));
     plan.enemies.clear();
@@ -2008,7 +2015,6 @@ fn wy_of(pos: Vec2) -> i32 {
 }
 
 fn wall_body_frame(catalog: &AssetCatalog, seed: u64, wx: i32, wy: i32, path: &str) -> usize {
-
     let raw = if wall_hash(seed, wx, wy, 0x11) % 150 == 0 {
         3
     } else {
@@ -2044,7 +2050,6 @@ fn area_sprites(
     &'static str,
     &'static str,
 ) {
-
     let rf = ((floor.max(1) - 1) % 15) + 1;
     match rf {
         3 => (
@@ -2301,7 +2306,7 @@ pub fn spawn_level(
             LevelCleanup,
             Sprite {
                 flip_x: *flip,
-                ..sprite_exact(catalog, asset_server, "images/sprBones.png")
+                ..sprite_exact(catalog, asset_server, plan.bone_sprite)
             },
             Transform::from_xyz(pos.x, pos.y, -44.0),
         ));
@@ -2331,7 +2336,6 @@ pub fn spawn_level(
         let out_frame = wall_out_frame(catalog, run.gen_seed, wx, wy, wall_out_png);
 
         let floor_south = {
-
             let probe = Vec2::new(c.x, c.y - WALL_PX);
             let owner = (
                 (probe.x / TILE).floor() as i32,
@@ -2406,7 +2410,6 @@ pub fn spawn_level(
 
     if catalog.has(wall_trans_png) {
         for &(cx, cy) in &plan.floor_cells {
-
             let ftl = Vec2::new(cx as f32 * TILE, (cy as f32 + 1.0) * TILE);
             for (ox, oy) in [(0.0, 0.0), (16.0, 0.0), (0.0, -16.0), (16.0, -16.0)] {
                 let p = ftl + Vec2::new(ox, oy);
@@ -2471,7 +2474,6 @@ pub fn spawn_level(
     if let Some(kind) = plan.boss {
         match kind {
             EnemyKind::BigBandit | EnemyKind::BigBanditLoop => {
-
                 let n = plan.boss_count.max(1);
                 for i in 0..n {
                     commands.spawn((
@@ -2487,7 +2489,6 @@ pub fn spawn_level(
                 }
             }
             EnemyKind::BigDog | EnemyKind::BigDogLoop => {
-
                 crate::game::enemies::spawn_enemy_at(
                     commands,
                     catalog,
@@ -2575,7 +2576,6 @@ fn spawn_secret_entrances(
     run: &Run,
 ) {
     let maybe = match (run.area, run.floor_in_area) {
-
         (AreaId::Sewers, _) => Some((
             SecretTarget::PizzaSewers,
             "images/sprPipe.png",
@@ -2741,7 +2741,6 @@ fn spawn_prop(
                         "images/sprFireTrap.png",
                         "images/sprFireTrapIdle.png",
                         "images/sprTorchFire.png",
-
                         "images/sprTorch.png",
                         "images/sprFlameBall.png",
                     ],
@@ -2898,7 +2897,6 @@ fn spawn_prop(
             Vec2::splat(24.0),
             24.0,
             1,
-
             true,
             false,
             Some(PropDeathEffect::legacy_barrel()),
@@ -2972,7 +2970,6 @@ fn spawn_prop(
         ),
 
         PropKind::BigGenerator => {
-
             let hp = if run.loop_count == 0 { 230 } else { 50 };
             (
                 &["images/sprBigGenerator.png"],
@@ -3290,7 +3287,6 @@ fn spawn_prop(
             .find(|p| catalog.has(p))
             .unwrap_or(candidates[0])
     } else {
-
         let idx = prop_hash_pick(run.gen_seed, pos, 0x52, existing_idles.len());
         existing_idles[idx]
     };
@@ -3478,7 +3474,6 @@ pub fn world_of(floor: u32) -> u32 {
 }
 
 pub fn difficulty_multiplier(floor: u32) -> f32 {
-
     let loop_n = ((floor.max(1) - 1) / 15) as f32;
     let rf = ((floor.max(1) - 1) % 15) as f32;
     1.0 + loop_n * 0.05 + rf * 0.015
@@ -3535,9 +3530,7 @@ pub fn circle_hits_prop(
     props: &Query<(Entity, &mut Prop, &Transform, Option<&PropDeathEffect>), With<Prop>>,
 ) -> bool {
     for (_, prop, tf, _) in props.iter() {
-        if !prop.destructible && prop.hp >= 9999 {
-
-        }
+        if !prop.destructible && prop.hp >= 9999 {}
         let center = tf.translation.truncate();
         let half = prop.size / 2.0;
         let closest = Vec2::new(
@@ -3586,7 +3579,6 @@ mod tests {
 
     #[test]
     fn bosses_map_to_area_ends() {
-
         assert_eq!(boss_for_floor_and_loop(3, 0), EnemyKind::BigBandit);
         assert_eq!(boss_for_floor_and_loop(7, 0), EnemyKind::BigDog);
         assert_eq!(boss_for_floor_and_loop(11, 0), EnemyKind::LilHunter);
@@ -3607,7 +3599,6 @@ mod tests {
 
     #[test]
     fn floor_derived_boss_selection_stays_consistent() {
-
         assert_eq!(boss_for_floor(3), EnemyKind::BigBandit);
         assert_eq!(boss_for_floor(18), EnemyKind::BigBanditLoop);
         assert_eq!(boss_for_floor(22), EnemyKind::BigDogLoop);
@@ -3665,7 +3656,6 @@ mod tests {
 
     #[test]
     fn pizza_sewers_boss_floor_hosts_frog_queen() {
-
         let mut run = run_for(6);
         run.area = crate::game::areas::AreaId::PizzaSewers;
         let plan = generate_level(&run);
@@ -3808,7 +3798,6 @@ mod loop_boss_spawn_tests {
 
     #[test]
     fn hyper_applies_to_looped_crystal_caves_only() {
-
         assert_eq!(gml_area(8), 4);
         assert_eq!(gml_area(23), 4);
         assert_ne!(gml_area(7), 4);
@@ -3834,7 +3823,6 @@ mod environment_gen_tests {
 
     #[test]
     fn functional_environment_kinds_are_non_claiming() {
-
         for kind in [
             PropKind::Cobweb,
             PropKind::IcePatch,

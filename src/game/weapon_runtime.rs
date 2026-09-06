@@ -563,7 +563,7 @@ pub fn weapon_runtime(id: WeaponId) -> WeaponRuntime {
         damage: def.damage,
         recoil: def.recoil,
         explosion: def.explosive.then_some(ExplosionSpec {
-            radius: 130.0,
+            radius: 32.0,
             damage: def.damage,
         }),
         melee: def.melee.map(|melee| MeleeSpec {
@@ -1282,7 +1282,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "STICKY LAUNCHER" => {
             set_explosive(
                 def,
-                8,
+                15,
                 1,
                 350.0,
                 1.7,
@@ -1300,7 +1300,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 def,
                 3,
                 1,
-                590.0,
+                480.0,
                 0.65,
                 0.28,
                 1.7,
@@ -1457,7 +1457,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "ASSAULT SLUGGER" => {
             set_ranged(
                 def,
-                14,
+                22,
                 1,
                 520.0,
                 0.62,
@@ -1497,7 +1497,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             set_ranged(
                 def,
                 3,
-                5,
+                1,
                 880.0,
                 0.55,
                 0.045,
@@ -1651,7 +1651,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
             set_ranged(
                 def,
                 3,
-                9,
+                2,
                 430.0,
                 0.5,
                 0.5,
@@ -1732,19 +1732,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         }
 
         "JACKHAMMER" => {
-            set_explosive(
-                def,
-                6,
-                1,
-                360.0,
-                0.48,
-                0.15,
-                4.0,
-                5.0,
-                85.0,
-                Color::srgb(1.0, 0.58, 0.2),
-                Vec2::splat(9.0),
-            );
+            set_melee(def, 12, 62.0, 1.6, 4.0, Color::srgb(1.0, 0.58, 0.2));
         }
 
         "FLAK CANNON" => {
@@ -1781,7 +1769,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "SUPER FLAK CANNON" => {
             set_explosive(
                 def,
-                10,
+                45,
                 1,
                 360.0,
                 1.2,
@@ -1900,7 +1888,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "FLARE GUN" => {
             set_ranged(
                 def,
-                8,
+                10,
                 1,
                 300.0,
                 1.1,
@@ -2081,7 +2069,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "SMART GUN" => {
             set_ranged(
                 def,
-                4,
+                3,
                 1,
                 650.0,
                 0.78,
@@ -2361,7 +2349,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "PARTY GUN" => {
             set_ranged(
                 def,
-                3,
+                4,
                 5,
                 480.0,
                 0.7,
@@ -2445,7 +2433,7 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
         "ERASER" => {
             set_ranged(
                 def,
-                3,
+                2,
                 17,
                 420.0,
                 0.35,
@@ -2873,6 +2861,11 @@ mod tests {
                     meta.id,
                     meta.wep_name,
                 );
+            } else if meta.wep_name == "JACKHAMMER" {
+                assert!(
+                    def.melee.is_some(),
+                    "JACKHAMMER must use melee runtime per SawBurst",
+                );
             } else {
                 assert!(
                     def.pellets > 0,
@@ -3177,6 +3170,9 @@ mod tests {
             if meta.wep_type != AmmoType::Shells || meta.wep_mele {
                 continue;
             }
+            if meta.wep_name == "WAVE GUN" {
+                continue;
+            }
             let def = weapon_runtime_def(WeaponId(meta.id));
             let slug = def.pellets == 1;
             let ok = if slug {
@@ -3199,6 +3195,9 @@ mod tests {
                 continue;
             }
             if meta.wep_name == "PARTY GUN" {
+                continue;
+            }
+            if meta.wep_name == "JACKHAMMER" {
                 continue;
             }
             let def = weapon_runtime_def(WeaponId(meta.id));

@@ -300,7 +300,7 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                 )
                 .child(
                     RText(pct_text)
-                        .size((7.0 * v.s).clamp(8.0, 96.0))
+                        .size((7.0 * v.s).round().clamp(8.0, 96.0))
                         .font_family("Silkscreen")
                         .color(col(125, 131, 141))
                         .single_line(),
@@ -319,7 +319,7 @@ fn gen_cont_overlay(st: &SharedUi) -> View {
                 )
                 .child(
                     RText(format!("@s{}", st.gen_tip))
-                        .size((7.0 * v.s).clamp(8.0, 96.0))
+                        .size((7.0 * v.s).round().clamp(8.0, 96.0))
                         .font_family("Silkscreen")
                         .color(col(125, 131, 141))
                         .single_line(),
@@ -1563,7 +1563,7 @@ fn arrow_button_at(
     v: &NtView,
     on_click: impl Fn() + 'static,
 ) -> View {
-    let font_px = (7.0 * v.s).clamp(8.0, 96.0);
+    let font_px = (7.0 * v.s).round().clamp(8.0, 96.0);
     Column(
         Modifier::new()
             .fill_max_size()
@@ -2421,7 +2421,7 @@ fn nt_text_at_ex(
     centered: bool,
     middle_y: bool,
 ) -> View {
-    let font_px = (7.0 * v.s).clamp(8.0, 96.0);
+    let font_px = (7.0 * v.s).round().clamp(8.0, 96.0);
 
     let half_h = font_px * 0.5;
     let top = if middle_y {
