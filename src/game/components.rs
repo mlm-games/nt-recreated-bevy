@@ -1284,6 +1284,7 @@ pub struct WeaponVisual {
     pub owner: Entity,
     pub wkick: f32,
     pub wep_id: WeaponId,
+    pub wep_angle: f32,
 
     pub slot: u8,
 }

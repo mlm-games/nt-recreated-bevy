@@ -1646,6 +1646,13 @@ fn spawn_pellets(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// GML slash life = anim length at image_speed 0.4 (12 anim-fps).
+/// With the victim nexthurt+5 gate (hits land on ticks 0, 5, 10, ...),
+/// life under 10 ticks caps one swing at 2 hits on the same enemy.
+pub fn slash_life_secs(frames: u32) -> f32 {
+    (frames.max(1) as f32 / 12.0).clamp(0.09, 0.6)
+}
+
 fn melee_attack(
     commands: &mut Commands,
     trauma: &mut Trauma,
@@ -1675,7 +1682,11 @@ fn melee_attack(
     audio.play_melee(commands);
     for mut wv in vis_q.iter_mut() {
         if wv.owner == player_ent && wv.slot == visual_slot {
-            wv.wkick = -def.recoil.abs();
+            wv.wkick = if weapon_name.contains("SCREWDRIVER") {
+                -8.0
+            } else {
+                -4.0
+            };
         }
     }
 
@@ -1738,11 +1749,8 @@ fn melee_attack(
         } else {
             (47.0, 16.0, 24.0)
         };
-        let life_secs = anim_opt
-            .as_ref()
-            .map(|a| a.def.frames as f32 / a.def.fps.max(1.0))
-            .unwrap_or(0.375)
-            .clamp(0.2, 0.6);
+        let slash_frames = anim_opt.as_ref().map(|a| a.def.frames).unwrap_or(3);
+        let life_secs = slash_life_secs(slash_frames);
         let mut ec = commands.spawn((
             GameCleanup,
             LevelCleanup,
@@ -1781,6 +1789,9 @@ fn melee_attack(
         ));
         if let Some(mut a) = anim_opt {
             a.oneshot = true;
+            // Play at the GML rate so the anim ends exactly as life does.
+            a.def.fps = 12.0;
+            a.timer = Timer::from_seconds(1.0 / 12.0, TimerMode::Repeating);
             ec.insert(a);
         }
     }
@@ -2056,9 +2067,8 @@ pub fn spawn_player_projectile_with_source(
         // GML FlakBullet: friction 0.4, pointblank bonus 2, never bounces.
         // SuperFlakBullet fades via sprSuperFlakHit, plain flak is silent.
         Some(ShellKind::Flak) => {
-            let super_flak = weapon.is_some_and(|w| {
-                crate::game::content::weapon_id_name(w).contains("SUPER FLAK")
-            });
+            let super_flak = weapon
+                .is_some_and(|w| crate::game::content::weapon_id_name(w).contains("SUPER FLAK"));
             Some(ShellStats {
                 friction: 0.4,
                 fade: super_flak.then_some("images/sprSuperFlakHit.png"),
@@ -2671,14 +2681,22 @@ fn spawn_gun_visual(
         WeaponVisual {
             owner: player_e,
             wkick: 0.0,
+            wep_angle: 0.0,
             wep_id: id,
-            slot,
+            slot: extra_offset.x as u8,
         },
         spr,
         anchor,
         Transform::from_translation(pos.extend(21.0 - slot as f32 * 0.5))
             .with_rotation(Quat::from_rotation_z(angle)),
     ));
+}
+
+/// GML Player/Draw_0 held-weapon angle: gunangle + wepangle * (1 - wkick/20).
+/// Melee rests cocked ±120° off aim and sweeps further out on the swing
+/// (negative wkick) before settling back; guns sit at 0.
+pub fn held_weapon_angle(aim_angle: f32, wep_angle_deg: f32, wkick: f32) -> f32 {
+    aim_angle + wep_angle_deg.to_radians() * (1.0 - wkick / 20.0)
 }
 
 pub fn tick_weapon_visuals(
@@ -2784,6 +2802,18 @@ pub fn tick_weapon_visuals(
         }
         if wv.wep_id != id {
             wv.wep_id = id;
+            wv.wep_angle = if crate::game::weapon_runtime::weapon_runtime_def(id)
+                .melee
+                .is_some()
+            {
+                if rand::rng().random_bool(0.5) {
+                    120.0
+                } else {
+                    -120.0
+                }
+            } else {
+                0.0
+            };
             let path = weapon_world_sprite(id, &catalog);
             sprite.image = asset_server.load(path.clone());
             if let Some(def) = catalog.anim_def(&path) {
@@ -2794,12 +2824,13 @@ pub fn tick_weapon_visuals(
             *anchor = crate::game::content::sprite_anchor(&catalog, &path);
         }
         let angle = aim.0.y.atan2(aim.0.x);
-        let forward = aim.0.normalize_or_zero();
+        let swing = held_weapon_angle(angle, wv.wep_angle, wv.wkick);
+        let forward = Vec2::new(swing.cos(), swing.sin());
         let perp = Vec2::new(-forward.y, forward.x);
         let side = if wv.slot == 1 { perp * 8.0 } else { Vec2::ZERO };
         let hold = ptf.translation.truncate() + forward * (12.0 - wv.wkick) + side;
         tf.translation = hold.extend(21.0 - wv.slot as f32 * 0.5);
-        tf.rotation = Quat::from_rotation_z(angle);
+        tf.rotation = Quat::from_rotation_z(swing);
         sprite.flip_y = aim.0.x < 0.0;
     }
 }
@@ -3090,32 +3121,30 @@ mod shell_spawn_tests {
 
     fn spawn_shell(weapon: WeaponId, split: Option<SplitDef>) -> World {
         let mut world = World::new();
-        world.run_system_once(
-            move |mut commands: Commands| {
-                spawn_player_projectile_with_source(
-                    &mut commands,
-                    None,
-                    None,
-                    Vec2::ZERO,
-                    Vec2::X,
-                    410.0,
-                    2,
-                    0.34,
-                    3.5,
-                    28.0,
-                    false,
-                    Color::WHITE,
-                    Vec2::new(8.0, 3.0),
-                    0,
-                    0,
-                    None,
-                    split,
-                    ProjectileArchetype::default(),
-                    None,
-                    Some(weapon),
-                );
-            },
-        );
+        world.run_system_once(move |mut commands: Commands| {
+            spawn_player_projectile_with_source(
+                &mut commands,
+                None,
+                None,
+                Vec2::ZERO,
+                Vec2::X,
+                410.0,
+                2,
+                0.34,
+                3.5,
+                28.0,
+                false,
+                Color::WHITE,
+                Vec2::new(8.0, 3.0),
+                0,
+                0,
+                None,
+                split,
+                ProjectileArchetype::default(),
+                None,
+                Some(weapon),
+            );
+        });
         world
     }
 
@@ -3132,14 +3161,14 @@ mod shell_spawn_tests {
     fn shotgun_pellets_slow_down_and_fade() {
         let mut world = spawn_shell(WeaponId::SHOTGUN, None);
         assert!((get_friction(&mut world) - 0.6).abs() < 1e-6);
-        let proj = world
-            .query::<&Projectile>()
+        let proj = world.query::<&Projectile>().iter(&world).next().unwrap();
+        // GML Bullet2 has no lifetime: fade-out must govern, not a 0.34s cap.
+        assert!((proj.life.duration().as_secs_f32() - 4.0).abs() < 1e-6);
+        let fade = world
+            .query::<&ProjectileFade>()
             .iter(&world)
             .next()
             .unwrap();
-        // GML Bullet2 has no lifetime: fade-out must govern, not a 0.34s cap.
-        assert!((proj.life.duration().as_secs_f32() - 4.0).abs() < 1e-6);
-        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
         assert_eq!(fade.0, "images/sprBullet2Disappear.png");
         let typ = world.query::<&ProjectileTyp>().iter(&world).next().unwrap();
         assert_eq!(typ.0, 1);
@@ -3162,7 +3191,11 @@ mod shell_spawn_tests {
         let mut world = spawn_shell(WeaponId(69), None);
         assert!((get_friction(&mut world) - 0.6).abs() < 1e-6);
         assert!(world.query::<&BouncesLeft>().iter(&world).next().is_some());
-        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        let fade = world
+            .query::<&ProjectileFade>()
+            .iter(&world)
+            .next()
+            .unwrap();
         assert_eq!(fade.0, "images/sprBullet2Disappear.png");
     }
 
@@ -3170,7 +3203,11 @@ mod shell_spawn_tests {
     fn slugger_uses_slug_stats() {
         let mut world = spawn_shell(WeaponId(21), None);
         assert!((get_friction(&mut world) - 0.8).abs() < 1e-6);
-        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        let fade = world
+            .query::<&ProjectileFade>()
+            .iter(&world)
+            .next()
+            .unwrap();
         assert_eq!(fade.0, "images/sprSlugDisappear.png");
         let wb = world
             .query::<&ShellWallBounce>()
@@ -3187,7 +3224,11 @@ mod shell_spawn_tests {
     fn hyper_slugger_slows_into_slug_disappear() {
         let mut world = spawn_shell(WeaponId(118), None);
         assert!((get_friction(&mut world) - 0.8).abs() < 1e-6);
-        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        let fade = world
+            .query::<&ProjectileFade>()
+            .iter(&world)
+            .next()
+            .unwrap();
         assert_eq!(fade.0, "images/sprSlugDisappear.png");
     }
 
@@ -3229,7 +3270,11 @@ mod shell_spawn_tests {
     fn ultra_shotgun_uses_ultrashell_stats() {
         let mut world = spawn_shell(WeaponId(93), None);
         assert!((get_friction(&mut world) - 0.3).abs() < 1e-6);
-        let fade = world.query::<&ProjectileFade>().iter(&world).next().unwrap();
+        let fade = world
+            .query::<&ProjectileFade>()
+            .iter(&world)
+            .next()
+            .unwrap();
         assert_eq!(fade.0, "images/sprUltraShellDisappear.png");
     }
 
@@ -3249,9 +3294,50 @@ mod shell_spawn_tests {
         let mut world = spawn_shell(WeaponId(38), Some(split));
         assert!((get_friction(&mut world) - 0.4).abs() < 1e-6);
         assert!(world.query::<&BouncesLeft>().iter(&world).next().is_none());
-        assert!(world.query::<&ProjectileFade>().iter(&world).next().is_none());
+        assert!(
+            world
+                .query::<&ProjectileFade>()
+                .iter(&world)
+                .next()
+                .is_none()
+        );
         let bonus = world.query::<&ShellBonus>().iter(&world).next().unwrap();
         assert_eq!(bonus.bonus, 2);
+    }
+
+    #[test]
+    fn held_melee_weapon_rests_cocked_and_sweeps_on_swing() {
+        let aim = 0.0;
+        assert!((held_weapon_angle(aim, 0.0, 0.0) - aim).abs() < 1e-6);
+        assert!(
+            ((held_weapon_angle(aim, 120.0, 0.0) - aim).abs() - 120f32.to_radians()).abs() < 1e-6
+        );
+        assert!(
+            ((held_weapon_angle(aim, 120.0, -4.0) - aim).abs() - 144f32.to_radians()).abs() < 1e-6
+        );
+    }
+
+    /// Ticks of `tick_slash_projectiles` (1-indexed) during which `frames`
+    /// of slash anim can damage the same victim: alive while
+    /// (t-1)/30 < life, victim iframes reopen every 5 ticks from tick 1.
+    fn swing_hit_ticks(frames: u32) -> Vec<u32> {
+        let life = slash_life_secs(frames);
+        (1..=12)
+            .filter(|t| ((*t as f32 - 1.0) / 30.0) < life && (*t - 1) % 5 == 0)
+            .collect()
+    }
+
+    #[test]
+    fn one_swing_caps_at_two_hits_per_enemy() {
+        // GML step counts: 3-frame slash 7.5 steps, 2-frame shank 5 steps,
+        // 4-frame lightning 10 steps.
+        assert!((slash_life_secs(3) * 30.0 - 7.5).abs() < 1e-4);
+        assert!((slash_life_secs(2) * 30.0 - 5.0).abs() < 1e-4);
+        assert!((slash_life_secs(4) * 30.0 - 10.0).abs() < 1e-4);
+        // Reported case: sledge slash re-hit the same enemy 3x because life
+        // was 0.375s (tick-10 hit). Now ticks 1 and 6 only.
+        assert_eq!(swing_hit_ticks(3), vec![1, 6]);
+        assert_eq!(swing_hit_ticks(2), vec![1]);
     }
 
     #[test]

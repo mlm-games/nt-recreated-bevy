@@ -1477,6 +1477,7 @@ fn hyper_ensure_orbit(
                 max: 6,
                 invuln: short_ready_timer(),
             },
+            crate::game::components::NextHurt::default(),
             Hitbox { radius: 9.0 },
             Velocity(Vec2::ZERO),
             Sprite {
