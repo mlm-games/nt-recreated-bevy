@@ -656,6 +656,45 @@ pub struct ShellBonus {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ShellWallBounce(pub f32);
 
+/// GML Slash/Shank projectile state (melee weapons fire real projectiles,
+/// not hitscan). `typ`: 0 = nothing, 1 = deflectable, 2 = destructible.
+/// `shank` passes through walls (screwdriver). `walled` latches after first
+/// wall hit so MeleeHitWall + shake + sound fire once.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SlashProjectile {
+    pub typ: u8,
+    pub shank: bool,
+    pub walled: bool,
+    pub hit: bool,
+    pub guitar: bool,
+    pub electric_guitar: bool,
+    pub blood: bool,
+    pub lightning: bool,
+    pub hammer_wallbreak: bool,
+}
+
+/// GML Disc revert: team becomes neutral after leaving creator radius,
+/// wall dies past travel distance.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct DiscFlight {
+    pub dist: f32,
+    pub home: Vec2,
+}
+
+/// GML PlasmaBall shrink on wall hit (destroy at <= 0.5).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PlasmaSize(pub f32);
+
+/// GML Bolt wall stick disables further damage (alarm[1]).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct BoltWallDisable(pub bool);
+
+/// GML `spr_fade`: smooth disappear anim spawned on projectile destroy
+/// (projectile/Destroy -> scrBulletHitFX). None = destroyed silently
+/// (Bolt, Disc, Plasma, Flak, Grenade, Slash have no spr_fade).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ProjectileFade(pub &'static str);
+
 #[derive(Component)]
 pub struct Projectile {
     pub damage: i32,

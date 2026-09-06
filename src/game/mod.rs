@@ -190,6 +190,8 @@ impl Plugin for GamePlugin {
                         combat::tick_flame_trails,
                         combat::tick_lightning_arcs,
                         combat::tick_hit_effects,
+                        combat::tick_slash_projectiles,
+                        combat::tick_bullet2_fade,
                         combat::tick_projectile_friction,
                         combat::tick_grenade_fuse,
                         combat::tick_shell_bonus,

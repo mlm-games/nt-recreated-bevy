@@ -1669,9 +1669,8 @@ fn melee_attack(
     vis_q: &mut Query<&mut WeaponVisual>,
     visual_slot: u8,
 ) {
-    let melee_def = melee;
-
-    let range = melee_def.range * player.melee_range_mult;
+    let _ = melee;
+    let _ = targets;
     ScreenEffects::add_trauma(trauma, def.shake.max(0.12) * shake_scale);
     audio.play_melee(commands);
     for mut wv in vis_q.iter_mut() {
@@ -1681,155 +1680,25 @@ fn melee_attack(
     }
 
     vel.0 += aim.0.normalize_or_zero() * 180.0;
-
     player.melee_flip = !player.melee_flip;
 
     let mega = weapon_name == "BLACK SWORD" && (health.hp <= 0 || health.max <= 0);
-    let dmg = if mega { 80 } else { def.damage };
-    let swing_path: &'static str = if mega {
-        "images/sprMegaSlash.png"
+    if mega {
+        hitstop.trigger(0.35, 0.08);
+    }
+    let spec = crate::game::weapon_runtime::melee_projectile_spec(weapon_name);
+    let dmg = if mega {
+        80
     } else {
-        crate::game::weapon_runtime::melee_swing_sprite(weapon_name)
+        spec.damage_override.unwrap_or(def.damage)
     };
-    catalog.require(swing_path);
-
+    let longarms = player
+        .mutations
+        .iter()
+        .filter(|m| **m == MutationId::LongArms)
+        .count() as f32;
     let player_pos = tf.translation.truncate();
     let aim_angle = aim.0.y.atan2(aim.0.x);
-    let mut hit_any = false;
-
-    for (ee, etf, mut ehealth, ebox, mut evel, nexthurt) in targets.enemies.iter_mut() {
-        let offset = etf.translation.truncate() - player_pos;
-        let dist = offset.length();
-        if dist > range + ebox.radius {
-            continue;
-        }
-        let angle = offset.y.atan2(offset.x);
-        let diff = (angle - aim_angle).rem_euclid(std::f32::consts::TAU);
-        if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
-            continue;
-        }
-
-        if nexthurt.as_ref().is_some_and(|nh| nh.0 > targets.frame.0) {
-            continue;
-        }
-        ehealth.hp -= dmg;
-        if let Some(mut nh) = nexthurt {
-            nh.0 = targets.frame.0 + 5;
-        }
-        if let Some(vel) = evel.as_mut() {
-            GameFeel::apply_knockback(&mut vel.0, offset.normalize_or_zero(), def.knockback);
-        }
-        HitFlash::apply(commands, ee, Color::WHITE, 0.12);
-        VfxSpawner::spawn_damage_number(
-            commands,
-            dmg,
-            etf.translation.truncate(),
-            Color::srgb(1.0, 0.95, 0.6),
-        );
-        hit_any = true;
-    }
-
-    let mut dead_props: Vec<(
-        Entity,
-        Vec2,
-        bool,
-        Option<PropDeathEffect>,
-        Option<PropSprites>,
-    )> = Vec::new();
-    for (pe, ptf, mut prop, death, sprites, nexthurt) in targets.props.iter_mut() {
-        if !prop.destructible {
-            continue;
-        }
-        let center = ptf.translation.truncate();
-        let half = prop.size * 0.5;
-
-        let offset = center - player_pos;
-        let dist = (offset.length() - half.length()).max(0.0);
-        if dist > range {
-            continue;
-        }
-        let angle = offset.y.atan2(offset.x);
-        let diff = (angle - aim_angle).rem_euclid(std::f32::consts::TAU);
-        if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
-            continue;
-        }
-        if nexthurt.as_ref().is_some_and(|nh| nh.0 > targets.frame.0) {
-            continue;
-        }
-        prop.hp -= dmg.max(1);
-        if let Some(mut nh) = nexthurt {
-            nh.0 = targets.frame.0 + 5;
-        }
-        audio.play_hit(commands);
-        hit_any = true;
-        if prop.hp <= 0 {
-            dead_props.push((pe, center, prop.explosive, death.copied(), sprites.copied()));
-        }
-    }
-    for (pe, center, explosive, death, sprites) in dead_props {
-        if let Some(ps) = sprites {
-            crate::game::environment::spawn_prop_corpse(
-                commands,
-                catalog,
-                asset_server,
-                center,
-                &ps,
-            );
-        }
-        crate::game::environment::spawn_prop_death_effect(commands, center, death, explosive, None);
-        commands.entity(pe).try_despawn();
-    }
-
-    if hit_any {
-        hitstop.trigger(0.4, 0.1);
-        ScreenEffects::add_trauma(trauma, 0.3);
-        GameFeel::rumble_controller(rumble, gamepads, 0.5, 0.7, 0.2);
-        audio.play_hit(commands);
-    } else {
-        if weapon_name == "BLOOD HAMMER" {
-            health.hp -= 1;
-        }
-        let mut wall_hit: Option<(Vec2, f32)> = None;
-        for (_, _, wtf) in targets.walls.iter() {
-            let wpos = wtf.translation.truncate();
-            let offset = wpos - player_pos;
-            let dist = offset.length();
-            if dist > range + 16.0 {
-                continue;
-            }
-            let angle = offset.y.atan2(offset.x);
-            let diff = (angle - aim_angle).rem_euclid(std::f32::consts::TAU);
-            if diff > melee_def.arc && diff < std::f32::consts::TAU - melee_def.arc {
-                continue;
-            }
-            wall_hit = Some((wpos, angle));
-            break;
-        }
-        if let Some((wpos, wang)) = wall_hit {
-            let hit_path = "images/sprMeleeHitWall.png";
-            if catalog.has(hit_path) {
-                let (mut hspr, hanim) =
-                    crate::game::anim::sprite_anim(catalog, asset_server, hit_path);
-                hspr.flip_y = player.melee_flip;
-                let mut he = commands.spawn((
-                    GameCleanup,
-                    LevelCleanup,
-                    crate::game::components::SwingFx {
-                        timer: Timer::from_seconds(0.3, TimerMode::Once),
-                    },
-                    hspr,
-                    crate::game::content::sprite_anchor(catalog, hit_path),
-                    Transform::from_translation(wpos.extend(24.0))
-                        .with_rotation(Quat::from_rotation_z(wang)),
-                ));
-                if let Some(a) = hanim {
-                    he.insert(a);
-                }
-            }
-            ScreenEffects::add_trauma(trauma, (dmg as f32 / 3.0 / 20.0).clamp(0.1, 0.5));
-            audio.play_hit(commands);
-        }
-    }
 
     VfxSpawner::spawn_burst(
         commands,
@@ -1839,28 +1708,76 @@ fn melee_attack(
         (20.0, 60.0),
     );
 
-    let (mut swing_sprite, swing_anim) =
-        crate::game::anim::sprite_anim(catalog, asset_server, swing_path);
-    swing_sprite.flip_y = player.melee_flip;
-    let swing_secs = swing_anim
-        .as_ref()
-        .map(|a| a.def.frames as f32 / a.def.fps.max(1.0))
-        .unwrap_or(0.25)
-        .clamp(0.12, 0.6);
-    let mut swing_e = commands.spawn((
-        GameCleanup,
-        LevelCleanup,
-        SwingFx {
-            timer: Timer::from_seconds(swing_secs, TimerMode::Once),
-        },
-        swing_sprite,
-        crate::game::content::sprite_anchor(catalog, swing_path),
-        Transform::from_translation((player_pos + aim.0 * range * 0.6).extend(25.0))
-            .with_rotation(Quat::from_rotation_z(aim_angle)),
-    ));
-    if let Some(a) = swing_anim {
-        swing_e.insert(a);
+    for i in 0..spec.pellets.max(1) {
+        let shift = if spec.pellets > 1 {
+            (i as f32 - (spec.pellets as f32 - 1.0) * 0.5) * spec.shift_deg
+        } else {
+            0.0
+        };
+        let ang = aim_angle + shift.to_radians() * player.accuracy.max(0.2);
+        let dir = Vec2::new(ang.cos(), ang.sin());
+        let spawn_pos = player_pos + dir * (longarms * 20.0);
+        let speed = (spec.speed_f + longarms * 3.0) * 30.0;
+        let path: &'static str = if mega {
+            spec.mega_sprite.unwrap_or(spec.sprite)
+        } else {
+            spec.sprite
+        };
+        catalog.require(path);
+        let (mut spr, anim_opt) = crate::game::anim::sprite_anim(catalog, asset_server, path);
+        spr.flip_y = player.melee_flip;
+        let life_secs = anim_opt
+            .as_ref()
+            .map(|a| a.def.frames as f32 / a.def.fps.max(1.0))
+            .unwrap_or(0.375)
+            .clamp(0.2, 0.6);
+        let mut ec = commands.spawn((
+            GameCleanup,
+            LevelCleanup,
+            Team::Player,
+            Projectile {
+                damage: dmg,
+                life: Timer::from_seconds(life_secs, TimerMode::Once),
+                radius: 12.0,
+                knockback: def.knockback,
+                explosive: false,
+                source: Some(DamageSource::player_weapon(player_ent, WeaponId::NONE)),
+            },
+            Velocity(dir * speed),
+            ProjectileFriction(0.1),
+            PiercesLeft(255),
+            ProjectileHitSet::default(),
+            SlashProjectile {
+                typ: 0,
+                shank: spec.shank,
+                walled: false,
+                hit: false,
+                guitar: spec.guitar,
+                electric_guitar: spec.electric_guitar,
+                blood: spec.blood,
+                lightning: spec.lightning,
+                hammer_wallbreak: spec.hammer_wallbreak,
+            },
+            spr,
+            crate::game::content::sprite_anchor(catalog, path),
+            Transform::from_translation(spawn_pos.extend(16.0))
+                .with_rotation(Quat::from_rotation_z(ang)),
+        ));
+        if let Some(mut a) = anim_opt {
+            a.oneshot = true;
+            ec.insert(a);
+        }
     }
+    if weapon_name.contains("GOLDEN") && weapon_name.contains("WRENCH") {
+        VfxSpawner::spawn_burst(
+            commands,
+            player_pos,
+            2,
+            Color::srgb(0.9, 0.85, 0.5),
+            (30.0, 90.0),
+        );
+    }
+    GameFeel::rumble_controller(rumble, gamepads, 0.3, 0.5, 0.15);
     Juice::pop_in(commands, player_ent, 0.08);
 }
 
@@ -2060,6 +1977,25 @@ pub fn spawn_player_projectile_with_source(
                 ec.insert(ShellWallBounce(5.0));
             }
         }
+    } else if let Some(w) = weapon {
+        if crate::game::content::weapon_ammo(w) == AmmoKind::Shells {
+            ec.insert(BouncesLeft(255));
+            ec.insert(ShellWallBounce(0.0));
+        }
+        if crate::game::weapon_runtime::base_weapon_name(crate::game::content::weapon_id_name(w))
+            .contains("BOUNCER")
+        {
+            ec.insert(BouncesLeft(1));
+        }
+        if crate::game::weapon_runtime::base_weapon_name(crate::game::content::weapon_id_name(w))
+            .contains("DISC")
+        {
+            ec.insert(BouncesLeft(255));
+            ec.insert(DiscFlight {
+                dist: 0.0,
+                home: pos,
+            });
+        }
     }
     if let Some(w) = weapon {
         if w.0 == 7 || w.0 == 44 {
@@ -2098,6 +2034,15 @@ pub fn spawn_player_projectile_with_source(
     }
     if let Some(sticky) = archetype.sticky {
         ec.insert(sticky);
+        if let Some(w) = weapon {
+            if crate::game::content::weapon_ammo(w) == AmmoKind::Bolts
+                && pierce == 0
+                && archetype.chain_lightning.is_none()
+            {
+                ec.insert(PiercesLeft(3));
+                ec.insert(ProjectileHitSet::default());
+            }
+        }
     }
     if let Some(chain) = archetype.chain_lightning {
         ec.remove::<PiercesLeft>();
@@ -2126,6 +2071,7 @@ pub fn spawn_player_projectile_with_source(
             color: plasma.color,
             size: plasma.size,
         });
+        ec.insert(PlasmaSize(1.0));
     }
     if archetype.hits_all_teams {
         ec.insert(HitsAllTeams);
