@@ -307,7 +307,6 @@ pub fn tick_grenade_fuse(
     )>,
 ) {
     for (e, mut fuse, mut friction, proj, tf, mut sprite) in &mut q {
-
         if !fuse.friction_switched {
             fuse.alarm1.tick(time.delta());
             if fuse.alarm1.just_finished() {
@@ -331,7 +330,6 @@ pub fn tick_grenade_fuse(
 
         let remaining = proj.life.remaining_secs();
         if remaining <= 0.334 && remaining > 0.01 {
-
             let phase = (remaining * 30.0).floor() as i32 % 5;
             let flash_white = phase <= 2;
             sprite.color = if flash_white {
@@ -340,7 +338,6 @@ pub fn tick_grenade_fuse(
                 Color::BLACK
             };
         } else if fuse.friction_switched {
-
             sprite.color = Color::WHITE;
         }
         let _ = e;
@@ -524,7 +521,6 @@ pub fn move_projectiles(
         }
 
         if let Some(normal) = hit_normal {
-
             if let Some(mut sticky_inner) = sticky {
                 sticky_inner.armed = true;
                 if let Some((prop_e, center, _, _)) = hit_prop {
@@ -583,7 +579,6 @@ pub fn move_projectiles(
                     let mut death_copy = death_effect;
                     let mut sprites_copy: Option<PropSprites> = None;
                     if let Ok((_, mut prop, _, de, sprites, nexthurt)) = props.get_mut(prop_e) {
-
                         prop.hp -= p.damage.max(1);
                         if let Some(mut nh) = nexthurt {
                             nh.0 = frame.0 + 5;
@@ -641,7 +636,6 @@ pub fn move_projectiles(
                             );
                         }
                         if rad_chests.get(prop_e).is_ok() {
-
                             for _ in 0..25 {
                                 let ang = rand::rng().random_range(0.0..std::f32::consts::TAU);
                                 let d = rand::rng().random_range(6.0..26.0);
@@ -898,7 +892,6 @@ fn spawn_weapon_pickup_from_projectile(
     pos: Vec2,
     spec: SpawnsWeaponPickup,
 ) {
-
     if pos.x.abs() > ARENA_W / 2.0 + 32.0 || pos.y.abs() > ARENA_H / 2.0 + 32.0 {
         return;
     }
@@ -1302,7 +1295,6 @@ pub fn projectile_hits(
         plasma_burst,
     ) in projectiles.iter_mut()
     {
-
         if sticky.as_ref().is_some_and(|s| s.armed) {
             continue;
         }
@@ -1586,7 +1578,6 @@ fn chain_to_nearby_targets(
     let mut damage = proj.damage.max(1);
 
     for _ in 0..jumps {
-
         let mut best: Option<(Entity, Vec2, f32)> = None;
         let mut snapshot: Vec<(Entity, Vec2)> = Vec::new();
         for (target_e, target_tf, target_team, ..) in targets.iter() {
@@ -1989,7 +1980,6 @@ pub fn resolve_deaths(
                         player_pos_now,
                     );
                 } else {
-
                     run.game_over = true;
                     toast.show("THE NUCLEAR THRONE");
                     ScreenEffects::flash_white(&mut flash, 0.2);
@@ -2004,8 +1994,11 @@ pub fn resolve_deaths(
             _ => {}
         }
 
-        run.total_kills += 1;
-        score.0 += enemy.score;
+        let give_kill = !matches!(enemy.kind, EnemyKind::FastRat);
+        if give_kill {
+            run.total_kills += 1;
+            score.0 += enemy.score;
+        }
 
         if score.0 > save.high_score {
             save.high_score = score.0;
@@ -2081,7 +2074,6 @@ pub fn resolve_deaths(
         audio.play_hit(&mut commands);
 
         match enemy.kind {
-
             EnemyKind::Ballguy => {
                 let art_path = "images/sprBouncerBullet.png";
                 let ballguy_sprite = if catalog.has(art_path) {
@@ -2207,7 +2199,6 @@ pub fn resolve_deaths(
                 );
             }
         } else {
-
             if player.chain_explosions {
                 commands.spawn((
                     GameCleanup,
@@ -2268,7 +2259,6 @@ pub fn resolve_deaths(
     }
 
     if phealth.hp <= 0 && !run.game_over {
-
         if player.strong_spirit_ready {
             player.strong_spirit_ready = false;
             player.strong_spirit_spent = true;
@@ -2402,7 +2392,6 @@ pub fn resolve_deaths(
             },
         ));
         if let Some(mut anim) = corpse_anim {
-
             anim.oneshot = true;
             corpse_e.insert(anim);
         }
@@ -2635,7 +2624,6 @@ pub fn maybe_spawn_drop(
     let hasted = player.crown == crate::game::content::CrownKind::Haste;
 
     if roll < (chance * (need + paw)) {
-
         let hardmode = loops > 0;
         let medkit_win = if hardmode {
             rng.random_range(0..30) < 15
@@ -2653,7 +2641,6 @@ pub fn maybe_spawn_drop(
                 hasted,
             );
         } else {
-
             spawn_pickup(
                 commands,
                 catalog,
@@ -2689,7 +2676,6 @@ fn random_ammo_kind(rng: &mut impl rand::RngExt) -> AmmoKind {
 }
 
 pub fn random_weapon(rng: &mut impl rand::RngExt) -> WeaponId {
-
     match rng.random_range(0..8) {
         0 => WeaponId::MACHINEGUN,
         1 => WeaponId(5),

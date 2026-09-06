@@ -212,6 +212,8 @@ pub fn enemy_ai(
     mask: Res<FloorMask>,
     run: Res<Run>,
     mut ratking_cd: Local<std::collections::HashMap<Entity, Timer>>,
+    mut sniper_state: Local<std::collections::HashMap<Entity, (Timer, bool)>>,
+    mut wolf_roll: Local<std::collections::HashMap<Entity, Timer>>,
     player_q: Query<(&Transform, &Player), (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
@@ -319,10 +321,7 @@ pub fn enemy_ai(
 
         apply_gml_friction(&mut vel.0, 0.4, dt);
 
-        if matches!(
-            enemy.kind,
-            EnemyKind::Bandit | EnemyKind::SnowBandit | EnemyKind::JungleBandit
-        ) {
+        if matches!(enemy.kind, EnemyKind::Bandit | EnemyKind::SnowBandit) {
             brain.attack.tick(time.delta());
             if brain.attack.just_finished() {
                 let los = has_line_of_sight(pos, player_pos, &mask);
@@ -428,33 +427,71 @@ pub fn enemy_ai(
 
             if brain.ammo > 0 && brain.burst_left > 0 {
                 if brain.burst_timer.just_finished() {
-                    let spread = rng.random_range(-20_f32..20.0).to_radians();
-                    let base_ang = brain.gunangle;
-                    let ang = base_ang + spread;
-                    let sdir = Vec2::new(ang.cos(), ang.sin());
-                    let speed = rng.random_range(90.0..120.0);
-                    let (sprite_b, anchor, anim) =
-                        enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
-                    let mut ec = commands.spawn((
-                        GameCleanup,
-                        LevelCleanup,
-                        Team::Enemy,
-                        Projectile {
-                            damage: def.projectile_damage,
-                            life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
-                            radius: def.projectile_radius,
-                            knockback: 150.0,
-                            explosive: explosive_kind(enemy.kind),
-                            source: Some(DamageSource::enemy(entity, enemy.kind)),
-                        },
-                        Velocity(sdir * speed),
-                        sprite_b,
-                        anchor,
-                        Transform::from_translation((pos + sdir * 20.0).extend(15.0))
-                            .with_rotation(Quat::from_rotation_z(ang)),
-                    ));
-                    if let Some(a) = anim {
-                        ec.insert(a);
+                    let gold = enemy.kind == EnemyKind::GoldScorpion;
+                    if gold {
+                        for (spd_lo, spd_hi, spread_deg) in
+                            [(5.0_f32, 6.0_f32, 5.0_f32), (1.5_f32, 2.0_f32, 40.0_f32)]
+                        {
+                            let spread = rng.random_range(-spread_deg..spread_deg).to_radians();
+                            let ang = brain.gunangle + spread;
+                            let sdir = Vec2::new(ang.cos(), ang.sin());
+                            let speed = rng.random_range(spd_lo..spd_hi) * 30.0;
+                            let (sprite_b, anchor, anim) =
+                                enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                            let mut ec = commands.spawn((
+                                GameCleanup,
+                                LevelCleanup,
+                                Team::Enemy,
+                                Projectile {
+                                    damage: def.projectile_damage,
+                                    life: Timer::from_seconds(
+                                        def.projectile_lifetime,
+                                        TimerMode::Once,
+                                    ),
+                                    radius: def.projectile_radius,
+                                    knockback: 150.0,
+                                    explosive: explosive_kind(enemy.kind),
+                                    source: Some(DamageSource::enemy(entity, enemy.kind)),
+                                },
+                                Velocity(sdir * speed),
+                                sprite_b,
+                                anchor,
+                                Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                    .with_rotation(Quat::from_rotation_z(ang)),
+                            ));
+                            if let Some(a) = anim {
+                                ec.insert(a);
+                            }
+                        }
+                    } else {
+                        let spread = rng.random_range(-20_f32..20.0).to_radians();
+                        let base_ang = brain.gunangle;
+                        let ang = base_ang + spread;
+                        let sdir = Vec2::new(ang.cos(), ang.sin());
+                        let speed = rng.random_range(90.0..120.0);
+                        let (sprite_b, anchor, anim) =
+                            enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                        let mut ec = commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            Team::Enemy,
+                            Projectile {
+                                damage: def.projectile_damage,
+                                life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
+                                radius: def.projectile_radius,
+                                knockback: 150.0,
+                                explosive: explosive_kind(enemy.kind),
+                                source: Some(DamageSource::enemy(entity, enemy.kind)),
+                            },
+                            Velocity(sdir * speed),
+                            sprite_b,
+                            anchor,
+                            Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                .with_rotation(Quat::from_rotation_z(ang)),
+                        ));
+                        if let Some(a) = anim {
+                            ec.insert(a);
+                        }
                     }
                     brain.ammo = brain.ammo.saturating_sub(1);
                     brain.burst_left -= 1;
@@ -465,7 +502,12 @@ pub fn enemy_ai(
                         );
                         brain.ammo = 10;
                     } else {
-                        brain.burst_timer = Timer::from_seconds(2.0 / 30.0, TimerMode::Once);
+                        let frames = if enemy.kind == EnemyKind::GoldScorpion {
+                            1.0
+                        } else {
+                            2.0
+                        };
+                        brain.burst_timer = Timer::from_seconds(frames / 30.0, TimerMode::Once);
                     }
                 }
             } else if brain.attack.just_finished() {
@@ -486,8 +528,13 @@ pub fn enemy_ai(
                         TimerMode::Once,
                     );
                     brain.burst_timer = Timer::from_seconds(1.0 / 30.0, TimerMode::Once);
-                    brain.burst_left = 10;
-                    brain.ammo = 10;
+                    if enemy.kind == EnemyKind::GoldScorpion {
+                        brain.burst_left = 20;
+                        brain.ammo = 20;
+                    } else {
+                        brain.burst_left = 10;
+                        brain.ammo = 10;
+                    }
                     brain.gunangle = target_dir;
                     sprite.flip_x = player_pos.x < pos.x;
                 } else {
@@ -539,21 +586,46 @@ pub fn enemy_ai(
             brain.dash = 0.22;
             brain.melee = Timer::from_seconds(1.4, TimerMode::Once);
             vel.0 = dir * 620.0;
+            if matches!(enemy.kind, EnemyKind::Assassin | EnemyKind::MeleeBandit) {
+                let slash_path = "images/sprEnemySlash.png";
+                if catalog.has(slash_path) {
+                    let ang = dir.y.atan2(dir.x);
+                    let sdir = Vec2::new(ang.cos(), ang.sin());
+                    let (sprite_b, anim) =
+                        crate::game::anim::sprite_anim(&catalog, &asset_server, slash_path);
+                    let anchor = crate::game::content::sprite_anchor(&catalog, slash_path);
+                    let mut ec = commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        Team::Enemy,
+                        Projectile {
+                            damage: 5,
+                            life: Timer::from_seconds(0.8, TimerMode::Once),
+                            radius: 6.0,
+                            knockback: 150.0,
+                            explosive: false,
+                            source: Some(DamageSource::enemy(entity, enemy.kind)),
+                        },
+                        Velocity(sdir * 60.0),
+                        sprite_b,
+                        anchor,
+                        Transform::from_translation((pos + sdir * 16.0).extend(15.0))
+                            .with_rotation(Quat::from_rotation_z(ang)),
+                    ));
+                    if let Some(a) = anim {
+                        ec.insert(a);
+                    }
+                }
+            }
         }
 
-        if matches!(
-            enemy.kind,
-            EnemyKind::RhinoFreak | EnemyKind::DogGuardian | EnemyKind::Turtle
-        ) && !was_dashing
+        if matches!(enemy.kind, EnemyKind::DogGuardian)
+            && !was_dashing
             && dist < 220.0
             && dist > 40.0
             && brain.melee.is_finished()
         {
-            let (dash_time, dash_speed) = if enemy.kind == EnemyKind::Turtle {
-                (0.5, 420.0)
-            } else {
-                (0.42, 700.0)
-            };
+            let (dash_time, dash_speed) = (0.42, 700.0);
             brain.dash = dash_time;
             brain.melee = Timer::from_seconds(1.6, TimerMode::Once);
             vel.0 = dir * dash_speed;
@@ -841,6 +913,128 @@ pub fn enemy_ai(
                         TimerMode::Once,
                     );
                 }
+            }
+        }
+
+        if enemy.kind == EnemyKind::Sniper {
+            let (cd, aiming) = sniper_state
+                .entry(entity)
+                .or_insert_with(|| (Timer::from_seconds(1.0, TimerMode::Once), false));
+            cd.tick(time.delta());
+            if cd.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if !*aiming {
+                    if los && dist > 96.0 && rng.random::<f32>() < 0.67 {
+                        *aiming = true;
+                        brain.gunangle = dir.y.atan2(dir.x);
+                        *cd = Timer::from_seconds(70.0 / 30.0, TimerMode::Once);
+                    } else {
+                        *cd = Timer::from_seconds(
+                            (20.0 + rng.random_range(0.0..10.0)) / 30.0,
+                            TimerMode::Once,
+                        );
+                    }
+                } else {
+                    *aiming = false;
+                    let base = brain.gunangle;
+                    for off in [4.0_f32, -4.0, 0.0] {
+                        let ang = base + off.to_radians();
+                        let sdir = Vec2::new(ang.cos(), ang.sin());
+                        let (sprite_b, anchor, anim) =
+                            enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                        let mut ec = commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            Team::Enemy,
+                            Projectile {
+                                damage: def.projectile_damage,
+                                life: Timer::from_seconds(def.projectile_lifetime, TimerMode::Once),
+                                radius: def.projectile_radius,
+                                knockback: 150.0,
+                                explosive: explosive_kind(enemy.kind),
+                                source: Some(DamageSource::enemy(entity, enemy.kind)),
+                            },
+                            Velocity(sdir * def.projectile_speed),
+                            sprite_b,
+                            anchor,
+                            Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                .with_rotation(Quat::from_rotation_z(ang)),
+                        ));
+                        if let Some(a) = anim {
+                            ec.insert(a);
+                        }
+                    }
+                    show_enemy_fire(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        entity,
+                        def.sprite,
+                        &mut anim,
+                        &mut *sprite,
+                        &mut anchor,
+                        hurt.is_some(),
+                    );
+                    *cd = Timer::from_seconds(
+                        (40.0 + rng.random_range(0.0..5.0)) / 30.0,
+                        TimerMode::Once,
+                    );
+                }
+            }
+        }
+
+        if enemy.kind == EnemyKind::Wolf {
+            let cd = wolf_roll
+                .entry(entity)
+                .or_insert_with(|| Timer::from_seconds(1.5, TimerMode::Once));
+            cd.tick(time.delta());
+            if cd.just_finished() {
+                let los = has_line_of_sight(pos, player_pos, &mask);
+                if los && rng.random::<f32>() < 0.5 {
+                    let base = dir.y.atan2(dir.x);
+                    for off in [0.0_f32, 20.0, -20.0] {
+                        let ang = base + off.to_radians();
+                        let sdir = Vec2::new(ang.cos(), ang.sin());
+                        let (sprite_b, anchor, anim) =
+                            enemy_bullet_sprite(&catalog, &asset_server, enemy.kind, def);
+                        let mut ec = commands.spawn((
+                            GameCleanup,
+                            LevelCleanup,
+                            Team::Enemy,
+                            Projectile {
+                                damage: 2,
+                                life: Timer::from_seconds(3.0, TimerMode::Once),
+                                radius: 4.0,
+                                knockback: 150.0,
+                                explosive: false,
+                                source: Some(DamageSource::enemy(entity, enemy.kind)),
+                            },
+                            Velocity(sdir * 120.0),
+                            sprite_b,
+                            anchor,
+                            Transform::from_translation((pos + sdir * 20.0).extend(15.0))
+                                .with_rotation(Quat::from_rotation_z(ang)),
+                        ));
+                        if let Some(a) = anim {
+                            ec.insert(a);
+                        }
+                    }
+                    show_enemy_fire(
+                        &mut commands,
+                        &catalog,
+                        &asset_server,
+                        entity,
+                        def.sprite,
+                        &mut anim,
+                        &mut *sprite,
+                        &mut anchor,
+                        hurt.is_some(),
+                    );
+                }
+                *cd = Timer::from_seconds(
+                    (30.0 + rng.random_range(0.0..20.0)) / 30.0,
+                    TimerMode::Once,
+                );
             }
         }
 
@@ -1228,6 +1422,12 @@ pub fn tick_frog_eggs(
         }
         let pos = tf.translation.truncate();
         commands.entity(e).despawn();
+
+        commands.spawn(PendingEnemySpawn {
+            kind: EnemyKind::Ballguy,
+            pos,
+            difficulty: 1.0,
+        });
 
         for i in 0..8 {
             let ang = (i as f32) * std::f32::consts::TAU / 8.0;
