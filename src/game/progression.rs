@@ -1483,8 +1483,6 @@ pub fn tick_portal_clear(
 // Portal latch blocks re-trigger.
 pub fn portal_enter(
     mut commands: Commands,
-    catalog: Res<AssetCatalog>,
-    asset_server: Res<AssetServer>,
     run: Res<Run>,
     mut portal_q: Query<
         (
@@ -1492,9 +1490,6 @@ pub fn portal_enter(
             &Transform,
             Option<&PortalClosing>,
             Option<&mut PortalState>,
-            Option<&mut crate::game::anim::SpriteAnim>,
-            Option<&mut Sprite>,
-            Option<&mut bevy::sprite::Anchor>,
         ),
         With<Portal>,
     >,
@@ -1503,6 +1498,7 @@ pub fn portal_enter(
             Entity,
             &Transform,
             &mut Velocity,
+            &mut Health,
             &RaceState,
             &mut Inventory,
             &Player,
@@ -1515,9 +1511,7 @@ pub fn portal_enter(
         return;
     }
 
-    let Ok((portal_e, portal_tf, closing, st_opt, anim_opt, sprite_opt, anchor_opt)) =
-        portal_q.single_mut()
-    else {
+    let Ok((portal_e, portal_tf, closing, st_opt)) = portal_q.single_mut() else {
         return;
     };
 
@@ -1525,14 +1519,15 @@ pub fn portal_enter(
         return;
     }
 
-    let Ok((player_e, player_tf, mut vel, race_state, mut inv, player)) = player_q.single_mut()
+    let Ok((_player_e, player_tf, mut vel, mut health, race_state, mut inv, player)) =
+        player_q.single_mut()
     else {
         return;
     };
 
     let ppos = player_tf.translation.truncate();
     let tpos = portal_tf.translation.truncate();
-    if ppos.distance(tpos) > 48.0 {
+    if ppos.distance(tpos) > 28.0 {
         return;
     }
     let _ = &mut vel;
@@ -1544,24 +1539,9 @@ pub fn portal_enter(
     if let Some(mut st) = st_opt {
         st.close = true;
         st.endgame = 30.0_f32.min(st.endgame);
-        if st.phase == PortalPhase::Idle {
-            let dis = PortalState::disappear_sprite(st.kind);
-            catalog.require(dis);
-            if let (Some(mut anim), Some(mut sprite), Some(mut anchor)) =
-                (anim_opt, sprite_opt, anchor_opt)
-            {
-                if let Some(def) = catalog.anim_def(dis) {
-                    let flip = sprite.flip_x;
-                    anim.set_path(dis, def, true);
-                    sprite.image = asset_server.load(dis.to_string());
-                    sprite.rect = Some(anim.rect());
-                    *anchor = crate::game::content::sprite_anchor(&catalog, dis);
-                    sprite.flip_x = flip;
-                }
-            }
-            st.phase = PortalPhase::Disappear;
-        }
     }
+
+    health.invuln = Timer::from_seconds(30.0 / 30.0, TimerMode::Once);
 
     if race_state.race == RaceId::Robot {
         for (wep_e, wep_tf, pickup) in &mut weapon_q {
@@ -1589,12 +1569,6 @@ pub fn portal_enter(
         }
     }
 
-    commands.entity(player_e).insert(PortalSucking {
-        portal: portal_e,
-        timer: Timer::from_seconds(0.55, TimerMode::Once),
-        start_pos: ppos,
-        target_pos: tpos,
-    });
     commands.spawn((
         GameCleanup,
         crate::game::reactive_audio::QueuedReactiveCue(
@@ -1798,7 +1772,16 @@ pub fn tick_floor_transition(
     mut chroma: ResMut<ChromaticAberration>,
     audio: Res<GameAudio>,
     mut floor_started: MessageWriter<FloorStarted>,
-    mut player_q: Query<(&mut Transform, &mut Health, &mut Player, &RaceState), With<Player>>,
+    mut player_q: Query<
+        (
+            &mut Transform,
+            &mut Health,
+            &mut Player,
+            &RaceState,
+            Option<&mut Visibility>,
+        ),
+        With<Player>,
+    >,
     mut carried: ResMut<PortalCarriedWeapons>,
     open_mind: Res<OpenMind>,
     mut spiral: Option<ResMut<crate::game::vortex::SpiralCtl>>,
@@ -1819,7 +1802,7 @@ pub fn tick_floor_transition(
             if !ft.timer.just_finished() {
                 return;
             }
-            let Ok((mut tf, mut health, mut player, race)) = player_q.single_mut() else {
+            let Ok((mut tf, mut health, mut player, race, vis_opt)) = player_q.single_mut() else {
                 return;
             };
             let plan = world::generate_level(&run);
@@ -1857,6 +1840,9 @@ pub fn tick_floor_transition(
             }
             tf.rotation = Quat::IDENTITY;
             tf.scale = Vec3::ONE;
+            if let Some(mut vis) = vis_opt {
+                *vis = Visibility::Visible;
+            }
             run.portal_open = false;
             ft.active = false;
 
@@ -1907,12 +1893,48 @@ fn pick_loading_tip(_run: &Run) -> String {
     TIPS[rng.random_range(0..TIPS.len())].to_string()
 }
 
+/// GML Portal alarm[1] / Other_7 Disappear-end: flip the level. Runs the
+/// shared transition by inserting a near-instant PortalSucking (the player
+/// is already hidden at the portal core, so the lerp is a visual no-op and
+/// tick_portal_suck performs the floor advance on its first ticks).
+fn kick_portal_transition(
+    commands: &mut Commands,
+    player_q: &mut Query<
+        (Entity, &mut Transform, Option<&PortalSucking>),
+        (With<Player>, Without<Portal>),
+    >,
+    portal_e: Entity,
+    portal_pos: Vec2,
+    run: &Run,
+) {
+    if run.game_over {
+        return;
+    }
+    let Ok((player_e, ptf, suck_opt)) = player_q.single_mut() else {
+        return;
+    };
+    if suck_opt.is_some() {
+        return;
+    }
+    let ppos = ptf.translation.truncate();
+    commands.entity(player_e).insert(PortalSucking {
+        portal: portal_e,
+        timer: Timer::from_seconds(0.1, TimerMode::Once),
+        start_pos: ppos,
+        target_pos: portal_pos,
+    });
+}
+
 pub fn animate_portal(
     time: Res<Time<Fixed>>,
     mut commands: Commands,
     catalog: Res<AssetCatalog>,
     asset_server: Res<AssetServer>,
-    player_q: Query<&Transform, (With<Player>, Without<Portal>)>,
+    run: Res<Run>,
+    mut player_q: Query<
+        (Entity, &mut Transform, Option<&PortalSucking>),
+        (With<Player>, Without<Portal>),
+    >,
     mut q: Query<
         (
             Entity,
@@ -1921,6 +1943,7 @@ pub fn animate_portal(
             Option<&mut crate::game::anim::SpriteAnim>,
             Option<&mut Sprite>,
             Option<&mut bevy::sprite::Anchor>,
+            Option<&mut PortalClosing>,
         ),
         With<Portal>,
     >,
@@ -1929,15 +1952,22 @@ pub fn animate_portal(
     let frames = dt * crate::app::NT_SIM_HZ as f32;
     let mut rng = rand::rng();
 
-    for (_e, tf, mut st, mut anim_opt, mut sprite_opt, mut anchor_opt) in &mut q {
+    for (_e, tf, mut st, mut anim_opt, mut sprite_opt, mut anchor_opt, mut closing_opt) in &mut q {
         let pos = tf.translation.truncate();
 
-        if let Ok(ptf) = player_q.single() {
+        if let Ok((_, ptf, _)) = player_q.single_mut() {
             let px = ptf.translation.x;
             if px != pos.x {
                 if let Some(ref mut sprite) = sprite_opt {
                     sprite.flip_x = (px - pos.x) < 0.0;
                 }
+            }
+        }
+
+        if let Some(ref mut closing) = closing_opt {
+            closing.timer.tick(time.delta());
+            if closing.timer.just_finished() {
+                kick_portal_transition(&mut commands, &mut player_q, _e, pos, &run);
             }
         }
 
@@ -1975,6 +2005,17 @@ pub fn animate_portal(
             continue;
         }
 
+        if st.phase == PortalPhase::Disappear {
+            let done = anim_opt
+                .as_ref()
+                .map(|a| a.oneshot && a.finished)
+                .unwrap_or(true);
+            if done {
+                kick_portal_transition(&mut commands, &mut player_q, _e, pos, &run);
+            }
+            continue;
+        }
+
         if st.phase != PortalPhase::Idle {
             continue;
         }
@@ -1997,6 +2038,10 @@ pub fn animate_portal(
                     }
                 }
                 st.phase = PortalPhase::Disappear;
+                if let Ok((player_e, mut ptf, _)) = player_q.single_mut() {
+                    ptf.rotation = Quat::IDENTITY;
+                    commands.entity(player_e).insert(Visibility::Hidden);
+                }
                 continue;
             }
         }
