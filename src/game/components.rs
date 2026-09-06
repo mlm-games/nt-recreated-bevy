@@ -1110,6 +1110,46 @@ impl From<WeaponKind> for PickupKind {
 #[derive(Component)]
 pub struct Portal;
 
+/// GML Portal state machine (objects/Portal/*):
+/// Spawn (sprPortalSpawn) → Idle (sprPortal/Popo/Proto by type) → Disappear.
+/// `kind`: 1 normal, 2 popo (HQ), 3 proto (Vault).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct PortalState {
+    pub kind: u8,
+    pub phase: PortalPhase,
+    pub endgame: f32,
+    pub close: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PortalPhase {
+    Spawn,
+    Idle,
+    Disappear,
+}
+
+impl PortalState {
+    pub fn idle_sprite(kind: u8) -> &'static str {
+        match kind {
+            2 => "images/sprPopoPortal.png",
+            3 => "images/sprProtoPortal.png",
+            _ => "images/sprPortal.png",
+        }
+    }
+
+    pub fn disappear_sprite(kind: u8) -> &'static str {
+        match kind {
+            2 => "images/sprPopoPortalDisappear.png",
+            3 => "images/sprProtoPortalDisappear.png",
+            _ => "images/sprPortalDisappear.png",
+        }
+    }
+
+    pub fn spawn_sprite() -> &'static str {
+        "images/sprPortalSpawn.png"
+    }
+}
+
 #[derive(Component)]
 pub struct PortalShock {
     pub timer: Timer,

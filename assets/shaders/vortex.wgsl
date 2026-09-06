@@ -7,8 +7,6 @@
 //   (oversized wisps survive while lightning lanim is in 0..6)
 //   lightning lanim -random(300) + 0.2+random(0.3) per tick
 //   draw order oldest-first, so the NEWEST wisp lands on top
-// Rotation convention: GML angles are CCW-positive in y-down storage, so
-// sampling inverts with (xc-ys, xs+yc) - the transpose would mirror the spin.
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> wisps: array<vec4<f32>, 128>;
@@ -101,11 +99,8 @@ fn hash11(birth: f32, salt: f32) -> f32 {
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
-    let gui = vec2<f32>(mesh.uv.x * 320.0, (1.0 - mesh.uv.y) * 240.0);
+    let gui = vec2<f32>((mesh.uv.x * 6.0 - 2.5) * 320.0, ((1.0 - mesh.uv.y) * 6.0 - 2.5) * 240.0);
     let tick_now = glob_a.x;
-    // Total birth-rewind applied during the drain (0 while alive): wisp
-    // age fast-forwards for scale, but the lightning clock below uses
-    // realtime age so bolts behave like Spiral/Step_0's unscaled `lanim`.
     let drain_bias = glob_a.y;
     let bg_alpha = glob_b.y;
     let thresh = glob_b.z;
@@ -117,21 +112,22 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // Oldest drawn first, so the NEWEST wisp lands on top: GML `with`
     // iterates instances in creation order and script draws ignore depth.
+    // Slot mapping matches CPU `(ticks-1) % N`.
     let base = u32(tick_now);
     for (var k: u32 = 0u; k < N; k = k + 1u) {
         let birth = base - (N - 1u - k);
-        let d = wisps[birth % N];
+        if (birth < 1u) { continue; }
+        let d = wisps[(birth - 1u) % N];
         if (d.z < 0.0) { continue; }
         let age = tick_now - d.z;
         if (age < 0.0) { continue; }
-        var s = wisp_scale(age);
+        let scale_age = age + drain_bias;
+        var s = wisp_scale(scale_age);
         if (kind > 0.5 && kind < 1.5) {
-            s = proto_scale(age);
+            s = proto_scale(scale_age);
         }
         // Spiral/Step_0: oversized wisps survive while lightning shows.
-        // `lanim` runs on realtime age (drain rewind excluded): GML keeps
-        // `lanim += 0.2+random(0.3)` unscaled after SpiralCont dies.
-        let lanim = wisp_lanim(d.z, age - drain_bias);
+        let lanim = wisp_lanim(d.z, age);
         if (s > thresh && !(lanim > 0.0 && lanim < 6.0)) { continue; }
 
         // IDPD2 variant rides in the rot sign (CPU); art is 128px single.
@@ -141,7 +137,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         let sn = sin(rot);
         // Inverse-map into the frame (GML CCW-positive, y-down storage).
         var rel = gui - d.xy;
-        rel = vec2<f32>(c * rel.x - sn * rel.y, sn * rel.x + c * rel.y);
+        rel = vec2<f32>(c * rel.x + sn * rel.y, -sn * rel.x + c * rel.y);
 
         // Lightning pass FIRST (scrDrawSpiral draws the bolt before the
         // wisp's own white/black spiral passes cover it).
@@ -154,7 +150,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
                 let lc = cos(rot - 0.7853982 + langle);
                 let ls = sin(rot - 0.7853982 + langle);
                 var lrel = gui - d.xy;
-                lrel = vec2<f32>(lc * lrel.x - ls * lrel.y, ls * lrel.x + lc * lrel.y);
+                lrel = vec2<f32>(lc * lrel.x + ls * lrel.y, -ls * lrel.x + lc * lrel.y);
                 let lbolt_half = vec2<f32>(88.0, 88.0) * s;
                 let buv = (lrel + vec2<f32>(180.0 - 88.0, 0.0) * s) / (lbolt_half * 2.0) + vec2<f32>(0.5, 0.5);
                 if (all(buv > vec2<f32>(0.0)) & all(buv < vec2<f32>(1.0))) {
@@ -194,8 +190,11 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
         let suv = rel / (32.0 * s * 10.0) * 0.5 + vec2<f32>(0.5, 0.5);
         if (all(suv > vec2<f32>(0.0)) & all(suv < vec2<f32>(1.0))) {
+        // GML Spiral image_speed=2 on a 2-frame strip advances 2/step, so
+        // image_index is permanently 0: every wisp shows frame 0.
+        let sframe = 0.0;
             // Half-texel inset to avoid atlas bleeding (sprite is 64x64 in 128x64 strip)
-            let uv_x = (0.5 + suv.x * 63.0) / 128.0;
+            let uv_x = (sframe * 64.0 + 0.5 + suv.x * 63.0) / 128.0;
             let uv_y = (0.5 + suv.y * 63.0) / 64.0;
             var tex = textureSampleLevel(spiral_tex, spiral_smp, vec2<f32>(uv_x, uv_y), 0.0);
             if (kind > 0.5 && kind < 1.5) {
@@ -228,7 +227,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         var rel = gui - d.xy;
         let c = cos(d.z);
         let sn = sin(d.z);
-        rel = vec2<f32>(c * rel.x - sn * rel.y, sn * rel.x + c * rel.y);
+        rel = vec2<f32>(c * rel.x + sn * rel.y, -sn * rel.x + c * rel.y);
         let duv = rel / half_ext * 0.5 + vec2<f32>(0.5, 0.5);
         if (all(duv > vec2<f32>(0.0)) & all(duv < vec2<f32>(1.0))) {
             // frames in a 4-wide horizontal strip, half-texel inset

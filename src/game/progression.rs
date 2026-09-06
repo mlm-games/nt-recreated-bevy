@@ -311,7 +311,6 @@ pub fn check_level_up(
         leveled = true;
 
         if player.level >= 10 && player.ultra.is_none() {
-
             player.ultra_pick_owed = true;
         } else if player.level < 10 {
             player.mutation_picks_owed = player.mutation_picks_owed.saturating_add(1);
@@ -319,7 +318,6 @@ pub fn check_level_up(
     }
 
     if leveled {
-
         toast.show(if player.ultra_pick_owed && player.level >= 10 {
             "LEVEL ULTRA!"
         } else {
@@ -364,7 +362,6 @@ fn begin_between_floor_skill_picks(
     if player.mutation_picks_owed > 0 {
         let choices = roll_mutations(player);
         if choices.is_empty() {
-
             while player.mutation_picks_owed > 0 {
                 let c = roll_mutations(player);
                 if c.is_empty() {
@@ -463,7 +460,6 @@ pub fn handle_mutation_choice(
     audio: Res<GameAudio>,
 ) {
     if ultra.is_none() && pending.is_none() {
-
         if choice.0.is_some() {
             choice.0 = None;
         }
@@ -724,7 +720,6 @@ fn apply_mutation(
             player.sharp_teeth = true;
         }
         MutationId::LastWish => {
-
             health.hp = health.max;
             try_recharge_strong_spirit(&mut player, &health);
             let add = |inv: &mut Inventory, player: &Player, kind: AmmoKind, amount: i32| {
@@ -1091,17 +1086,38 @@ pub fn portal_check(
     let mut rng = rand::rng();
     let pos = mask.random_floor_pos(&mut rng, 80.0);
 
+    let kind: u8 = match run.area {
+        crate::game::areas::AreaId::HQ => 2,
+        crate::game::areas::AreaId::Vault | crate::game::areas::AreaId::CrownVault => 3,
+        _ => 1,
+    };
+    let spawn_path = PortalState::spawn_sprite();
+    let idle_path = PortalState::idle_sprite(kind);
+    let disappear_path = PortalState::disappear_sprite(kind);
+    catalog.require(spawn_path);
+    catalog.require(idle_path);
+    catalog.require(disappear_path);
+    catalog.require("images/sprPortalL1.png");
+
     let (portal_sprite, portal_strip) =
-        crate::game::anim::sprite_anim(&catalog, &asset_server, "images/sprPortal.png");
+        crate::game::anim::sprite_anim(&catalog, &asset_server, spawn_path);
     let mut pc = commands.spawn((
         GameCleanup,
         LevelCleanup,
         Portal,
+        PortalState {
+            kind,
+            phase: PortalPhase::Spawn,
+            endgame: 100.0,
+            close: false,
+        },
         portal_sprite,
+        crate::game::content::sprite_anchor(&catalog, spawn_path),
         Transform::from_xyz(pos.x, pos.y, 5.0),
     ));
-    if let Some(portal_strip) = portal_strip {
-        pc.insert(portal_strip);
+    if let Some(mut strip) = portal_strip {
+        strip.oneshot = true;
+        pc.insert(strip);
     }
 
     commands.spawn((
@@ -1121,6 +1137,30 @@ pub fn portal_check(
         },
         Transform::from_xyz(pos.x, pos.y, 6.0),
     ));
+
+    for i in 1..=4 {
+        let path: &'static str = match i {
+            1 => "images/sprPortalL1.png",
+            2 => "images/sprPortalL2.png",
+            3 => "images/sprPortalL3.png",
+            _ => "images/sprPortalL4.png",
+        };
+        if catalog.has(path) {
+            let sprite = crate::game::content::sprite_exact(&catalog, &asset_server, path);
+            let ang = rng.random_range(0.0..std::f32::consts::TAU);
+            commands.spawn((
+                GameCleanup,
+                LevelCleanup,
+                sprite,
+                crate::game::content::sprite_anchor(&catalog, path),
+                Transform::from_translation(pos.extend(6.0))
+                    .with_rotation(Quat::from_rotation_z(ang)),
+                crate::game::components::PickupLifetime {
+                    timer: Timer::from_seconds(0.4, TimerMode::Once),
+                },
+            ));
+        }
+    }
 
     VfxSpawner::spawn_burst(
         &mut commands,
@@ -1155,16 +1195,21 @@ pub fn portal_attract(
         (Entity, &mut Transform, &Pickup, Option<&mut GroundPhysics>),
         (Without<Player>, Without<Portal>),
     >,
-    portal_q: Query<&Transform, With<Portal>>,
+    portal_q: Query<(&Transform, Option<&PortalState>), With<Portal>>,
     mask: Res<FloorMask>,
     run: Res<Run>,
 ) {
     if run.game_over || !run.portal_open {
         return;
     }
-    let Ok(portal_tf) = portal_q.single() else {
+    let Ok((portal_tf, st_opt)) = portal_q.single() else {
         return;
     };
+    if let Some(st) = st_opt
+        && st.phase != PortalPhase::Idle
+    {
+        return;
+    }
     let tpos = portal_tf.translation.truncate();
     let dt = time.delta_secs();
     let frames = dt * crate::app::NT_SIM_HZ as f32;
@@ -1195,13 +1240,11 @@ pub fn portal_attract(
                 ptf.translation.y = ny.y;
             }
             if dist <= 48.0 {
-
                 let right = aim
                     .map(|a| if a.0.x < 0.0 { -1.0 } else { 1.0 })
                     .unwrap_or(1.0);
                 ptf.rotation *= Quat::from_rotation_z((-30.0_f32.to_radians()) * right * frames);
                 if let (Some(anim), Some(sprite), Some(pa)) = (anim.as_mut(), sprite.as_mut(), pa) {
-
                     if !(anim.oneshot && !anim.finished) {
                         crate::game::anim::play_hurt(
                             &mut commands,
@@ -1217,7 +1260,6 @@ pub fn portal_attract(
                     }
                 }
             } else {
-
                 ptf.rotation = Quat::IDENTITY;
             }
         }
@@ -1281,7 +1323,6 @@ pub fn tick_portal_shock(
     run: Res<Run>,
     player_q: Query<&Player>,
 ) {
-
     let hasted = player_q
         .single()
         .is_ok_and(|p| p.crown == crate::game::content::CrownKind::Haste);
@@ -1367,7 +1408,6 @@ pub fn tick_portal_shock(
                     );
                 }
                 ChestKind::Ammo => {
-
                     for _ in 0..2 {
                         crate::game::pickups::spawn_pickup(
                             &mut commands,
@@ -1443,8 +1483,21 @@ pub fn tick_portal_clear(
 // Portal latch blocks re-trigger.
 pub fn portal_enter(
     mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
     run: Res<Run>,
-    portal_q: Query<(Entity, &Transform, Option<&PortalClosing>), With<Portal>>,
+    mut portal_q: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&PortalClosing>,
+            Option<&mut PortalState>,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut Sprite>,
+            Option<&mut bevy::sprite::Anchor>,
+        ),
+        With<Portal>,
+    >,
     mut player_q: Query<
         (
             Entity,
@@ -1462,7 +1515,9 @@ pub fn portal_enter(
         return;
     }
 
-    let Ok((portal_e, portal_tf, closing)) = portal_q.single() else {
+    let Ok((portal_e, portal_tf, closing, st_opt, anim_opt, sprite_opt, anchor_opt)) =
+        portal_q.single_mut()
+    else {
         return;
     };
 
@@ -1485,6 +1540,28 @@ pub fn portal_enter(
     commands.entity(portal_e).insert(PortalClosing {
         timer: Timer::from_seconds(90.0 / 30.0, TimerMode::Once),
     });
+
+    if let Some(mut st) = st_opt {
+        st.close = true;
+        st.endgame = 30.0_f32.min(st.endgame);
+        if st.phase == PortalPhase::Idle {
+            let dis = PortalState::disappear_sprite(st.kind);
+            catalog.require(dis);
+            if let (Some(mut anim), Some(mut sprite), Some(mut anchor)) =
+                (anim_opt, sprite_opt, anchor_opt)
+            {
+                if let Some(def) = catalog.anim_def(dis) {
+                    let flip = sprite.flip_x;
+                    anim.set_path(dis, def, true);
+                    sprite.image = asset_server.load(dis.to_string());
+                    sprite.rect = Some(anim.rect());
+                    *anchor = crate::game::content::sprite_anchor(&catalog, dis);
+                    sprite.flip_x = flip;
+                }
+            }
+            st.phase = PortalPhase::Disappear;
+        }
+    }
 
     if race_state.race == RaceId::Robot {
         for (wep_e, wep_tf, pickup) in &mut weapon_q {
@@ -1662,7 +1739,6 @@ pub fn tick_portal_suck(
     }
 
     if player.ultra_pick_owed || player.mutation_picks_owed > 0 {
-
         ctx.deferred.0 = true;
         begin_between_floor_skill_picks(
             &mut commands,
@@ -1673,7 +1749,6 @@ pub fn tick_portal_suck(
         if player.mutation_picks_owed == 0 && !player.ultra_pick_owed {
             if !ctx.paused.0 {
                 ctx.deferred.0 = false;
-
             } else {
                 player_tf.translation = Vec3::new(10000.0, 10000.0, 20.0);
                 return;
@@ -1832,11 +1907,128 @@ fn pick_loading_tip(_run: &Run) -> String {
     TIPS[rng.random_range(0..TIPS.len())].to_string()
 }
 
-pub fn animate_portal(time: Res<Time<Fixed>>, mut q: Query<&mut Transform, With<Portal>>) {
-    let s = 1.0 + (time.elapsed_secs() * 8.0).sin() * 0.12;
-    for mut tf in &mut q {
-        tf.scale = Vec3::splat(s);
-        tf.rotate_z(time.delta_secs() * 2.2);
+pub fn animate_portal(
+    time: Res<Time<Fixed>>,
+    mut commands: Commands,
+    catalog: Res<AssetCatalog>,
+    asset_server: Res<AssetServer>,
+    player_q: Query<&Transform, (With<Player>, Without<Portal>)>,
+    mut q: Query<
+        (
+            Entity,
+            &Transform,
+            &mut PortalState,
+            Option<&mut crate::game::anim::SpriteAnim>,
+            Option<&mut Sprite>,
+            Option<&mut bevy::sprite::Anchor>,
+        ),
+        With<Portal>,
+    >,
+) {
+    let dt = time.delta_secs();
+    let frames = dt * crate::app::NT_SIM_HZ as f32;
+    let mut rng = rand::rng();
+
+    for (_e, tf, mut st, mut anim_opt, mut sprite_opt, mut anchor_opt) in &mut q {
+        let pos = tf.translation.truncate();
+
+        if let Ok(ptf) = player_q.single() {
+            let px = ptf.translation.x;
+            if px != pos.x {
+                if let Some(ref mut sprite) = sprite_opt {
+                    sprite.flip_x = (px - pos.x) < 0.0;
+                }
+            }
+        }
+
+        if st.phase == PortalPhase::Spawn {
+            let finished = anim_opt
+                .as_ref()
+                .map(|a| a.oneshot && (a.finished || a.frame + 1 >= a.def.frames.max(1)))
+                .unwrap_or(true);
+            if finished {
+                let idle = PortalState::idle_sprite(st.kind);
+                catalog.require(idle);
+                if let (Some(ref mut anim), Some(ref mut sprite), Some(ref mut anchor)) =
+                    (anim_opt.as_mut(), sprite_opt.as_mut(), anchor_opt.as_mut())
+                {
+                    if let Some(def) = catalog.anim_def(idle) {
+                        anim.set_path(idle, def, false);
+                        sprite.image = asset_server.load(idle.to_string());
+                        sprite.rect = Some(anim.rect());
+                        let flip = sprite.flip_x;
+                        ***anchor = crate::game::content::sprite_anchor(&catalog, idle);
+                        sprite.flip_x = flip;
+                    }
+                }
+                st.phase = PortalPhase::Idle;
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    PortalShock {
+                        timer: Timer::from_seconds(2.0 / 30.0, TimerMode::Once),
+                        radius: 72.0,
+                    },
+                    Transform::from_xyz(pos.x, pos.y, 6.0),
+                ));
+            }
+            continue;
+        }
+
+        if st.phase != PortalPhase::Idle {
+            continue;
+        }
+
+        if st.endgame < 100.0 {
+            st.endgame -= frames;
+            if st.endgame < 0.0 {
+                let dis = PortalState::disappear_sprite(st.kind);
+                catalog.require(dis);
+                if let (Some(ref mut anim), Some(ref mut sprite), Some(ref mut anchor)) =
+                    (anim_opt.as_mut(), sprite_opt.as_mut(), anchor_opt.as_mut())
+                {
+                    if let Some(def) = catalog.anim_def(dis) {
+                        anim.set_path(dis, def, true);
+                        sprite.image = asset_server.load(dis.to_string());
+                        sprite.rect = Some(anim.rect());
+                        let flip = sprite.flip_x;
+                        ***anchor = crate::game::content::sprite_anchor(&catalog, dis);
+                        sprite.flip_x = flip;
+                    }
+                }
+                st.phase = PortalPhase::Disappear;
+                continue;
+            }
+        }
+
+        if rng.random::<f32>() * 20.0 < 1.0 * frames {
+            let idx = rng.random_range(1..=5);
+            let path: &'static str = match idx {
+                1 => "images/sprPortalL1.png",
+                2 => "images/sprPortalL2.png",
+                3 => "images/sprPortalL3.png",
+                4 => "images/sprPortalL4.png",
+                _ => "images/sprPortalL5.png",
+            };
+            if catalog.has(path) {
+                let sprite = crate::game::content::sprite_exact(&catalog, &asset_server, path);
+                let ang = rng.random_range(0.0..std::f32::consts::TAU);
+                let d = rng.random_range(0.0..10.0);
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    sprite,
+                    crate::game::content::sprite_anchor(&catalog, path),
+                    Transform::from_translation(
+                        (pos + Vec2::new(ang.cos() * d, ang.sin() * d)).extend(6.0),
+                    )
+                    .with_rotation(Quat::from_rotation_z(ang)),
+                    crate::game::components::PickupLifetime {
+                        timer: Timer::from_seconds(0.35, TimerMode::Once),
+                    },
+                ));
+            }
+        }
     }
 }
 

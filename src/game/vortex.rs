@@ -25,7 +25,6 @@ pub enum SpiralKind {
 impl SpiralKind {
     fn for_gml_area(area: u8) -> Self {
         match area {
-
             100 => Self::Proto,
 
             106 => Self::Idpd,
@@ -137,7 +136,6 @@ struct Debris {
 
 #[derive(Resource)]
 pub struct SpiralCtl {
-
     pub angle: f32,
 
     pub ticks: f32,
@@ -167,7 +165,6 @@ pub struct SpiralCtl {
 }
 
 impl SpiralCtl {
-
     pub fn warmed_up() -> Self {
         Self::warmed_up_for_gml_area(0)
     }
@@ -223,22 +220,24 @@ impl SpiralCtl {
                 orbit(self.angle)
             };
             if kind == SpiralKind::Venuz {
-
                 self.push_star(x, y);
             } else {
                 let mut rot = (self.angle + 45.0).to_radians();
                 if kind == SpiralKind::Idpd && (self.ticks as i64 % 11) <= 1 {
-
-                    rot = -rot;
+                    // GML only swaps sprite_index to sprSpiralIDPD2 here;
+                    // the angle is untouched. Variant rides in the sign bit.
+                    rot = -rot.abs();
                 }
-                self.ring[self.head] = [x, y, self.ticks, rot];
-                self.head = (self.head + 1) % MAX_WISPS;
+                // Ring slot must match shader lookup `(birth-1) % N`:
+                // birth == ticks here, so slot is (ticks-1) % N.
+                let slot = (self.ticks as usize - 1) % MAX_WISPS;
+                self.ring[slot] = [x, y, self.ticks, rot];
+                self.head = (slot + 1) % MAX_WISPS;
 
                 let proto = kind == SpiralKind::Proto;
                 if rand::random::<f32>() * 16.0 < 1.0
                     && (proto || rand::random::<f32>() * 3.0 < 1.0)
                 {
-
                     if rand::random::<f32>() * 50.0 < 1.0
                         && let Some((path, frame)) = variant_debris_for_gml_area(self.gml_area)
                     {
@@ -264,13 +263,12 @@ impl SpiralCtl {
                 }
             }
         } else {
-
+            // Drain (SpiralCont dead): GML speeds growth (grow*=1.5,
+            // destroy at 3.0 not 2.5) but `lanim` keeps realtime cadence.
+            // Do NOT rewind births here — the shader indexes slots by
+            // `(birth-1) % N`, so rewinding would orphan live wisps.
+            // Scale fast-forward is carried by drain_bias instead.
             self.drain_bias += 5.5;
-            for slot in self.ring.iter_mut() {
-                if slot[2] >= 0.0 {
-                    slot[2] -= 5.5;
-                }
-            }
         }
 
         let drain = !self.alive;
@@ -287,7 +285,6 @@ impl SpiralCtl {
             d.xscale += d.grow / 1.5;
             d.grow = (d.grow + 1.0) * (1.0 + 0.001 * d.xscale) - 1.0;
             if drain {
-
                 d.grow *= 1.5;
             }
             d.grow *= d.xscale * 0.05 + 1.0;
@@ -410,7 +407,6 @@ impl SpiralCtl {
     }
 
     fn step(&mut self, dt_ticks: f32) {
-
         self.acc += dt_ticks;
         while self.acc >= 1.0 {
             self.acc -= 1.0;
@@ -445,7 +441,6 @@ fn deg_cos(deg: f32) -> f32 {
 
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 struct VortexMaterial {
-
     #[uniform(0)]
     wisps: [Vec4; MAX_WISPS],
 
@@ -520,6 +515,11 @@ struct SpiralPlayerFig;
 
 #[derive(Component)]
 pub struct VortexQuad;
+
+/// Marker for the oversized 6x quad. Quads without it are the pre-fix
+/// 1x mesh that clipped xscale*10 wisps square at the borders.
+#[derive(Component)]
+struct VortexQuadSized;
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sync_spiral_cpu_layer(
@@ -789,11 +789,23 @@ fn vortex_needs_black(
     ft: Option<&crate::game::components::FloorTransition>,
     pending: bool,
 ) -> bool {
+    // GML scrDrawSpiral: draw_clear(c_black) only when NOT menu.
+    // Menu/Title draws the spiral transparently over menu art.
     match *state {
         AppState::Title => false,
         AppState::Loading => true,
         AppState::InGame => ft.is_some_and(|f| f.active) || pending,
-        AppState::Splash | AppState::MainMenu => true,
+        AppState::Splash | AppState::MainMenu => false,
+    }
+}
+
+/// GML Spiral/Step_0 destroy plane: 2.5 alive, 3.0 while draining.
+/// (Lightning stays ON in every state per user reference, so no gate.)
+fn vortex_thresh(alive: bool) -> f32 {
+    if alive {
+        2.5
+    } else {
+        3.0
     }
 }
 
@@ -833,7 +845,7 @@ fn vortex_tick(
 
     let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
     mat.glob_a = Vec4::new(ctl.ticks, ctl.drain_bias, r, g);
-    mat.glob_b = Vec4::new(b, bg_alpha, 2.5, kindpacked);
+    mat.glob_b = Vec4::new(b, bg_alpha, vortex_thresh(ctl.alive), kindpacked);
 
     for handle in [
         &mat.spiral_tex,
@@ -844,6 +856,8 @@ fn vortex_tick(
         &mat.spiral_idpd2_tex,
     ] {
         if let Some(mut img) = images.get_mut(handle) {
+            // GML draw_sprite_ext filters smoothly; nearest made wisps
+            // blocky/jagged. Linear + half-texel inset in-shader matches.
             img.sampler = ImageSampler::linear();
         }
     }
@@ -859,7 +873,8 @@ fn ensure_vortex_quad(
     mut materials: ResMut<Assets<VortexMaterial>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cam_q: Query<(Entity, &Transform, &Projection), With<Camera2d>>,
-    existing: Query<(), (With<VortexQuad>, Without<Camera2d>)>,
+    existing: Query<Entity, (With<VortexQuad>, Without<Camera2d>)>,
+    sized: Query<Entity, (With<VortexQuadSized>, Without<Camera2d>)>,
     ctl: Option<Res<SpiralCtl>>,
     ft: Option<Res<crate::game::components::FloorTransition>>,
     pending: Option<Res<crate::game::components::PendingMutation>>,
@@ -870,6 +885,14 @@ fn ensure_vortex_quad(
     };
     if !spiral_states(state.get()) {
         return;
+    }
+    // Despawn the pre-fix 1x quad once so the oversized 6x mesh below
+    // actually appears (the old early-return kept the stale mesh alive
+    // forever, which is why the last patch looked like nothing changed).
+    if sized.is_empty() && !existing.is_empty() {
+        for e in &existing {
+            commands.entity(e).try_despawn();
+        }
     }
     if !existing.is_empty() {
         return;
@@ -898,7 +921,11 @@ fn ensure_vortex_quad(
     let map = gui_map(win.width(), win.height(), o.scale);
     let c = map.to_world(GUI_W / 2.0, GUI_H / 2.0);
 
-    let mesh = meshes.add(Rectangle::new(GUI_W, GUI_H));
+    let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
+    // Oversized 6x quad so xscale*10 wisps (half-extent up to 800px at
+    // s=2.5) fade before the mesh edge instead of clipping square.
+    // Shader maps uv 0..1 across the 6x surface with 320x240 centered.
+    let mesh = meshes.add(Rectangle::new(GUI_W * 6.0, GUI_H * 6.0));
     let [r, g, b, _] = background_color(state.get()).to_srgba().to_f32_array();
     let pending_any = pending.is_some() || pending_ultra.is_some();
     let bg_alpha = if vortex_needs_black(state.get(), ft.as_deref(), pending_any) {
@@ -906,12 +933,11 @@ fn ensure_vortex_quad(
     } else {
         0.0
     };
-    let kindpacked = ctl.kind as u8 as f32 + if ctl.gml_area == 105 { 4.0 } else { 0.0 };
     let mat = VortexMaterial {
         wisps: ring_to_uniform(&ctl.ring),
         debris: debris_to_uniform(&ctl.debris_ring),
         glob_a: Vec4::new(ctl.ticks, ctl.drain_bias, r, g),
-        glob_b: Vec4::new(b, bg_alpha, 2.5, kindpacked),
+        glob_b: Vec4::new(b, bg_alpha, vortex_thresh(ctl.alive), kindpacked),
         spiral_tex: asset_server.load("images/sprSpiral.png"),
         bolt_tex: asset_server.load("images/sprPortalLightning.png"),
         debris_tex: asset_server.load(format!("images/sprDebris{}.png", ctl.gml_area)),
@@ -934,6 +960,7 @@ fn ensure_vortex_quad(
     };
     commands.spawn((
         VortexQuad,
+        VortexQuadSized,
         TitleArt,
         ChildOf(cam),
         Mesh2d(mesh),
@@ -1064,7 +1091,6 @@ mod tests {
 
     #[test]
     fn drain_bias_tracks_rewind_for_realtime_lightning() {
-
         let mut ctl = SpiralCtl::warmed_up();
         assert_eq!(ctl.drain_bias, 0.0);
         for _ in 0..10 {
@@ -1088,7 +1114,6 @@ mod tests {
 
     #[test]
     fn spiral_cpu_layer_system_params_are_disjoint() {
-
         let mut world = World::new();
         let mut sys = bevy::ecs::system::IntoSystem::into_system(sync_spiral_cpu_layer);
         bevy::ecs::system::System::initialize(&mut sys, &mut world);
@@ -1227,7 +1252,6 @@ mod tests {
 
     #[test]
     fn vortex_tick_rate_matches_gml_30hz() {
-
         let mut ctl = SpiralCtl::warmed_up();
         let t0 = ctl.ticks;
         ctl.step(30.0);
@@ -1241,7 +1265,6 @@ mod tests {
 
     #[test]
     fn vortex_drain_clears_like_gml_compounding() {
-
         let mut ctl = SpiralCtl::warmed_up();
         let youngest = ctl
             .ring
@@ -1255,6 +1278,9 @@ mod tests {
         for _ in 0..5 {
             ctl.tick_once();
         }
+        // Births stay stable for shader `(birth-1) % N` indexing; the
+        // fast-forward lives in drain_bias (5.5/tick) so scale age jumps
+        // ~32.5 while realtime age advances 5.
         let youngest_after = ctl
             .ring
             .iter()
@@ -1262,17 +1288,24 @@ mod tests {
             .map(|s| ctl.ticks - s[2])
             .fold(f32::INFINITY, f32::min);
         assert!(
-            youngest_after - youngest >= 30.0,
-            "drain aging too slow: {youngest} -> {youngest_after}"
+            (youngest_after - youngest - 5.0).abs() < 1e-3,
+            "drain must not rewind births: {youngest} -> {youngest_after}"
+        );
+        let scale_age = youngest_after + ctl.drain_bias;
+        assert!(
+            scale_age - youngest >= 30.0,
+            "drain scale too slow: {youngest} -> {scale_age}"
         );
         for _ in 0..20 {
             ctl.tick_once();
         }
+        // Kill plane uses scale age (realtime + bias), matching shader
+        // `thresh 3.0` while draining.
         let stale = ctl
             .ring
             .iter()
             .filter(|s| s[2] >= 0.0)
-            .filter(|s| ctl.ticks - s[2] <= 130.0)
+            .filter(|s| ctl.ticks - s[2] + ctl.drain_bias <= 130.0)
             .count();
         assert_eq!(stale, 0, "{stale} wisps still under the kill plane");
     }
