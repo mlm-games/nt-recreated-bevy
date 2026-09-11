@@ -11,7 +11,7 @@ use crate::game::input::NtInput;
 use crate::game::projectile_archetypes::{BeamSpec, ProjectileArchetype, projectile_archetype};
 use crate::game::projectile_art;
 use crate::game::secret_areas::SecretTriggers;
-use crate::game::weapon_runtime::weapon_runtime_def;
+use crate::game::weapon_runtime::{gml_fire_push_px_s, gml_melee_wkick, weapon_runtime_def};
 use crate::game::world::*;
 use game_utils_bevy::camera_follow::CameraFollow;
 use game_utils_bevy::game_feel::{GameFeel, SlowMotion};
@@ -1340,7 +1340,7 @@ fn fire_one_gun(
         weapon_id,
         def,
     );
-    vel.0 -= aim.0.normalize_or_zero() * def.recoil * 18.0;
+    vel.0 -= aim.0.normalize_or_zero() * gml_fire_push_px_s(def.name);
     for mut wv in vis_q.iter_mut() {
         if wv.owner == player_ent && wv.slot == visual_slot {
             wv.wkick = def.recoil;
@@ -1583,6 +1583,8 @@ fn spawn_pellets(
         let dir = Vec2::new(angle.cos(), angle.sin());
         let speed = if def.ammo == AmmoKind::Shells {
             rng.random_range(360.0..540.0)
+        } else if id.0 == 124 {
+            rng.random_range(300.0..330.0)
         } else {
             def.speed
         };
@@ -1699,16 +1701,12 @@ fn melee_attack(
     audio.play_melee(commands);
     for mut wv in vis_q.iter_mut() {
         if wv.owner == player_ent && wv.slot == visual_slot {
-            wv.wkick = if weapon_name.contains("SCREWDRIVER") {
-                -8.0
-            } else {
-                -4.0
-            };
+            wv.wkick = gml_melee_wkick(weapon_name);
             wv.wep_angle = flip_melee_angle(wv.wep_angle);
         }
     }
 
-    vel.0 += aim.0.normalize_or_zero() * 180.0;
+    vel.0 -= aim.0.normalize_or_zero() * gml_fire_push_px_s(weapon_name);
     player.melee_flip = !player.melee_flip;
 
     let mega = weapon_name == "BLACK SWORD" && (health.hp <= 0 || health.max <= 0);
@@ -2217,13 +2215,18 @@ pub fn spawn_player_projectile_with_source(
         }
     }
     if let Some(w) = weapon {
-        if w.0 == 7 || w.0 == 44 {
+        if matches!(w.0, 7 | 44 | 15 | 95 | 124) {
             ec.insert(ProjectileFriction(0.1));
             ec.insert(crate::game::components::GrenadeFuse {
                 smoke_armed: false,
                 friction_switched: false,
                 alarm1: Timer::from_seconds(6.0 / 30.0, TimerMode::Once),
             });
+            if w.0 == 95 {
+                ec.insert(crate::game::components::UltraGrenade);
+                ec.insert(PiercesLeft(255));
+                ec.insert(ProjectileHitSet::default());
+            }
         } else if let Some(st) = shell_stats {
             ec.insert(ProjectileFriction(st.friction));
             ec.insert(ShellBonus {

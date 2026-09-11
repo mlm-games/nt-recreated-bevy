@@ -254,6 +254,67 @@ pub fn base_weapon_name(name: &str) -> &str {
     stripped
 }
 
+/// GML `scr_weapon_post` 5th arg (`_knockback`, px/frame) per weapon,
+/// converted to px/s (×30). Positive = shoved backwards
+/// (`motion_add(_gunangle + 180, kb)`), negative = lunged forwards (melee).
+/// Omitted 5th arg defaults to 0 — most guns (incl. grenade launcher,
+/// bazooka, sticky) have NO self-push. Previous code used `recoil * 18` for
+/// every weapon, which shoved the player far too hard.
+pub fn gml_fire_push_px_s(full_name: &str) -> f32 {
+    let key = if full_name.starts_with("ULTRA ") {
+        full_name
+    } else {
+        base_weapon_name(full_name)
+    };
+    let kb_frames: f32 = match key {
+        "DOUBLE SHOTGUN" | "SAWED-OFF SHOTGUN" => 2.0,
+        "MINIGUN" => 0.6,
+        "DOUBLE MINIGUN" => 0.7,
+        "SUPER CROSSBOW" => 1.0,
+        "SUPER BAZOOKA" => 1.0,
+        "SUPER SLUGGER" => 3.0,
+        "ASSAULT SLUGGER" => -7.0,
+        "HYPER RIFLE" => -4.0,
+        "WAVE GUN" | "PLASMA GUN" | "PLASMA RIFLE" => 3.0,
+        "PLASMA CANNON" => 6.0,
+        "SUPER PLASMA CANNON" => 16.0,
+        "PLASMA MINIGUN" => 2.0,
+        "LIGHTNING CANNON" => 6.0,
+        "LASER PISTOL" | "LASER RIFLE" | "LASER MINIGUN" => 0.6,
+        "DEVASTATOR" => 5.0,
+        "ERASER" => 2.0,
+        "WRENCH" | "SHOVEL" | "SLEDGEHAMMER" | "GUITAR" | "ELECTRIC GUITAR" | "BLOOD HAMMER" => {
+            -6.0
+        }
+        "ENERGY SWORD" | "LIGHTNING HAMMER" | "ENERGY HAMMER" => -7.0,
+        "SCREWDRIVER" | "CHICKEN SWORD" => -4.0,
+        "ENERGY SCREWDRIVER" => -5.0,
+        "ULTRA SHOVEL" => -8.0,
+        "BLACK SWORD" => -8.0,
+        _ => 0.0,
+    };
+    kb_frames * 30.0
+}
+
+/// GML `scr_weapon_post` 4th arg (`wkick`, visual gun kick) for melee.
+/// Guns keep their tuned `recoil`; melee was hardcoded to -4 (screwdriver
+/// -8), overshooting chicken sword (-6), black sword (-7), ultra shovel
+/// (-6) and energy hammer (-3).
+pub fn gml_melee_wkick(full_name: &str) -> f32 {
+    let key = if full_name.starts_with("ULTRA ") {
+        full_name
+    } else {
+        base_weapon_name(full_name)
+    };
+    match key {
+        _ if key.contains("SCREWDRIVER") => -8.0,
+        "BLACK SWORD" => -7.0,
+        "ULTRA SHOVEL" | "CHICKEN SWORD" => -6.0,
+        "ENERGY HAMMER" => -3.0,
+        _ => -4.0,
+    }
+}
+
 /// GML melee projectile spec per weapon (scrFire arms). Speed is px/frame,
 /// converted to px/s (×30) at spawn. `pellets` + `shifts` mirror the
 /// `for(i) scr_projectile_create(Slash) + scr_projectile_shift(i*deg)` arms.
@@ -1166,13 +1227,47 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 300.0,
                 2.0,
                 0.052,
-                10.0,
-                4.0,
+                5.0,
+                3.0,
                 200.0,
                 Color::srgb(1.0, 0.58, 0.2),
                 Vec2::splat(6.0),
             );
-            def.bounces = 4;
+            def.bounces = 255;
+        }
+
+        "ULTRA GRENADE LAUNCHER" => {
+            set_explosive(
+                def,
+                40,
+                1,
+                300.0,
+                3.0,
+                0.087,
+                8.0,
+                3.0,
+                360.0,
+                Color::srgb(0.95, 0.4, 1.0),
+                Vec2::splat(6.0),
+            );
+            def.bounces = 255;
+        }
+
+        "HEAVY GRENADE LAUNCHER" => {
+            set_explosive(
+                def,
+                30,
+                1,
+                315.0,
+                2.0,
+                0.07,
+                8.0,
+                4.0,
+                200.0,
+                Color::srgb(1.0, 0.58, 0.2),
+                Vec2::splat(8.0),
+            );
+            def.bounces = 255;
         }
 
         "DOUBLE SHOTGUN" => {
@@ -1284,15 +1379,16 @@ fn apply_exact_profile(def: &mut WeaponDef, meta: &WeaponData) {
                 def,
                 15,
                 1,
-                350.0,
-                1.7,
-                0.055,
-                7.0,
-                7.0,
-                145.0,
+                330.0,
+                2.0,
+                0.052,
+                2.0,
+                3.0,
+                200.0,
                 Color::srgb(1.0, 0.6, 0.22),
-                Vec2::splat(10.0),
+                Vec2::splat(6.0),
             );
+            def.bounces = 255;
         }
 
         "SMG" => {
@@ -2606,13 +2702,13 @@ fn apply_variant_tuning(def: &mut WeaponDef, meta: &WeaponData) {
         );
         if !explicit_ultra {
             def.damage = ((def.damage as f32) * 1.35).round() as i32;
-        }
-        def.recoil *= 1.2;
-        def.shake *= 1.25;
+            def.recoil *= 1.2;
+            def.shake *= 1.25;
 
-        if def.melee.is_none() {
-            def.projectile_radius *= 1.15;
-            def.knockback *= 1.2;
+            if def.melee.is_none() {
+                def.projectile_radius *= 1.15;
+                def.knockback *= 1.2;
+            }
         }
     }
 
@@ -3112,6 +3208,46 @@ mod tests {
         assert!(nuke.damage >= 40);
         assert!(nuke.damage > grenade.damage * 2);
         assert!(nuke.projectile_radius > grenade.projectile_radius);
+    }
+
+    #[test]
+    fn grenade_launcher_matches_gml_post() {
+        let def = weapon_runtime_def(id_by_name("GRENADE LAUNCHER"));
+        assert_eq!(def.damage, 15);
+        assert_eq!(def.recoil, 5.0);
+        assert_eq!(super::gml_fire_push_px_s("GRENADE LAUNCHER"), 0.0);
+        assert_eq!(super::gml_fire_push_px_s("GOLDEN GRENADE LAUNCHER"), 0.0);
+        assert_eq!(super::gml_fire_push_px_s("BAZOOKA"), 0.0);
+        assert_eq!(super::gml_fire_push_px_s("NUKE LAUNCHER"), 0.0);
+    }
+
+    #[test]
+    fn fire_push_matches_gml_knockback_arg() {
+        assert_eq!(super::gml_fire_push_px_s("DOUBLE SHOTGUN"), 60.0);
+        assert_eq!(super::gml_fire_push_px_s("SAWED-OFF SHOTGUN"), 60.0);
+        assert_eq!(super::gml_fire_push_px_s("SHOTGUN"), 0.0);
+        assert_eq!(super::gml_fire_push_px_s("MINIGUN"), 18.0);
+        assert_eq!(super::gml_fire_push_px_s("SUPER CROSSBOW"), 30.0);
+        assert_eq!(super::gml_fire_push_px_s("PLASMA CANNON"), 180.0);
+        assert_eq!(super::gml_fire_push_px_s("SHOVEL"), -180.0);
+        assert_eq!(super::gml_fire_push_px_s("WRENCH"), -180.0);
+        assert_eq!(super::gml_fire_push_px_s("SCREWDRIVER"), -120.0);
+        assert_eq!(super::gml_fire_push_px_s("CHICKEN SWORD"), -120.0);
+        assert_eq!(super::gml_fire_push_px_s("ENERGY SCREWDRIVER"), -150.0);
+        assert_eq!(super::gml_fire_push_px_s("ENERGY SWORD"), -210.0);
+        assert_eq!(super::gml_fire_push_px_s("ULTRA SHOVEL"), -240.0);
+        assert_eq!(super::gml_fire_push_px_s("BLACK SWORD"), -240.0);
+    }
+
+    #[test]
+    fn melee_wkick_matches_gml_post() {
+        assert_eq!(super::gml_melee_wkick("SHOVEL"), -4.0);
+        assert_eq!(super::gml_melee_wkick("SCREWDRIVER"), -8.0);
+        assert_eq!(super::gml_melee_wkick("ENERGY SCREWDRIVER"), -8.0);
+        assert_eq!(super::gml_melee_wkick("CHICKEN SWORD"), -6.0);
+        assert_eq!(super::gml_melee_wkick("BLACK SWORD"), -7.0);
+        assert_eq!(super::gml_melee_wkick("ULTRA SHOVEL"), -6.0);
+        assert_eq!(super::gml_melee_wkick("ENERGY HAMMER"), -3.0);
     }
 
     #[test]

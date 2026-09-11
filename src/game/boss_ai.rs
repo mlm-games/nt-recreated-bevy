@@ -672,6 +672,8 @@ fn big_dog_stomp(
             team: Team::Enemy,
             hits_player: true,
             source: Some(DamageSource::enemy(owner, bigdog_kind)),
+            green: false,
+            big: false,
         },
         Transform::from_translation(pos.extend(20.0)),
     ));
@@ -815,6 +817,8 @@ fn lil_hunter_ai(
                         team: Team::Enemy,
                         hits_player: true,
                         source: Some(DamageSource::enemy(owner, lil_kind)),
+                        green: false,
+                        big: false,
                     },
                     Transform::from_translation(land_pos.extend(20.0)),
                 ));
@@ -1437,6 +1441,8 @@ fn hyper_search_detonate(
             team: Team::Enemy,
             hits_player: true,
             source: Some(DamageSource::enemy(owner, EnemyKind::Hyper)),
+            green: false,
+            big: false,
         },
         Transform::from_translation(player_pos.extend(20.0)),
     ));

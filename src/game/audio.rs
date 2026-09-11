@@ -61,6 +61,8 @@ pub struct GameAudio {
     pub explo_charge: Handle<AudioSource>,
     pub mimic_slurp: Handle<AudioSource>,
     pub van_warning: Handle<AudioSource>,
+    pub ultra_grenade: Handle<AudioSource>,
+    pub heavy_nader: Handle<AudioSource>,
 }
 
 fn resolve_sfx(catalog: &AssetCatalog, stem: &str) -> String {
@@ -133,6 +135,8 @@ impl GameAudio {
             explo_charge: load_sfx(asset_server, catalog, "sndExploGuardianCharge"),
             mimic_slurp: load_sfx(asset_server, catalog, "sndMimicSlurp"),
             van_warning: load_sfx(asset_server, catalog, "sndVanWarning"),
+            ultra_grenade: load_sfx(asset_server, catalog, "sndUltraGrenade"),
+            heavy_nader: load_sfx(asset_server, catalog, "sndHeavyNader"),
         }
     }
 
@@ -325,6 +329,13 @@ impl GameAudio {
 
     pub fn play_weapon_fire(&self, commands: &mut Commands, weapon_name: &str) {
         let n = weapon_name;
+        if n == "ULTRA GRENADE LAUNCHER" {
+            AudioM::play_sfx_varied(commands, self.ultra_grenade.clone(), 0.5, 0.08);
+            return;
+        } else if n == "HEAVY GRENADE LAUNCHER" {
+            AudioM::play_sfx_varied(commands, self.heavy_nader.clone(), 0.5, 0.08);
+            return;
+        }
         if n.contains("PLASMA") || n.contains("DEVASTATOR") || n == "GUN GUN" {
             AudioM::play_sfx_varied(commands, self.plasma.clone(), 0.55, 0.08);
         } else if n.contains("LASER") || n.contains("ION") {

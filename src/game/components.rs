@@ -647,6 +647,12 @@ pub struct GrenadeFuse {
     pub alarm1: Timer,
 }
 
+/// GML UltraGrenade marker: alarm[2]=6 arms `attract`, which sucks hitme
+/// within 32px toward the grenade at 2px/step and pulls dust/smoke/feather/
+/// debris. Direct damage 40 with pierce-on-overkill (grenade_pierce_on_overkill).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct UltraGrenade;
+
 #[derive(Component, Debug)]
 pub struct ShellBonus {
     pub timer: Timer,
@@ -817,6 +823,13 @@ pub struct CustomExplosion {
     /// (e.g. Nuke 8x @12px, Sticky-stuck 3x @16px). Single-circle when count <= 1.
     pub count: u8,
     pub spread: f32,
+    /// GML per-blast damage override (Explosion=5, GreenExplosion=12,
+    /// SmallExplosion=5). None = fall back to the projectile's direct damage.
+    pub damage: Option<i32>,
+    /// GML visual/mask variant: true spawns GreenExplosion (sprGreenExplosion,
+    /// mskExplosion 64px) instead of plain Explosion. Damage still comes from
+    /// `damage` above.
+    pub green: bool,
 }
 
 impl Default for CustomExplosion {
@@ -825,6 +838,8 @@ impl Default for CustomExplosion {
             radius: 32.0,
             count: 1,
             spread: 0.0,
+            damage: None,
+            green: false,
         }
     }
 }

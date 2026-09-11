@@ -445,6 +445,8 @@ pub fn spawn_prop_death_effect(
                 team: Team::Player,
                 hits_player: true,
                 source,
+                green: false,
+                big: false,
             },
             Transform::from_translation(pos.extend(20.0)),
         ));

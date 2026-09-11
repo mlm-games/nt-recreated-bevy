@@ -27,6 +27,27 @@ pub struct Explosion {
     pub team: Team,
     pub hits_player: bool,
     pub source: Option<DamageSource>,
+    /// GML visual variant: false = sprExplosion, true = sprGreenExplosion.
+    /// Both use the 64px mskExplosion mask (radius 32); only the sprite,
+    /// smoke tint and scorch colour differ.
+    pub green: bool,
+    /// GML Destroy sound: false = sndExplosion, true = sndExplosionL.
+    /// Normal Grenade = small; sticky triple, Ultra (3x Green) and Heavy
+    /// (Green) = big.
+    pub big: bool,
+}
+
+/// GML `Explosion` uses a 64px mask (radius 32) but the mask sprite only has
+/// a solid frame at image_index 1, so with image_speed 0.4 the hit window is
+/// ~2.5 steps (~0.083s), not the full 0.75s anim. The old 0.75s lingering
+/// blast caught walk-ins far outside the original window and made the radius
+/// feel wrong. Keep a brief 3-tick re-check (mask frame length) with a
+/// per-blast hit set, then despawn; visuals run the full 0.75s anim.
+#[derive(Component)]
+pub struct LingeringBlast {
+    pub duration: Timer,
+    pub tick: Timer,
+    pub hit: Vec<Entity>,
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -401,6 +422,31 @@ pub fn tick_grenade_fuse(
             sprite.color = Color::WHITE;
         }
         let _ = e;
+    }
+}
+
+/// GML UltraGrenade/Step attract: after alarm[2]=6 ticks the grenade sucks
+/// hitme within 32px toward itself at 2px/step (60px/s). Runs while the fuse
+/// is armed (same 6-tick gate as friction). Verbatim radius, speed and gate.
+pub fn tick_ultra_attract(
+    ultras: Query<(&Transform, &crate::game::components::GrenadeFuse), With<UltraGrenade>>,
+    mut targets: Query<(&Transform, Option<&mut Velocity>), (With<Health>, Without<Projectile>)>,
+) {
+    for (utf, fuse) in &ultras {
+        if !fuse.friction_switched {
+            continue;
+        }
+        let upos = utf.translation.truncate();
+        for (ttf, vel_opt) in &mut targets {
+            let tpos = ttf.translation.truncate();
+            if tpos.distance(upos) > 32.0 {
+                continue;
+            }
+            if let Some(mut vel) = vel_opt {
+                let dir = (upos - tpos).normalize_or_zero();
+                vel.0 += dir * 60.0 / 30.0;
+            }
+        }
     }
 }
 
@@ -1057,16 +1103,20 @@ pub fn move_projectiles(
                 if p.explosive && sticky.as_ref().is_some_and(|s| s.stuck_to.is_some()) {
                     let center = tf.translation.truncate();
                     let ang0 = rand::rng().random_range(0.0..std::f32::consts::TAU);
+                    let boom_damage = custom_explosion.and_then(|c| c.damage).unwrap_or(p.damage);
+                    let boom_green = custom_explosion.map(|c| c.green).unwrap_or(false);
                     for k in 0..3 {
                         let ang = ang0 + k as f32 * 120.0_f32.to_radians();
                         let off = Vec2::new(ang.cos(), ang.sin()) * 16.0;
-                        spawn_explosion_with_source_radius(
+                        spawn_explosion_variant(
                             &mut commands,
                             center + off,
-                            p.damage,
+                            boom_damage,
                             p.source,
                             custom_explosion.map(|c| c.radius).unwrap_or(32.0),
                             *team,
+                            true,
+                            boom_green,
                             true,
                         );
                     }
@@ -1388,7 +1438,8 @@ pub fn move_projectiles(
                     audio.play_hit(&mut commands);
                 }
 
-                if bounced.length() > 180.0 {
+                let wall_snd_gate = if grenade_fuse.is_some() { 30.0 } else { 180.0 };
+                if bounced.length() > wall_snd_gate {
                     audio.play_hit(&mut commands);
                 }
                 continue;
@@ -1507,6 +1558,30 @@ fn spawn_explosion_with_source_radius(
     team: Team,
     hits_player: bool,
 ) {
+    spawn_explosion_variant(
+        commands,
+        pos,
+        damage,
+        source,
+        radius,
+        team,
+        hits_player,
+        false,
+        false,
+    );
+}
+
+fn spawn_explosion_variant(
+    commands: &mut Commands,
+    pos: Vec2,
+    damage: i32,
+    source: Option<DamageSource>,
+    radius: f32,
+    team: Team,
+    hits_player: bool,
+    green: bool,
+    big: bool,
+) {
     commands.spawn((
         GameCleanup,
         LevelCleanup,
@@ -1517,6 +1592,13 @@ fn spawn_explosion_with_source_radius(
             team,
             hits_player,
             source,
+            green,
+            big,
+        },
+        LingeringBlast {
+            duration: Timer::from_seconds(3.0 / 30.0, TimerMode::Once),
+            tick: Timer::from_seconds(1.0 / 30.0, TimerMode::Repeating),
+            hit: Vec::new(),
         },
         Transform::from_translation(pos.extend(20.0)),
     ));
@@ -1776,24 +1858,45 @@ fn on_projectile_removed(
     }
 
     if explosive {
-        let (radius, count, spread) = custom_explosion
-            .map(|c| (c.radius, c.count.max(1), c.spread))
-            .unwrap_or((32.0, 1, 0.0));
+        let (radius, count, spread, boom_damage, green) = custom_explosion
+            .map(|c| {
+                (
+                    c.radius,
+                    c.count.max(1),
+                    c.spread,
+                    c.damage.unwrap_or(damage),
+                    c.green,
+                )
+            })
+            .unwrap_or((32.0, 1, 0.0, damage, false));
+        let big = green || count > 1;
         if count <= 1 {
-            spawn_explosion_with_source_radius(commands, pos, damage, source, radius, team, true);
+            spawn_explosion_variant(
+                commands,
+                pos,
+                boom_damage,
+                source,
+                radius,
+                team,
+                true,
+                green,
+                big,
+            );
         } else {
             let ang0 = rand::rng().random_range(0.0..std::f32::consts::TAU);
             for k in 0..count {
                 let ang = ang0 + k as f32 * std::f32::consts::TAU / count as f32;
                 let off = Vec2::new(ang.cos(), ang.sin()) * spread;
-                spawn_explosion_with_source_radius(
+                spawn_explosion_variant(
                     commands,
                     pos + off,
-                    damage,
+                    boom_damage,
                     source,
                     radius,
                     team,
                     true,
+                    green,
+                    big,
                 );
             }
         }
@@ -1914,8 +2017,26 @@ pub fn apply_explosions(
         (Entity, &mut Explosion, &Transform),
         (Without<Enemy>, Without<Player>, Without<Prop>),
     >,
-    mut enemies: Query<(Entity, &Transform, &mut Health), (With<Enemy>, Without<Player>)>,
-    mut player_q: Query<(Entity, &Transform, &mut Health, &Player), (With<Player>, Without<Enemy>)>,
+    mut enemies: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Health,
+            &Hitbox,
+            Option<&mut Velocity>,
+        ),
+        (With<Enemy>, Without<Player>),
+    >,
+    mut player_q: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Health,
+            &Player,
+            Option<&mut Velocity>,
+        ),
+        (With<Player>, Without<Enemy>),
+    >,
     mut props: Query<
         (
             Entity,
@@ -1927,45 +2048,147 @@ pub fn apply_explosions(
         (With<Prop>, Without<Player>),
     >,
     walls: Query<(Entity, &WallCell, &Transform), With<WallTile>>,
+    mut lingering_q: Query<&mut LingeringBlast>,
     mut last_damage: ResMut<LastDamageTaken>,
 ) {
     for (e, mut boom, tf) in &mut q {
         boom.timer.tick(time.delta());
-        if !boom.timer.just_finished() {
-            continue;
+        let fused = boom.timer.just_finished();
+
+        let mut ling_guard = lingering_q.get_mut(e).ok();
+        let mut hit_opt: Option<&mut Vec<Entity>> = None;
+        match ling_guard.as_mut() {
+            Some(ling) => {
+                if !fused {
+                    ling.duration.tick(time.delta());
+                    ling.tick.tick(time.delta());
+                    if ling.duration.just_finished() {
+                        commands.entity(e).despawn();
+                        continue;
+                    }
+                    if !ling.tick.just_finished() {
+                        continue;
+                    }
+                }
+                hit_opt = Some(&mut ling.hit);
+            }
+            None if !fused => continue,
+            None => {}
         }
 
         let pos = tf.translation.truncate();
-        ScreenEffects::add_trauma(&mut trauma, 0.45);
-        ScreenEffects::chromatic_pulse(&mut chroma, 0.3);
-        hitstop.trigger(0.14, 0.1);
-        VfxSpawner::spawn_burst(
-            &mut commands,
-            pos,
-            32,
-            Color::srgb(1.0, 0.4, 0.1),
-            (130.0, 400.0),
-        );
-        VfxSpawner::spawn_burst(
-            &mut commands,
-            pos,
-            16,
-            Color::srgb(1.0, 0.9, 0.5),
-            (60.0, 220.0),
-        );
-        audio.play_boom(&mut commands);
+        if fused {
+            ScreenEffects::add_trauma(&mut trauma, 0.35);
+            let sprite_path = if boom.green {
+                "images/sprGreenExplosion.png"
+            } else {
+                "images/sprExplosion.png"
+            };
+            if ctx.catalog.has(sprite_path) {
+                let sprite = crate::game::content::sprite_exact(
+                    &ctx.catalog,
+                    &ctx.asset_server,
+                    sprite_path,
+                );
+                if let Some(def) = ctx.catalog.anim_def(sprite_path) {
+                    let mut anim = crate::game::anim::SpriteAnim::oneshot(sprite_path, def);
+                    anim.timer = Timer::from_seconds(1.0 / 12.0, TimerMode::Repeating);
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        sprite,
+                        crate::game::content::sprite_anchor(&ctx.catalog, sprite_path),
+                        Transform::from_translation(pos.extend(19.0)),
+                        anim,
+                        crate::game::components::PickupLifetime {
+                            timer: Timer::from_seconds(9.0 / 12.0, TimerMode::Once),
+                        },
+                    ));
+                } else {
+                    commands.spawn((
+                        GameCleanup,
+                        LevelCleanup,
+                        sprite,
+                        crate::game::content::sprite_anchor(&ctx.catalog, sprite_path),
+                        Transform::from_translation(pos.extend(19.0)),
+                        crate::game::components::PickupLifetime {
+                            timer: Timer::from_seconds(0.75, TimerMode::Once),
+                        },
+                    ));
+                }
+            }
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                10,
+                Color::srgba(0.6, 0.6, 0.62, 0.7),
+                (60.0, 150.0),
+            );
+            VfxSpawner::spawn_burst(
+                &mut commands,
+                pos,
+                20,
+                Color::srgb(0.75, 0.72, 0.68),
+                (170.0, 190.0),
+            );
+            let scorch_path = if boom.green {
+                "images/sprScorchGreen.png"
+            } else {
+                "images/sprScorch.png"
+            };
+            if ctx.catalog.has(scorch_path) {
+                let sprite = crate::game::content::sprite_exact(
+                    &ctx.catalog,
+                    &ctx.asset_server,
+                    scorch_path,
+                );
+                commands.spawn((
+                    GameCleanup,
+                    LevelCleanup,
+                    sprite,
+                    crate::game::content::sprite_anchor(&ctx.catalog, scorch_path),
+                    Transform::from_translation(pos.extend(1.0)),
+                    crate::game::components::PickupLifetime {
+                        timer: Timer::from_seconds(12.0, TimerMode::Once),
+                    },
+                ));
+            }
+            if boom.big {
+                audio.play_boom(&mut commands);
+            } else {
+                audio.play_explode(&mut commands);
+            }
+        }
 
         if boom.team == Team::Player {
-            for (ee, etf, mut health) in &mut enemies {
-                if etf.translation.truncate().distance(pos) < boom.radius {
+            for (ee, etf, mut health, hitbox, vel_opt) in &mut enemies {
+                if health.hp <= 0 {
+                    continue;
+                }
+                let target_pos = etf.translation.truncate();
+                if target_pos.distance(pos) > boom.radius + hitbox.radius {
+                    continue;
+                }
+                {
                     health.hp -= boom.damage;
+                    if let Some(mut vel) = vel_opt {
+                        if vel.0.length() < 480.0 {
+                            vel.0 += (target_pos - pos).normalize_or_zero() * 180.0;
+                            if vel.0.length() > 480.0 {
+                                vel.0 = vel.0.normalize_or_zero() * 480.0;
+                            }
+                        }
+                    }
                     HitFlash::apply(&mut commands, ee, Color::WHITE, 0.12);
                     VfxSpawner::spawn_damage_number(
                         &mut commands,
                         boom.damage,
-                        etf.translation.truncate(),
+                        target_pos,
                         Color::srgb(1.0, 0.6, 0.2),
                     );
+                }
+                if let Some(hit) = hit_opt.as_mut() {
+                    hit.push(ee);
                 }
             }
             let mut destroyed_props = Vec::new();
@@ -1980,7 +2203,7 @@ pub fn apply_explosions(
                     pos.x.clamp(center.x - half.x, center.x + half.x),
                     pos.y.clamp(center.y - half.y, center.y + half.y),
                 );
-                if pos.distance(closest) < boom.radius {
+                if fused && pos.distance(closest) < boom.radius {
                     prop.hp -= boom.damage.max(1);
                     if prop.hp <= 0 {
                         destroyed_props.push((
@@ -2061,7 +2284,13 @@ pub fn apply_explosions(
             }
 
             for (_, cell, wtf) in &walls {
-                if wtf.translation.truncate().distance(pos) < boom.radius * 0.85 {
+                let wpos = wtf.translation.truncate();
+                let half = crate::game::world::WALL_PX * 0.5;
+                let closest = Vec2::new(
+                    pos.x.clamp(wpos.x - half, wpos.x + half),
+                    pos.y.clamp(wpos.y - half, wpos.y + half),
+                );
+                if fused && pos.distance(closest) <= boom.radius {
                     commands.spawn((
                         GameCleanup,
                         LevelCleanup,
@@ -2076,9 +2305,10 @@ pub fn apply_explosions(
         }
 
         if boom.hits_player
-            && let Ok((player_e, ptf, mut health, player)) = player_q.single_mut()
-            && ptf.translation.truncate().distance(pos) < boom.radius
+            && let Ok((player_e, ptf, mut health, player, vel_opt)) = player_q.single_mut()
+            && ptf.translation.truncate().distance(pos) <= boom.radius + PLAYER_RADIUS
             && health.invuln.is_finished()
+            && !hit_opt.as_ref().is_some_and(|hit| hit.contains(&player_e))
         {
             let mut dmg = boom.damage;
             if player.boiling_veins {
@@ -2090,14 +2320,26 @@ pub fn apply_explosions(
                 };
             }
             health.hp -= dmg;
+            if let Some(mut vel) = vel_opt {
+                let away = (ptf.translation.truncate() - pos).normalize_or_zero();
+                if vel.0.length() < 480.0 {
+                    vel.0 += away * 180.0;
+                    if vel.0.length() > 480.0 {
+                        vel.0 = vel.0.normalize_or_zero() * 480.0;
+                    }
+                }
+            }
             health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             secrets.mark_damage_taken();
             last_damage.note_from_source(boom.source.as_ref());
             HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
+            if let Some(hit) = hit_opt.as_mut() {
+                hit.push(player_e);
+            }
         }
 
-        if let Ok((_, _, _, crown_player)) = player_q.single() {
+        if let Ok((_, _, _, crown_player, _)) = player_q.single() {
             if crown_player.crown == crate::game::content::CrownKind::Death {
                 let mut rng = rand::rng();
                 for _ in 0..3 {
@@ -2108,11 +2350,13 @@ pub fn apply_explosions(
                         LevelCleanup,
                         Explosion {
                             timer: Timer::from_seconds(0.04, TimerMode::Once),
-                            radius: 46.0,
-                            damage: 3,
+                            radius: 12.0,
+                            damage: 5,
                             team: boom.team,
                             hits_player: boom.hits_player,
                             source: boom.source,
+                            green: false,
+                            big: false,
                         },
                         Transform::from_translation(at.extend(20.0)),
                     ));
@@ -2120,7 +2364,9 @@ pub fn apply_explosions(
             }
         }
 
-        commands.entity(e).despawn();
+        if hit_opt.is_none() {
+            commands.entity(e).despawn();
+        }
     }
 }
 
@@ -2163,6 +2409,7 @@ pub fn projectile_hits(
         Query<&SpriteAnim>,
         Query<Entity, With<HitsAllTeams>>,
         Query<Entity, With<SpawnGrace>>,
+        Query<Entity, With<UltraGrenade>>,
     )>,
     frame: Res<CurrentFrame>,
     time: Res<Time<Fixed>>,
@@ -2184,6 +2431,7 @@ pub fn projectile_hits(
 
     let hits_all_set: std::collections::HashSet<Entity> = aux.p5().iter().collect();
     let grace_set: std::collections::HashSet<Entity> = aux.p6().iter().collect();
+    let ultra_set: std::collections::HashSet<Entity> = aux.p7().iter().collect();
 
     for (
         proj_e,
@@ -2223,6 +2471,7 @@ pub fn projectile_hits(
         let is_plasma = aux.p1().get(proj_e).is_ok();
         let mut passthrough = false;
         let mut plasma_died = false;
+        let mut ultra_overkill = false;
 
         for (target_e, target_tf, target_team, hitbox, mut health, vel_opt, shield, nexthurt) in
             targets.iter_mut()
@@ -2305,6 +2554,9 @@ pub fn projectile_hits(
             let hp_before = health.hp;
             health.hp -= dmg;
             damaged = true;
+            if ultra_set.contains(&proj_e) && hp_before <= dmg {
+                ultra_overkill = true;
+            }
 
             if *target_team == Team::Enemy
                 && let Some(mut nh) = nexthurt
@@ -2499,6 +2751,11 @@ pub fn projectile_hits(
         }
 
         let pierce_left_before = pierce.as_ref().map(|p| p.0);
+        let pierce_left_before = if ultra_set.contains(&proj_e) && damaged && !ultra_overkill {
+            None
+        } else {
+            pierce_left_before
+        };
         let (despawn, pierce_left) =
             crate::game::projectile_math::should_despawn_after_hit(damaged, pierce_left_before);
         if let (Some(mut p), Some(left)) = (pierce, pierce_left) {
@@ -3032,6 +3289,8 @@ pub fn resolve_deaths(
                     team: Team::Enemy,
                     hits_player: true,
                     source: Some(DamageSource::enemy(e, enemy.kind)),
+                    green: false,
+                    big: false,
                 },
                 Transform::from_translation(pos.extend(20.0)),
             ));
@@ -3087,6 +3346,8 @@ pub fn resolve_deaths(
                         damage: 5,
                         team: Team::Enemy,
                         hits_player: true,
+                        green: false,
+                        big: false,
                         source: Some(DamageSource {
                             owner: e,
                             team: Team::Enemy,
@@ -3200,6 +3461,8 @@ pub fn resolve_deaths(
                         team: Team::Player,
                         hits_player: false,
                         source: None,
+                        green: false,
+                        big: false,
                     },
                     Transform::from_translation(pos.extend(20.0)),
                 ));

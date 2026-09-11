@@ -194,6 +194,7 @@ impl Plugin for GamePlugin {
                         combat::tick_bullet2_fade,
                         combat::tick_projectile_friction,
                         combat::tick_grenade_fuse,
+                        combat::tick_ultra_attract,
                         combat::tick_shell_bonus,
                         secret_areas::tick_oasis_bandit_window,
                     )

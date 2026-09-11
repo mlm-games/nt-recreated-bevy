@@ -78,6 +78,8 @@ fn archetyped(name: &str) -> ProjectileArchetype {
                 radius: 32.0,
                 count: 3,
                 spread: 16.0,
+                damage: Some(5),
+                green: false,
             }),
             ..default()
         },
@@ -87,6 +89,30 @@ fn archetyped(name: &str) -> ProjectileArchetype {
                 radius: 32.0,
                 count: 1,
                 spread: 0.0,
+                damage: Some(5),
+                green: false,
+            }),
+            ..default()
+        },
+
+        "ULTRA GRENADE LAUNCHER" => ProjectileArchetype {
+            custom_explosion: Some(CustomExplosion {
+                radius: 32.0,
+                count: 3,
+                spread: 16.0,
+                damage: Some(12),
+                green: true,
+            }),
+            ..default()
+        },
+
+        "HEAVY GRENADE LAUNCHER" => ProjectileArchetype {
+            custom_explosion: Some(CustomExplosion {
+                radius: 32.0,
+                count: 1,
+                spread: 0.0,
+                damage: Some(12),
+                green: true,
             }),
             ..default()
         },
@@ -96,6 +122,8 @@ fn archetyped(name: &str) -> ProjectileArchetype {
                 radius: 32.0,
                 count: 8,
                 spread: 12.0,
+                damage: Some(5),
+                green: false,
             }),
             ..default()
         },
@@ -472,7 +500,7 @@ mod tests {
                 "{}",
                 meta.wep_name
             );
-            let wants_grenade = base == "GRENADE LAUNCHER";
+            let wants_grenade = base == "GRENADE LAUNCHER" || base == "HEAVY GRENADE LAUNCHER";
             assert_eq!(
                 a.custom_explosion.is_some(),
                 wants_nuke || base.contains("STICKY") || wants_grenade,
