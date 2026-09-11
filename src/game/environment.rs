@@ -1,10 +1,9 @@
 use bevy::prelude::*;
 
-use crate::game::combat::Explosion;
+use crate::game::combat::{Explosion, safe_hit_flash};
 use crate::game::components::*;
 use crate::game::content::{AssetCatalog, enemy_def, sprite_exact};
 use crate::game::secret_areas::SecretTriggers;
-use game_utils_bevy::hit_flash::HitFlash;
 use game_utils_bevy::screen_effects::{ScreenEffects, Trauma};
 use game_utils_bevy::vfx::VfxSpawner;
 
@@ -94,7 +93,6 @@ pub fn surface_velocity(
         }
 
         SurfaceKind::Ice => {
-
             let friction = base_friction.clamp(0.05, 0.999);
             let compensation = (1.0 / friction).powf(dt * crate::app::NT_SIM_HZ as f32);
             let retention = 0.992_f32.powf(dt * crate::app::NT_SIM_HZ as f32);
@@ -129,7 +127,6 @@ pub fn apply_surface_effects(
     let dt = time.delta_secs();
 
     for (tf, mut velocity, player, enemy, dash) in &mut actors {
-
         if dash.is_some() {
             continue;
         }
@@ -294,6 +291,9 @@ pub fn tick_environment_hazards(
         for (target_entity, target_tf, team, mut health, player) in targets.iter_mut() {
             let is_player = *team == Team::Player;
 
+            if health.hp <= 0 {
+                continue;
+            }
             if is_player && !hazard.spec.hurts_player {
                 continue;
             }
@@ -323,7 +323,7 @@ pub fn tick_environment_hazards(
                 secrets.mark_damage_taken();
             }
 
-            HitFlash::apply(&mut commands, target_entity, hazard.spec.kind.color(), 0.08);
+            safe_hit_flash(&mut commands, target_entity, hazard.spec.kind.color(), 0.08);
             VfxSpawner::spawn_damage_number(
                 &mut commands,
                 hazard.spec.damage,
@@ -434,7 +434,6 @@ pub fn spawn_prop_death_effect(
     };
 
     if let Some(explosion) = effect.explosion {
-
         commands.spawn((
             GameCleanup,
             LevelCleanup,

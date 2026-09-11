@@ -118,7 +118,7 @@ impl FloorMask {
 #[derive(Component)]
 pub struct WallTile;
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WallCell(pub i32, pub i32);
 
 #[derive(Component, Clone, Debug, Default)]

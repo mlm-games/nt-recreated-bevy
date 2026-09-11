@@ -19,6 +19,21 @@ use game_utils_bevy::screen_effects::{ChromaticAberration, FlashWhite, ScreenEff
 use game_utils_bevy::transitions::Transition;
 use game_utils_bevy::vfx::VfxSpawner;
 
+/// Panic-safe hit flash. Plain `insert` errors when the entity was already
+/// queued for despawn earlier in the same flush batch (e.g. a corpse a
+/// lingering projectile still overlaps); this project panics on command
+/// errors, so use `try_insert`, which silently skips dead entities.
+pub(crate) fn safe_hit_flash(
+    commands: &mut Commands,
+    entity: Entity,
+    color: Color,
+    duration_secs: f32,
+) {
+    commands
+        .entity(entity)
+        .try_insert(HitFlash::new(color, duration_secs));
+}
+
 #[derive(Component)]
 pub struct Explosion {
     pub timer: Timer,
@@ -188,11 +203,11 @@ pub fn tick_beams(
                 last_damage.note_from_source(beam.source.as_ref());
             }
 
-            HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.08);
+            safe_hit_flash(&mut commands, target_e, Color::WHITE, 0.08);
         }
 
         if expired {
-            commands.entity(beam_e).despawn();
+            commands.entity(beam_e).try_despawn();
         }
     }
 }
@@ -208,7 +223,7 @@ pub fn tick_sentry_turrets(
     for (entity, tf, mut sentry) in &mut sentries {
         sentry.life.tick(time.delta());
         if sentry.life.just_finished() {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
             continue;
         }
 
@@ -301,7 +316,7 @@ pub fn tick_lightning_arcs(
         let t = arc.timer.fraction();
         sprite.color.set_alpha((1.0 - t).clamp(0.0, 1.0) * 0.9);
         if arc.timer.just_finished() {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }
@@ -473,7 +488,7 @@ pub fn tick_hit_effects(
             }
         }
         if lt.timer.just_finished() {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }
@@ -669,7 +684,7 @@ pub fn tick_slash_projectiles(
                     );
                     audio.play_boom(&mut commands);
                 }
-                commands.entity(pe).despawn();
+                commands.entity(pe).try_despawn();
                 slash.hit = true;
             } else if is_grenade {
                 pvel.0 = slash_dir * 360.0;
@@ -730,7 +745,7 @@ pub fn tick_slash_projectiles(
                     proj.knockback,
                 );
             }
-            HitFlash::apply(&mut commands, ee, Color::WHITE, 0.12);
+            safe_hit_flash(&mut commands, ee, Color::WHITE, 0.12);
             VfxSpawner::spawn_damage_number(
                 &mut commands,
                 proj.damage,
@@ -1142,7 +1157,7 @@ pub fn move_projectiles(
                         already_faded,
                     );
                 }
-                commands.entity(e).despawn();
+                commands.entity(e).try_despawn();
             }
             continue;
         }
@@ -1169,7 +1184,7 @@ pub fn move_projectiles(
                 fade,
                 already_faded,
             );
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
             continue;
         }
         if let Ok(mut d) = aux.p0().get_mut(e) {
@@ -1197,7 +1212,7 @@ pub fn move_projectiles(
                 fade,
                 already_faded,
             );
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
             continue;
         }
 
@@ -1274,7 +1289,7 @@ pub fn move_projectiles(
                         fade,
                         already_faded,
                     );
-                    commands.entity(e).despawn();
+                    commands.entity(e).try_despawn();
                 }
                 continue;
             }
@@ -1335,7 +1350,7 @@ pub fn move_projectiles(
                         fade,
                         already_faded,
                     );
-                    commands.entity(e).despawn();
+                    commands.entity(e).try_despawn();
                     continue;
                 }
             }
@@ -1544,7 +1559,7 @@ pub fn move_projectiles(
                 fade,
                 already_faded,
             );
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }
@@ -1969,7 +1984,7 @@ pub fn tick_hazard_clouds(
         cloud.tick.tick(time.delta());
 
         if cloud.timer.just_finished() {
-            commands.entity(cloud_e).despawn();
+            commands.entity(cloud_e).try_despawn();
             continue;
         }
         if !cloud.tick.just_finished() {
@@ -2063,7 +2078,7 @@ pub fn apply_explosions(
                     ling.duration.tick(time.delta());
                     ling.tick.tick(time.delta());
                     if ling.duration.just_finished() {
-                        commands.entity(e).despawn();
+                        commands.entity(e).try_despawn();
                         continue;
                     }
                     if !ling.tick.just_finished() {
@@ -2179,7 +2194,7 @@ pub fn apply_explosions(
                             }
                         }
                     }
-                    HitFlash::apply(&mut commands, ee, Color::WHITE, 0.12);
+                    safe_hit_flash(&mut commands, ee, Color::WHITE, 0.12);
                     VfxSpawner::spawn_damage_number(
                         &mut commands,
                         boom.damage,
@@ -2194,6 +2209,9 @@ pub fn apply_explosions(
             let mut destroyed_props = Vec::new();
             for (prop_e, mut prop, prop_tf, death_effect, sprites) in &mut props {
                 if !prop.destructible {
+                    continue;
+                }
+                if prop.hp <= 0 {
                     continue;
                 }
 
@@ -2283,6 +2301,7 @@ pub fn apply_explosions(
                 commands.entity(prop_e).try_despawn();
             }
 
+            let mut marked_cells = std::collections::HashSet::new();
             for (_, cell, wtf) in &walls {
                 let wpos = wtf.translation.truncate();
                 let half = crate::game::world::WALL_PX * 0.5;
@@ -2290,7 +2309,7 @@ pub fn apply_explosions(
                     pos.x.clamp(wpos.x - half, wpos.x + half),
                     pos.y.clamp(wpos.y - half, wpos.y + half),
                 );
-                if fused && pos.distance(closest) <= boom.radius {
+                if fused && pos.distance(closest) <= boom.radius && marked_cells.insert(*cell) {
                     commands.spawn((
                         GameCleanup,
                         LevelCleanup,
@@ -2332,7 +2351,7 @@ pub fn apply_explosions(
             health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
             secrets.mark_damage_taken();
             last_damage.note_from_source(boom.source.as_ref());
-            HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
+            safe_hit_flash(&mut commands, player_e, Color::srgb(1.0, 0.3, 0.2), 0.15);
             audio.play_hurt(&mut commands);
             if let Some(hit) = hit_opt.as_mut() {
                 hit.push(player_e);
@@ -2365,7 +2384,7 @@ pub fn apply_explosions(
         }
 
         if hit_opt.is_none() {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }
@@ -2481,6 +2500,10 @@ pub fn projectile_hits(
                 continue;
             }
 
+            if health.hp <= 0 {
+                continue;
+            }
+
             if grace_set.contains(&proj_e)
                 && let Some(src) = proj.source
                 && target_e == src.owner
@@ -2582,7 +2605,7 @@ pub fn projectile_hits(
                 );
             }
 
-            HitFlash::apply(&mut commands, target_e, Color::WHITE, 0.1);
+            safe_hit_flash(&mut commands, target_e, Color::WHITE, 0.1);
             ScreenEffects::add_trauma(&mut trauma, 0.08);
             VfxSpawner::spawn_damage_number(
                 &mut commands,
@@ -2723,7 +2746,7 @@ pub fn projectile_hits(
                 proj_fade,
                 proj_already_faded,
             );
-            commands.entity(proj_e).despawn();
+            commands.entity(proj_e).try_despawn();
         };
 
         if plasma_died {
@@ -2803,8 +2826,11 @@ fn chain_to_nearby_targets(
     for _ in 0..jumps {
         let mut best: Option<(Entity, Vec2, f32)> = None;
         let mut snapshot: Vec<(Entity, Vec2)> = Vec::new();
-        for (target_e, target_tf, target_team, ..) in targets.iter() {
+        for (target_e, target_tf, target_team, _, target_health, ..) in targets.iter() {
             if *target_team != Team::Enemy || visited.contains(&target_e) {
+                continue;
+            }
+            if target_health.hp <= 0 {
                 continue;
             }
             let pos = target_tf.translation.truncate();
@@ -2836,7 +2862,7 @@ fn chain_to_nearby_targets(
                     proj.knockback * 0.5,
                 );
             }
-            HitFlash::apply(commands, target_e, Color::srgb(0.7, 0.95, 1.0), 0.08);
+            safe_hit_flash(commands, target_e, Color::srgb(0.7, 0.95, 1.0), 0.08);
             VfxSpawner::spawn_damage_number(
                 commands,
                 damage,
@@ -2900,6 +2926,9 @@ fn retaliate_sharp_teeth(
         if *team != Team::Enemy {
             continue;
         }
+        if health.hp <= 0 {
+            continue;
+        }
         if etf.translation.truncate().distance(center) > 900.0 {
             continue;
         }
@@ -2907,7 +2936,7 @@ fn retaliate_sharp_teeth(
         if let Some(mut nh) = nexthurt {
             nh.0 = frame.0 + 5;
         }
-        HitFlash::apply(commands, ee, Color::srgb(1.0, 0.4, 0.4), 0.12);
+        safe_hit_flash(commands, ee, Color::srgb(1.0, 0.4, 0.4), 0.12);
     }
 }
 
@@ -2989,7 +3018,7 @@ pub fn contact_damage(
             GameFeel::apply_knockback(&mut evel.0, push_enemy, 30.0);
         }
 
-        HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.15, 0.1), 0.18);
+        safe_hit_flash(&mut commands, player_e, Color::srgb(1.0, 0.15, 0.1), 0.18);
         ScreenEffects::add_trauma(&mut trauma, 0.35);
         GameFeel::rumble_controller(&mut rumble, &gamepads, 0.2, 0.8, 0.16);
         audio.play_hurt(&mut commands);
@@ -3040,7 +3069,7 @@ pub fn gamma_guts_aura(
         }
         health.hp -= 6;
         health.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
-        HitFlash::apply(&mut commands, e, Color::srgb(0.4, 1.0, 0.4), 0.1);
+        safe_hit_flash(&mut commands, e, Color::srgb(0.4, 1.0, 0.4), 0.1);
     }
 }
 
@@ -3155,7 +3184,7 @@ pub fn resolve_deaths(
         let pos = tf.translation.truncate();
 
         commands.entity(e).insert(Dying);
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
         if !def.boss && !matches!(enemy.kind, EnemyKind::IdpdVan | EnemyKind::FrogEgg) {
             let idle = def.sprite;
             let dead = crate::game::anim::derive_dead_path(idle);
@@ -3518,7 +3547,7 @@ pub fn resolve_deaths(
         player.headless_ready = false;
         phealth.hp = 1;
         phealth.invuln = Timer::from_seconds(1.5, TimerMode::Once);
-        HitFlash::apply(&mut commands, player_e, Color::srgb(1.0, 0.95, 0.6), 0.25);
+        safe_hit_flash(&mut commands, player_e, Color::srgb(1.0, 0.95, 0.6), 0.25);
         audio.play_pickup(&mut commands);
         VfxSpawner::spawn_burst(
             &mut commands,
@@ -3536,7 +3565,7 @@ pub fn resolve_deaths(
             player.strong_spirit_spent = true;
             phealth.hp = 1;
             phealth.invuln = Timer::from_seconds(5.0 / 30.0, TimerMode::Once);
-            HitFlash::apply(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
+            safe_hit_flash(&mut commands, player_e, Color::srgb(0.3, 1.0, 0.5), 0.3);
             audio.play_pickup(&mut commands);
             return;
         }
@@ -3578,7 +3607,7 @@ pub fn resolve_deaths(
                 } else {
                     "BACK FROM THE DEAD"
                 });
-                HitFlash::apply(&mut commands, player_e, Color::srgb(0.95, 0.95, 1.0), 0.35);
+                safe_hit_flash(&mut commands, player_e, Color::srgb(0.95, 0.95, 1.0), 0.35);
                 ScreenEffects::flash_white(&mut flash, 0.08);
                 ScreenEffects::add_trauma(&mut trauma, 0.35);
                 audio.play_portal(&mut commands);
@@ -3983,4 +4012,40 @@ pub fn spawn_chest(
     pos: Vec2,
 ) {
     crate::game::pickups::spawn_chest(commands, catalog, asset_server, ChestKind::Weapon, pos);
+}
+
+#[cfg(test)]
+mod stale_entity_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    /// Regression test for the 2026-09-11 crash: a queued `insert` (e.g.
+    /// `HitFlash::apply`) on an entity that was queued for despawn earlier in
+    /// the same flush batch panics under `match_severity`. `safe_hit_flash`
+    /// must silently skip dead entities instead.
+    #[test]
+    fn hit_flash_on_despawned_entity_does_not_panic() {
+        let mut world = World::new();
+        let dead = world.spawn_empty().id();
+        world.despawn(dead);
+        world
+            .run_system_once(move |mut commands: Commands| {
+                safe_hit_flash(&mut commands, dead, Color::WHITE, 0.1);
+            })
+            .expect("system runs without panicking");
+    }
+
+    /// Double-queued despawns (fuse-end + contact-hit on the same tick, or
+    /// overlapping multi-blast wall markers) must stay silent.
+    #[test]
+    fn double_despawn_is_silent() {
+        let mut world = World::new();
+        let e = world.spawn_empty().id();
+        world
+            .run_system_once(move |mut commands: Commands| {
+                commands.entity(e).try_despawn();
+                commands.entity(e).try_despawn();
+            })
+            .expect("system runs without panicking");
+    }
 }
